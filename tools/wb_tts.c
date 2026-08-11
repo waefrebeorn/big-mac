@@ -628,6 +628,7 @@ int main(int argc, char **argv) {
      * "sine-wave speech" mode (Remez) — three oscillators track F1/F2/F3.
      * Filter both out so the positional parsing below is unchanged. */
     int g_pitch_accent = 0, g_sine_mode = 0, g_phone_mode = 0, g_whisper = 0, g_fry = 0;
+    int g_tone = 0;   /* 1-4 Mandarin lexical tone applied per word */
     double g_breathiness = 0.0;
     {
         int w = 1;
@@ -638,6 +639,7 @@ int main(int argc, char **argv) {
             if (!strcmp(argv[a], "-whisper")) { g_whisper = 1; continue; }
             if (!strcmp(argv[a], "-fry")) { g_fry = 1; continue; }
             if (!strcmp(argv[a], "-breathy") && a + 1 < argc) { g_breathiness = atof(argv[++a]); continue; }
+            if (!strcmp(argv[a], "-tone") && a + 1 < argc) { g_tone = atoi(argv[++a]); continue; }
             argv[w++] = argv[a];
         }
         argc = w;
@@ -825,6 +827,15 @@ int main(int argc, char **argv) {
             int bmaxi = 0; double bm = o[10];
             for (int k = 11; k <= 14; k++) if (o[k] > bm) { bm = o[k]; bmaxi = k - 10; }
             p_boundary = bmaxi;
+        }
+
+        /* R017 -tone N: cycling Mandarin lexical tone (1-4) per word.
+         * T1 high-level(55), T2 rising(35), T3 dipping(214), T4 falling(51).
+         * Mapped to tone_shape: flat / rise / valley / strong-fall. */
+        if (g_tone) {
+            int t = (wi % 4) + 1;
+            p_tone = (t == 1) ? 0 : (t == 2) ? 1 : (t == 3) ? 6 : 4;
+            p_pitch = (t == 1) ? 0.6 : 0.0;   /* T1 rides high */
         }
 
         /* Japanese pitch-accent: ONE tonic (high) mora per word — the first

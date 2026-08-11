@@ -917,7 +917,10 @@ int main(int argc, char **argv) {
             ev[nev].f0_start = f0s; ev[nev].f0_end = f0e;
             /* amplitude variation (gap C28-33): stressed words louder,
              * first/last words emphasized, gentle declination, micro */
-            double amp = 0.85 + 0.20 * (st > 0) + 0.10 * (wi == 0 || wi == nwords-1);
+            /* amplitude variation (gap C28-33): R018 loudness-prominence
+             * (Kochanski: loudness predicts prominence more than pitch) —
+             * stressed words get a strong amplitude boost. */
+            double amp = 0.80 + 0.35 * (st > 0) + 0.12 * (wi == 0 || wi == nwords-1);
             amp *= (1.0 - 0.10 * u_phrase);            /* amplitude declination */
             amp *= (1.0 + 0.05 * sin(2 * M_PI * 2.0 * (double)wi));  /* microvar */
             if (amp > 1.2) amp = 1.2;

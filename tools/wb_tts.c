@@ -627,13 +627,17 @@ int main(int argc, char **argv) {
      * (Tokyo dialect: every word has ONE tonic mora). -sine: formant-track
      * "sine-wave speech" mode (Remez) — three oscillators track F1/F2/F3.
      * Filter both out so the positional parsing below is unchanged. */
-    int g_pitch_accent = 0, g_sine_mode = 0, g_phone_mode = 0;
+    int g_pitch_accent = 0, g_sine_mode = 0, g_phone_mode = 0, g_whisper = 0, g_fry = 0;
+    double g_breathiness = 0.0;
     {
         int w = 1;
         for (int a = 1; a < argc; a++) {
             if (!strcmp(argv[a], "-pa")) { g_pitch_accent = 1; continue; }
             if (!strcmp(argv[a], "-sine")) { g_sine_mode = 1; continue; }
             if (!strcmp(argv[a], "-p")) { g_phone_mode = 1; continue; }
+            if (!strcmp(argv[a], "-whisper")) { g_whisper = 1; continue; }
+            if (!strcmp(argv[a], "-fry")) { g_fry = 1; continue; }
+            if (!strcmp(argv[a], "-breathy") && a + 1 < argc) { g_breathiness = atof(argv[++a]); continue; }
             argv[w++] = argv[a];
         }
         argc = w;
@@ -913,6 +917,10 @@ int main(int argc, char **argv) {
     wb_glottis_set_shimmer(g, ch->shimmer + em->shimmer);
     wb_glottis_set_vibrato(g, ch->vib_depth + em->vib_depth, em->vib_rate);
     wb_glottis_set_intensity(g, em->intensity);
+    /* R017 source knobs */
+    if (g_whisper) wb_glottis_set_whisper(g, 1);
+    if (g_fry) { wb_glottis_set_fry(g, 1); wb_glottis_set_frequency(g, ch->f0 * 0.5); }
+    if (g_breathiness > 0) wb_glottis_set_breathiness(g, g_breathiness);
     /* planner energy: scale output amplitude per word is complex mid-render;
      * we apply it as a gentle global loudness from the planner's average.
      * (Kept simple: em->intensity already carries the emotion loudness.) */

@@ -21,6 +21,11 @@ struct wb_glottis {
     double alpha, E0, epsilon, shift, Delta, Te, omega;
     double Rd;
     double phase;
+    /* R017 source knobs */
+    int whisper;          /* open-glottis turbulence source (no F0) */
+    int fry;              /* vocal-fry / creak register (low irregular pulses) */
+    double breathiness;   /* extra aspiration noise 0..1 (raises H1-H2, lowers HNR) */
+    int phase_count;      /* fry cycle counter */
 };
 
 static void wb_setup_waveform(wb_glottis_t *g, double lambda);
@@ -51,6 +56,11 @@ void wb_glottis_set_vibrato(wb_glottis_t *g, double depth, double rate) {
 void wb_glottis_set_jitter(wb_glottis_t *g, double a) { g->jitter = a; }
 void wb_glottis_set_shimmer(wb_glottis_t *g, double a) { g->shimmer = a; }
 void wb_glottis_set_intensity(wb_glottis_t *g, double i) { g->intensity = i; }
+void wb_glottis_set_whisper(wb_glottis_t *g, int on) { g->whisper = on ? 1 : 0; }
+void wb_glottis_set_fry(wb_glottis_t *g, int on) { g->fry = on ? 1 : 0; }
+void wb_glottis_set_breathiness(wb_glottis_t *g, double b) {
+    g->breathiness = b < 0 ? 0 : (b > 1 ? 1 : b);
+}
 
 static double lcg(void) {
     /* deterministic LCG for jitter/shimmer — no libc rand, no third party */
@@ -103,6 +113,32 @@ double wb_glottis_run_step(wb_glottis_t *g, double lambda, double aspiration_noi
     double time_step = 1.0 / 44100.0;
     g->time_in_waveform += time_step;
     g->total_time += time_step;
+
+    /* R017 whisper: glottis open, no fold vibration — the source is turbulent
+     * airflow (broadband noise) shaped by the tract. No F0 harmonic. */
+    if (g->whisper) {
+        if (g->time_in_waveform > g->waveform_length)
+            g->time_in_waveform -= g->waveform_length;
+        double noise = 0.6 * (2 * lcg() - 1) + 0.4 * aspiration_noise;
+        return noise * g->intensity * 0.9;
+    }
+
+    /* R017 vocal fry / creak register: brief open "pop" then a long closed
+     * silence, with strong cycle-to-cycle period jitter (irregularity).
+     * Produces a low, creaky, irregular source (low F0, low HNR). */
+    if (g->fry) {
+        double t = g->time_in_waveform / g->waveform_length;
+        double pop = 0.0;
+        if (t < 0.15) pop = sin((t / 0.15) * M_PI);          /* open spike */
+        /* irregular period: pop-and-reload with strong jitter */
+        double jit = 1.0 + 0.5 * (2 * lcg() - 1);            /* ±50% */
+        if (g->time_in_waveform > g->waveform_length * jit) {
+            g->time_in_waveform -= g->waveform_length * jit;
+            wb_setup_waveform(g, lambda);
+        }
+        return pop * g->intensity * 0.85;
+    }
+
     if (g->time_in_waveform > g->waveform_length) {
         g->time_in_waveform -= g->waveform_length;
         wb_setup_waveform(g, lambda);
@@ -115,6 +151,9 @@ double wb_glottis_run_step(wb_glottis_t *g, double lambda, double aspiration_noi
                      + (1 - g->ui_tenseness * g->intensity) * 0.3;
     double asp = g->intensity * (1 - sqrt(g->ui_tenseness)) * noise_mod * aspiration_noise;
     asp *= 0.2 + 0.02 * (2 * lcg() - 1);
+    /* R017 breathiness knob: extra broadband aspiration -> raises H1-H2,
+     * lowers HNR (breathy-voice correlate). */
+    asp += g->breathiness * g->intensity * 0.5 * (2 * lcg() - 1);
     out += asp;
     return out;
 }

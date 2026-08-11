@@ -892,6 +892,15 @@ int main(int argc, char **argv) {
                 if (find_phone(phones[k], &s2) && s2 > 0) { pa_accent = k; break; }
             }
         }
+        /* R019: pre-scan the word's stressed (accented) syllable so the contour
+         * can RISE onto it and FALL after it (a real pitch accent, not a slide). */
+        int w_accent = -1;
+        for (int k = 0; k < nphones; k++) {
+            int s2;
+            if (find_phone(phones[k], &s2) && s2 > 0) { w_accent = k; break; }
+        }
+        if (w_accent < 0) w_accent = nphones / 2;
+        double w_accent_pos = (double)w_accent / (nphones > 1 ? nphones - 1 : 1);
 
         for (int pi = 0; pi < nphones; pi++) {
             int st;
@@ -920,14 +929,24 @@ int main(int argc, char **argv) {
                 f0e = base_f0 * decl * (1.10 + 0.30 * local * em->f0_range) * shape_e * pitch_mult * micro;
                 if (st > 0) { f0s *= 1.08; f0e *= 1.08; }
             } else {
-                double mid = 0.35;
-                double pct = local < mid ? local / mid : 1.0 - (local - mid) / (1 - mid);
-                f0s = base_f0 * decl * (0.95 + 0.15 * pct * em->f0_range) * shape_s * pitch_mult * micro;
-                f0e = base_f0 * decl * (0.95 + 0.15 * pct * em->f0_range - 0.10 * em->f0_range) * shape_e * pitch_mult * micro;
-                if (st > 0) { f0s *= 1.10; f0e *= 1.05; }
-                /* R018 phrase-final lowering: the utterance-final syllable
-                 * falls below the declination line (Pierrehumbert). */
-                if (is_phrase_final) { f0s *= 0.97; f0e *= 0.88; }
+                /* R019 word-level pitch accent (English declarative): within a
+                 * word F0 RISES onto the stressed syllable then FALLS after it,
+                 * on top of a gentle per-word declination. This replaces the old
+                 * continuous-phrase slide, which droned monotone. */
+                double decl_w = 1.0 - 0.07 * wi;          /* gentle per-word fall */
+                double m;
+                if (local <= w_accent_pos) {
+                    double r = w_accent_pos > 0 ? local / w_accent_pos : 1.0;
+                    m = decl_w * (0.78 + 0.36 * r);        /* 0.78 -> 1.14 at accent */
+                } else {
+                    double r = (local - w_accent_pos) /
+                               ((1.0 - w_accent_pos) > 0 ? (1.0 - w_accent_pos) : 1.0);
+                    m = decl_w * (1.14 - 0.36 * r);        /* 1.14 -> 0.78 at word end */
+                }
+                if (st > 0) m *= 1.06;                     /* extra bump on accent itself */
+                if (is_phrase_final) m *= 0.86;            /* terminal fall */
+                f0s = base_f0 * m * shape_s * pitch_mult * micro;
+                f0e = base_f0 * m * shape_e * pitch_mult * micro;
             }
             }
             /* Klatt duration: context + stress + phrase-final + planner dur */

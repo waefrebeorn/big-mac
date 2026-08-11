@@ -252,8 +252,15 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
                        double f0_start, double f0_end) {
     int s0 = (int)(t0 * SR), s1 = (int)((t0 + dur) * SR);
     if (s1 > T->nsamp) s1 = T->nsamp;
+    /* stop detection: closed tract (td small), no frication, not nasal.
+     * Stops get a release burst (gap D39) + VOT (D40). */
+    int is_stop = (ph->td < 0.3 && ph->turb < 0.05 && ph->velum < 0.05);
+    int is_voiceless_stop = is_stop && !ph->voiced;
+    int burst_done = 0;
+    int vot_samples = is_voiceless_stop ? (int)(0.035 * SR) : 0;  /* 35ms VOT */
     for (int j = s0; j < s1; j++) {
         double t = (double)(j - s0) / (s1 - s0);   /* 0..1 within phone */
+        int jj = j - s0;  /* sample into phone */
         /* f0 glide within the phone (intonation) */
         double f0 = f0_start + (f0_end - f0_start) * t;
         /* articulation: coarticulated blend of prev/cur/next targets */
@@ -262,27 +269,77 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
         wb_tract_set_rest_diameter(T->tract, ti, td);
         wb_tract_set_lips(T->tract, lips);
         wb_tract_set_velum(T->tract, velum);
-        if (ph->voiced) {
+        /* voicing + VOT: voiceless stops delay phonation (D40) */
+        int phonate = ph->voiced && jj >= vot_samples;
+        if (phonate) {
             wb_glottis_set_frequency(T->glottis, f0);
             wb_glottis_set_intensity(T->glottis, 0.8);
         } else {
-            wb_glottis_set_intensity(T->glottis, 0.0);  /* voiceless */
+            wb_glottis_set_intensity(T->glottis, 0.0);
         }
         int m = j % BLOCK;
         double lam1 = (double)m / BLOCK, lam2 = (m + 0.5) / BLOCK;
-        /* turbulence noise for fricatives (the "protect voiceless
-         * consonants" rule: noise source, not glottis) */
         double noise = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
         double gl = wb_glottis_run_step(T->glottis, lam1, noise * 0.3);
+        /* release burst: short noise burst at stop onset (gap D39) */
         double turb = noise * 0.3 * ph->turb;
+        if (is_stop && !burst_done) {
+            double burst_gain = is_voiceless_stop ? 0.8 : 0.4;
+            double env = exp(-(double)jj / (0.008 * SR));  /* 8ms decay */
+            turb += noise * burst_gain * env;
+            if (jj > (int)(0.012 * SR)) burst_done = 1;
+        }
         double vocal = wb_tract_run_step(T->tract, gl, turb, lam1)
                      + wb_tract_run_step(T->tract, gl, turb, lam2);
-        T->out[j] += vocal * 0.125;
+        /* phonation onset/offset transients (gap F80): smooth 10ms ramps
+         * so voiced segments fade in/out instead of switching abruptly */
+        double env = 1.0;
+        int n_env = (int)(0.010 * SR);
+        if (ph->voiced) {
+            if (jj < n_env) env = (double)jj / n_env;                    /* onset */
+            if (s1 - j - 1 < n_env) env = (double)(s1 - j - 1) / n_env;  /* offset */
+        }
+        T->out[j] += vocal * 0.125 * env;
         if (m == BLOCK - 1) {
-            wb_glottis_finish_block(T->glottis, ph->voiced, (double)BLOCK / SR);
+            wb_glottis_finish_block(T->glottis, phonate, (double)BLOCK / SR);
             wb_tract_finish_block(T->tract, (double)BLOCK / SR);
         }
     }
+}
+
+/* ---------------- Klatt-style duration rules (gap B) ----------------
+ * Base durations in seconds per phone class, then context modifiers:
+ * stress (stressed ~1.3x), phrase-final lengthening, prepausal, consonant
+ * cluster shortening, voiced-vowel lengthening. Base rate ~14 phones/sec
+ * (real speech) instead of our old ~5/sec — the measured 1.7x slowness. */
+static double phone_duration(const wb_phone_t *ph, int stress,
+                             int is_phrase_final, int prev_consonant,
+                             int next_consonant) {
+    double d;
+    /* classify: vowels vs consonants */
+    int is_vowel = (ph->turb < 0.05 && ph->velum < 0.05 && ph->td > 0.5);
+    if (is_vowel) {
+        d = 0.075;                    /* vowel base */
+        if (stress > 0) d *= 1.35;    /* stressed vowel longer */
+    } else {
+        d = 0.055;                    /* consonant base */
+    }
+    /* Klatt context rules */
+    if (is_phrase_final) d *= 1.30;           /* phrase-final lengthening */
+    if (prev_consonant && next_consonant) d *= 0.75;  /* cluster shortening */
+    if (is_vowel && ph->voiced) d *= 1.05;    /* voiced vowel slightly longer */
+    /* reduce function words / schwa */
+    if (stress == 0 && !is_vowel) d *= 0.85;  /* unstressed consonants shorter */
+    if (d < 0.030) d = 0.030;
+    if (d > 0.16) d = 0.16;
+    return d;
+}
+
+/* pitch declination + downstep (gap C): F0 target at position u in phrase
+ * (0..1), with phrase-level fall. */
+static double phrase_f0(double u, double base) {
+    double decl = 1.0 - 0.20 * u;              /* declination */
+    return base * decl;
 }
 
 int main(int argc, char **argv) {
@@ -354,10 +411,7 @@ int main(int argc, char **argv) {
     if (nwords > 0 && (punct[nwords-1] == '?' )) is_question = 1;
     if (nwords > 0 && punct[nwords-1] == 0 && strchr(text, '?')) is_question = 1;
 
-    /* (tempo declared in main) */
-    double t_phrase = 0;
-    int phrase_nwords = 0;
-    int phrase_word_count = 0;
+    /* (tempo declared in main; unused now that phone_duration is explicit) */
     double phrase_dur = 0;
 
     /* first pass: estimate phrase duration */
@@ -369,16 +423,16 @@ int main(int argc, char **argv) {
         while (p) {
             int st;
             const wb_phone_t *ph = find_phone(p, &st);
-            if (ph) phrase_dur += ph->dur / tempo;
+            if (ph) phrase_dur += phone_duration(ph, st, wi == nwords-1, 0, 0);
             p = strtok(NULL, " ");
         }
-        phrase_dur += 0.08;  /* word gap */
-        phrase_word_count++;
+        phrase_dur += 0.06;  /* word gap (shorter than before) */
     }
     if (phrase_dur < 0.5) phrase_dur = 0.5;
 
     /* second pass: assign f0 contour (declarative: fall; question: rise) */
     double t_abs = 0.15;  /* lead-in */
+    long j_global = 0;    /* sample-phase counter for microvariation */
     for (int wi = 0; wi < nwords; wi++) {
         const char *ph_str = lookup_word(words[wi]);
         if (!ph_str) {
@@ -448,35 +502,46 @@ int main(int argc, char **argv) {
             int st;
             const wb_phone_t *ph = find_phone(phones[pi], &st);
             if (!ph) continue;
-            /* prosody: stress bump + phrase contour */
+            /* prosody: stress bump + phrase contour + declination */
             double f0s = base_f0, f0e = base_f0;
             double local = (double)phone_idx / (nphones > 1 ? nphones - 1 : 1);
+            double u_phrase = (double)wi / (nwords > 1 ? nwords - 1 : 1);
             /* apply the planner's tone shape (WordVoice 7-tone taxonomy),
              * scaled by the planner's pitch offset */
             double shape_s = tone_shape(p_tone, (double)phone_idx / (nphones > 0 ? nphones : 1));
             double shape_e = tone_shape(p_tone, (double)(phone_idx + 1) / (nphones > 0 ? nphones : 1));
             double pitch_mult = 1.0 + p_pitch * 0.25;   /* pitch offset -> semitones-ish */
+            /* pitch declination: phrase-level fall + stress bump + microvariation */
+            double decl = phrase_f0(u_phrase, 1.0);
+            double micro = 1.0 + 0.02 * sin(2 * M_PI * 3.0 * (double)j_global + (double)wi);  /* 3Hz microvib */
             if (is_question) {
-                f0s = base_f0 * (0.92 + 0.10 * local) * shape_s * pitch_mult;
-                f0e = base_f0 * (1.10 + 0.30 * local * em->f0_range) * shape_e * pitch_mult;
+                f0s = base_f0 * decl * (0.92 + 0.10 * local) * shape_s * pitch_mult * micro;
+                f0e = base_f0 * decl * (1.10 + 0.30 * local * em->f0_range) * shape_e * pitch_mult * micro;
                 if (st > 0) { f0s *= 1.08; f0e *= 1.08; }
             } else {
                 double mid = 0.35;
                 double pct = local < mid ? local / mid : 1.0 - (local - mid) / (1 - mid);
-                f0s = base_f0 * (0.95 + 0.15 * pct * em->f0_range) * shape_s * pitch_mult;
-                f0e = base_f0 * (0.95 + 0.15 * pct * em->f0_range - 0.10 * em->f0_range) * shape_e * pitch_mult;
+                f0s = base_f0 * decl * (0.95 + 0.15 * pct * em->f0_range) * shape_s * pitch_mult * micro;
+                f0e = base_f0 * decl * (0.95 + 0.15 * pct * em->f0_range - 0.10 * em->f0_range) * shape_e * pitch_mult * micro;
                 if (st > 0) { f0s *= 1.10; f0e *= 1.05; }
             }
+            /* Klatt duration: context + stress + phrase-final + planner dur */
+            int prev_cons = pi > 0;
+            int next_cons = pi + 1 < nphones;
+            int is_final = (wi == nwords - 1 && pi == nphones - 1);
+            double dur = phone_duration(ph, st, is_final, prev_cons && next_cons, 0);
+            dur *= p_dur;   /* planner duration multiplier */
             ev[nev].ph = ph; ev[nev].stress = st;
-            ev[nev].dur = ph->dur / tempo * (st > 0 ? 1.25 : 1.0) * p_dur;
+            ev[nev].dur = dur;
             ev[nev].f0_start = f0s; ev[nev].f0_end = f0e;
             t_abs += ev[nev].dur;
             nev++;
             phone_idx++;
+            j_global++;
         }
-        /* planner boundary: b0 no pause .. b4 long pause */
-        double gap = 0.08;
-        if (use_planner) gap = 0.04 + 0.12 * p_boundary * p_boundary;
+        /* planner boundary: b0 no pause .. b4 long pause (gap C: prosody) */
+        double gap = 0.06;
+        if (use_planner) gap = 0.03 + 0.10 * p_boundary * p_boundary;
         else if (punct[wi] == ',' ) gap = 0.15;
         else if (punct[wi]) gap = 0.28;
         t_abs += gap;  /* word gap */

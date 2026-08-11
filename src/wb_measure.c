@@ -202,63 +202,145 @@ wb_formant_measure_t wb_measure_formants(const double *x, size_t n, int sr) {
 
 /* ---------------- Quality: jitter/shimmer/HNR/CPP/tilt (A16-A21) ---------------- */
 
+/* Voiced-region extraction: use the frame F0 confidence to build a voiced
+ * mask, then find CONTIGUOUS voiced segments (with margin smoothing). We
+ * return segments, not a stitched buffer — stitching concatenated frames
+ * creates artificial discontinuities that fake zero-crossings and poison
+ * jitter/shimmer. */
+typedef struct { size_t start; size_t len; } wb_seg_t;
+
+static size_t extract_voiced_segments(const double *x, size_t n, int sr,
+                                      wb_seg_t *segs, size_t max_segs) {
+    (void)x;
+    /* frame-level voiced mask */
+    size_t frame = (size_t)(sr * 0.030);
+    if (frame < 4) frame = 4;
+    size_t hop = frame / 2;
+    size_t nframes = n > frame ? 1 + (n - frame) / hop : 1;
+
+    unsigned char *mask = calloc(nframes, 1);
+    if (!mask) return 0;
+
+    for (size_t f = 0; f < nframes; f++) {
+        size_t start = f * hop;
+        if (start + frame > n) start = n - frame;
+        double f0 = wb_yin_f0(x + start, frame, sr);
+        /* confidence via normalized autocorrelation peak */
+        size_t maxlag = (size_t)(sr / 50.0);
+        if (maxlag > frame) maxlag = frame;
+        double *R = malloc((maxlag + 1) * sizeof(double));
+        double conf = 0;
+        if (R) {
+            wb_acorr(x + start, frame, R, maxlag);
+            size_t tmin = (size_t)(sr / 500.0), tmax = maxlag;
+            size_t best = tmin;
+            for (size_t t = tmin + 1; t <= tmax; t++) if (R[t] > R[best]) best = t;
+            if (R[0] > 0) conf = R[best] / R[0];
+            free(R);
+        }
+        mask[f] = (f0 > 40 && f0 < 500 && conf > 0.35) ? 1 : 0;
+    }
+
+    /* margin smoothing: a frame is voiced if it or either neighbor is */
+    unsigned char *vmask = calloc(nframes, 1);
+    if (!vmask) { free(mask); return 0; }
+    for (size_t f = 0; f < nframes; f++) {
+        if (mask[f]) {
+            vmask[f] = 1;
+            if (f > 0) vmask[f-1] = 1;
+            if (f + 1 < nframes) vmask[f+1] = 1;
+        }
+    }
+    free(mask);
+
+    /* contiguous runs of voiced frames -> sample segments */
+    size_t nsegs = 0;
+    size_t f = 0;
+    while (f < nframes && nsegs < max_segs) {
+        if (vmask[f]) {
+            size_t fend = f;
+            while (fend + 1 < nframes && vmask[fend + 1]) fend++;
+            size_t s = f * hop;
+            size_t e = (fend + 1) * hop + frame;
+            if (e > n) e = n;
+            if (e > s) {
+                segs[nsegs].start = s;
+                segs[nsegs].len = e - s;
+                nsegs++;
+            }
+            f = fend + 1;
+        } else {
+            f++;
+        }
+    }
+    free(vmask);
+    return nsegs;
+}
+
 static void pitch_marks(const double *x, size_t n, int sr,
                         size_t **marks_out, double **amps_out, size_t *nm_out) {
     *marks_out = NULL; *amps_out = NULL; *nm_out = 0;
     size_t min_period = (size_t)(sr / 500.0);
     size_t max_period = (size_t)(sr / 50.0);
     if (max_period >= n) max_period = n / 2;
+    if (max_period < min_period + 2) return;
 
-    /* detrend */
-    double *det = malloc(n * sizeof(double));
-    if (!det) return;
-    {
-        double sumx = 0, sumy = 0, sumxx = 0, sumxy = 0;
-        for (size_t k = 0; k < n; k++) { sumx += (double)k; sumy += x[k]; sumxx += (double)k * k; sumxy += (double)k * x[k]; }
-        double den = (double)n * sumxx - sumx * sumx;
-        double slope = den != 0 ? ((double)n * sumxy - sumx * sumy) / den : 0.0;
-        double inter = (sumy - slope * sumx) / (double)n;
-        for (size_t k = 0; k < n; k++) det[k] = x[k] - (slope * (double)k + inter);
-    }
-    /* envelope: 10ms moving average of |det| */
-    size_t win_ma = (size_t)(sr * 0.010);
-    if (win_ma < 1) win_ma = 1;
-    double *env = malloc(n * sizeof(double));
-    if (!env) { free(det); return; }
-    {
-        double acc = 0;
-        for (size_t k = 0; k < n; k++) {
-            acc += fabs(det[k]);
-            if (k >= win_ma) acc -= fabs(det[k - win_ma]);
-            env[k] = acc / (double)(k < win_ma ? k + 1 : win_ma);
-        }
-    }
-    /* pitch-synchronous search */
+    /* pitch-synchronous zero-crossing detection: each glottal cycle has
+     * one positive-going zero crossing; finding those is invariant to the
+     * LF waveform's lobe shape (which confused peak-picking with
+     * double-period intervals). We step by the YIN period and refine to
+     * the nearest positive-going zero crossing. */
     double f0_hint = wb_yin_f0(x, n, sr);
     size_t period = f0_hint > 0 ? (size_t)(sr / f0_hint) : (min_period + max_period) / 2;
     if (period < min_period) period = min_period;
     if (period > max_period) period = max_period;
-    size_t step = (size_t)(period * 1.5);
-    if (step < 1) step = 1;
 
     size_t *marks = malloc(n * sizeof(size_t));
     double *amps = malloc(n * sizeof(double));
+    if (!marks || !amps) { free(marks); free(amps); return; }
     size_t nm = 0;
-    size_t i = 0;
-    while (i + period < n) {
-        size_t emax = i;
-        for (size_t k = i + 1; k <= i + period; k++) if (env[k] > env[emax]) emax = k;
-        size_t lo = emax > 15 ? emax - 15 : 0;
-        size_t hi = emax + 15 < n ? emax + 15 : n - 1;
-        size_t best = wb_argmax_abs(x, lo, hi);
-        if (fabs(x[best]) > 1e-6) {
-            marks[nm] = best;
-            amps[nm] = fabs(x[best]);
-            nm++;
-        }
-        i = emax + step;
+
+    /* find the first positive-going zero crossing */
+    size_t zc = 0;
+    for (size_t k = 1; k < n; k++) {
+        if (x[k-1] <= 0.0 && x[k] > 0.0) { zc = k; break; }
     }
-    free(det); free(env);
+    if (zc == 0) { free(marks); free(amps); return; }
+
+    size_t best = zc;
+    /* advance one full period before collecting: the very first crossing
+     * can be a half-cycle artifact (the buffer starts mid-waveform), and
+     * its interval with the next mark would poison jitter */
+    {
+        size_t lo0 = best + period > period / 2 ? best + period - period / 2 : 0;
+        size_t hi0 = best + period + period / 2;
+        if (hi0 >= n) hi0 = n - 1;
+        for (size_t k = lo0; k < hi0 && k + 1 < n; k++) {
+            if (x[k] <= 0.0 && x[k+1] > 0.0) { best = k + 1; break; }
+        }
+    }
+    while (best + period < n && nm < n / 2) {
+        marks[nm] = best;
+        /* amplitude = max |x| within this cycle */
+        double amp = 0;
+        size_t lo = best, hi = best + period;
+        if (hi >= n) hi = n - 1;
+        for (size_t k = lo; k <= hi; k++) {
+            double v = fabs(x[k]);
+            if (v > amp) amp = v;
+        }
+        amps[nm] = amp;
+        nm++;
+        /* find the positive-going zero crossing nearest to best+period */
+        size_t lo2 = best + period > period / 2 ? best + period - period / 2 : 0;
+        size_t hi2 = best + period + period / 2;
+        if (hi2 >= n) hi2 = n - 1;
+        size_t found = 0;
+        for (size_t k = lo2; k < hi2 && k + 1 < n; k++) {
+            if (x[k] <= 0.0 && x[k+1] > 0.0) { best = k + 1; found = 1; break; }
+        }
+        if (!found) break;
+    }
     if (nm < 3) { free(marks); free(amps); return; }
     *marks_out = marks; *amps_out = amps; *nm_out = nm;
 }
@@ -267,28 +349,51 @@ wb_quality_measure_t wb_measure_quality(const double *x, size_t n, int sr) {
     wb_quality_measure_t m;
     memset(&m, 0, sizeof(m));
 
-    size_t *marks; double *amps; size_t nm;
-    pitch_marks(x, n, sr, &marks, &amps, &nm);
-    if (marks && nm >= 3) {
-        /* jitter (local %): mean |T_i - T_{i-1}| / mean T * 100 */
-        double meanT = 0;
-        for (size_t k = 0; k + 1 < nm; k++) meanT += (double)(marks[k+1] - marks[k]);
-        meanT /= (double)(nm - 1);
-        double jacc = 0;
-        for (size_t k = 1; k + 1 < nm; k++) jacc += fabs((double)(marks[k+1] - marks[k]) - (double)(marks[k] - marks[k-1]));
-        m.jitter_pct = meanT > 0 ? jacc / (double)(nm - 2) / meanT * 100.0 : 0.0;
+    /* Find contiguous voiced segments; measure jitter/shimmer on each
+     * segment (in place — no stitching, so no fake discontinuities) and
+     * length-average. Unvoiced consonants have no glottal pulses and would
+     * corrupt the perturbation stats. */
+    wb_seg_t segs[64];
+    size_t nsegs = extract_voiced_segments(x, n, sr, segs, 64);
 
-        /* shimmer (local %): mean |A_i - A_{i-1}| / mean A * 100 */
-        double meanA = 0;
-        for (size_t k = 0; k < nm; k++) meanA += amps[k];
-        meanA /= (double)nm;
-        double sacc = 0;
-        for (size_t k = 1; k < nm; k++) sacc += fabs(amps[k] - amps[k-1]);
-        m.shimmer_pct = meanA > 0 ? sacc / (double)(nm - 1) / meanA * 100.0 : 0.0;
+    double tot_len = 0;
+    for (size_t s = 0; s < nsegs; s++) tot_len += (double)segs[s].len;
+    m.voiced_fraction = n > 0 ? tot_len / n : 1.0;
+
+    double jw = 0, sw = 0;
+    for (size_t s = 0; s < nsegs; s++) {
+        const double *sx = x + segs[s].start;
+        size_t sn = segs[s].len;
+        size_t *marks; double *amps; size_t nm;
+        pitch_marks(sx, sn, sr, &marks, &amps, &nm);
+        if (marks && nm >= 3) {
+            /* jitter (local %): mean |T_i - T_{i-1}| / mean T * 100 */
+            double meanT = 0;
+            for (size_t k = 0; k + 1 < nm; k++) meanT += (double)(marks[k+1] - marks[k]);
+            meanT /= (double)(nm - 1);
+            double jacc = 0;
+            for (size_t k = 1; k + 1 < nm; k++) jacc += fabs((double)(marks[k+1] - marks[k]) - (double)(marks[k] - marks[k-1]));
+            double jit = meanT > 0 ? jacc / (double)(nm - 2) / meanT * 100.0 : 0.0;
+
+            /* shimmer (local %): mean |A_i - A_{i-1}| / mean A * 100 */
+            double meanA = 0;
+            for (size_t k = 0; k < nm; k++) meanA += amps[k];
+            meanA /= (double)nm;
+            double sacc = 0;
+            for (size_t k = 1; k < nm; k++) sacc += fabs(amps[k] - amps[k-1]);
+            double shim = meanA > 0 ? sacc / (double)(nm - 1) / meanA * 100.0 : 0.0;
+
+            jw += jit * (double)sn;
+            sw += shim * (double)sn;
+        }
+        free(marks); free(amps);
     }
-    free(marks); free(amps);
+    if (tot_len > 0) {
+        m.jitter_pct = jw / tot_len;
+        m.shimmer_pct = sw / tot_len;
+    }
 
-    /* HNR via autocorrelation (Boersma) */
+    /* HNR via autocorrelation (Boersma) — use the whole voiced energy */
     {
         size_t maxlag = (size_t)(sr / 50.0);
         if (maxlag > n) maxlag = n;
@@ -305,7 +410,7 @@ wb_quality_measure_t wb_measure_quality(const double *x, size_t n, int sr) {
         }
     }
 
-    /* CPP: cepstral peak prominence (A20) — proper implementation below */
+    /* CPP: cepstral peak prominence (A20) */
     m.cpp = wb_measure_cpp(x, n, sr);
 
     /* spectral tilt (A16): slope of log-magnitude spectrum in dB/octave */

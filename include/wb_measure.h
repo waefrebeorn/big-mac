@@ -31,6 +31,7 @@ typedef struct {
     double cpp;                /* cepstral peak prominence */
     double h1h2_db;            /* H1-H2 (open quotient correlate) */
     double tilt_db_per_oct;    /* spectral tilt */
+    double voiced_fraction;    /* 0..1 — how much of the buffer was voiced */
 } wb_quality_measure_t;
 
 /* Analyze one buffer. All functions take mono samples in [-1,1]. */

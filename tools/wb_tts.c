@@ -116,6 +116,7 @@ typedef struct {
     int voiced;        /* glottis on */
     double turb;       /* turbulence (fricative) 0..1 */
     double dur;        /* relative duration */
+    double ti2, td2;   /* diphthong glide end-target (0 = none, gap G82) */
 } wb_phone_t;
 
 /* Reference formant targets: F1/F2 for vowels (Peterson & Barney-ish),
@@ -126,15 +127,15 @@ static const wb_phone_t PHONES[] = {
     { "AE", 15.5, 0.8, 0.90, 0.0, 1, 0.00, 1.0 },  /* cat     */
     { "AH", 16.5, 1.2, 0.80, 0.0, 1, 0.00, 0.8 },  /* but     */
     { "AO", 17.5, 1.0, 0.60, 0.0, 1, 0.00, 1.0 },  /* thought */
-    { "AW", 16.0, 1.2, 0.50, 0.0, 1, 0.00, 1.2 },  /* cow     */
-    { "AY", 15.5, 1.0, 0.85, 0.0, 1, 0.00, 1.2 },  /* hide    */
-    { "EH", 15.0, 0.8, 0.90, 0.0, 1, 0.00, 0.9 },  /* bet     */
-    { "ER", 13.5, 0.6, 0.80, 0.0, 1, 0.00, 1.0 },  /* bird    */
-    { "EY", 14.5, 0.7, 0.85, 0.0, 1, 0.00, 1.1 },  /* bait    */
+    { "AW", 16.0, 1.2, 0.50, 0.0, 1, 0.00, 1.2, 18.5, 1.3 },  /* cow     a->ʊ */
+    { "AY", 15.5, 1.0, 0.85, 0.0, 1, 0.00, 1.2, 13.0, 0.6 },  /* hide    a->ɪ */
+    { "EH", 15.0, 0.8, 0.90, 0.0, 1, 0.00, 0.9, 0, 0 },
+    { "ER", 13.5, 0.6, 0.80, 0.0, 1, 0.00, 1.0, 0, 0 },  /* bird    */
+    { "EY", 14.5, 0.7, 0.85, 0.0, 1, 0.00, 1.1, 13.0, 0.6 },  /* bait    e->ɪ */
     { "IH", 14.0, 0.8, 0.90, 0.0, 1, 0.00, 0.7 },  /* bit     */
     { "IY", 13.0, 0.6, 0.85, 0.0, 1, 0.00, 1.0 },  /* beet    */
-    { "OW", 18.0, 1.1, 0.55, 0.0, 1, 0.00, 1.1 },  /* boat    */
-    { "OY", 16.0, 1.0, 0.60, 0.0, 1, 0.00, 1.2 },  /* boy     */
+    { "OW", 18.0, 1.1, 0.55, 0.0, 1, 0.00, 1.1, 18.5, 1.3 },  /* boat    o->ʊ */
+    { "OY", 16.0, 1.0, 0.60, 0.0, 1, 0.00, 1.2, 13.0, 0.6 },  /* boy     ɔ->ɪ */
     { "UH", 17.0, 1.2, 0.50, 0.0, 1, 0.00, 0.8 },  /* book    */
     { "UW", 18.5, 1.3, 0.30, 0.0, 1, 0.00, 1.0 },  /* boot    */
 
@@ -240,10 +241,19 @@ static void blend_targets(const wb_phone_t *prev, const wb_phone_t *cur,
 
     const wb_phone_t *p = prev ? prev : cur;
     const wb_phone_t *n = next ? next : cur;
-    *ti    = p->ti    * carry + cur->ti    * w_cur + n->ti    * anti;
-    *td    = p->td    * carry + cur->td    * w_cur + n->td    * anti;
-    *lips  = p->lips  * carry + cur->lips  * w_cur + n->lips  * anti;
-    *velum = p->velum * carry + cur->velum * w_cur + n->velum * anti;
+    double cti = cur->ti, ctd = cur->td;
+    /* diphthong glide (gap G82): the vowel's target moves from its start
+     * target toward ti2/td2 across the phone (monophthongs have ti2=0) */
+    if (cur->ti2 != 0.0 && t > 0.2) {
+        double g = (t - 0.2) / 0.8;   /* glide across the phone body */
+        if (g > 1.0) g = 1.0;
+        cti = cur->ti + (cur->ti2 - cur->ti) * g;
+        ctd = cur->td + (cur->td2 - cur->td) * g;
+    }
+    *ti    = p->ti    * carry + cti           * w_cur + n->ti    * anti;
+    *td    = p->td    * carry + ctd           * w_cur + n->td    * anti;
+    *lips  = p->lips  * carry + cur->lips     * w_cur + n->lips  * anti;
+    *velum = p->velum * carry + cur->velum    * w_cur + n->velum * anti;
 }
 
 static void tts_render(wb_tts_t *T, double t0, double dur,

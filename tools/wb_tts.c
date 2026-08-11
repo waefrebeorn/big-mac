@@ -1005,6 +1005,25 @@ int main(int argc, char **argv) {
         printf("  loudness: rms %.3f -> %.3f (gain %.2fx)\n", rms, target, gain);
     }
 
+    /* R018 mastering: soft-knee limiter (smooth peaks, no hard clip) + TPDF
+     * dither (triangular noise, 1 LSB) before the 16-bit conversion so
+     * quantization error is decorrelated (no low-level grain/distortion). */
+    {
+        unsigned long long sd = 0x123456789ABCDEFULL;
+        for (int i = 0; i < nsamp; i++) {
+            double a = fabs(out[i]);
+            if (a > 0.85) {  /* soft knee 0.85..1.0 */
+                double s = out[i] >= 0 ? 1.0 : -1.0;
+                out[i] = s * (0.85 + 0.15 * tanh((a - 0.85) / 0.15));
+            }
+            sd = sd * 6364136223846793005ULL + 1442695040888963407ULL;
+            double u1 = (double)((sd >> 33) & 0xFFFFFF) / 16777215.0;
+            sd = sd * 6364136223846793005ULL + 1442695040888963407ULL;
+            double u2 = (double)((sd >> 33) & 0xFFFFFF) / 16777215.0;
+            out[i] += (u1 + u2 - 1.0) / 65536.0;   /* TPDF, ~1 LSB */
+        }
+    }
+
     wb_wav_write(out_path, out, (size_t)nsamp, SR);
     char aiff_path[512];
     snprintf(aiff_path, sizeof(aiff_path), "%s", out_path);

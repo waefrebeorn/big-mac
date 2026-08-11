@@ -144,7 +144,7 @@ static const wb_phone_t PHONES[] = {
     { "CH", 14.0, 0.3, 0.60, 0.0, 0, 0.80, 0.5 },  /* affricate */
     { "D", 15.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4 },   /* stop, voiced */
     { "DH", 15.5, 0.3, 0.70, 0.0, 1, 0.60, 0.5 },  /* th-voiced */
-    { "F", 14.0, 0.9, 0.15, 0.0, 0, 0.90, 0.5 },   /* fricative */
+    { "F", 14.0, 0.9, 0.15, 0.0, 0, 0.55, 0.4 },   /* fricative (quieter) */
     { "G", 17.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4 },   /* stop, voiced */
     { "HH", 16.0, 1.4, 0.90, 0.0, 0, 0.50, 0.4 },  /* h */
     { "JH", 14.0, 0.3, 0.60, 0.0, 1, 0.80, 0.5 },  /* affricate voiced */
@@ -155,15 +155,15 @@ static const wb_phone_t PHONES[] = {
     { "NG", 17.0, 0.5, 0.80, 1.0, 1, 0.00, 0.5 },  /* nasal */
     { "P", 14.0, 0.2, 0.10, 0.0, 0, 0.00, 0.4 },   /* stop */
     { "R", 13.5, 0.7, 0.70, 0.0, 1, 0.00, 0.6 },   /* liquid */
-    { "S", 15.0, 0.35, 0.80, 0.0, 0, 0.95, 0.5 },  /* sibilant */
-    { "SH", 14.0, 0.35, 0.60, 0.0, 0, 0.95, 0.5 }, /* sibilant */
+    { "S", 15.0, 0.35, 0.80, 0.0, 0, 0.65, 0.4 },  /* sibilant (quieter) */
+    { "SH", 14.0, 0.35, 0.60, 0.0, 0, 0.65, 0.4 }, /* sibilant */
     { "T", 15.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4 },   /* stop */
-    { "TH", 15.5, 0.3, 0.70, 0.0, 0, 0.90, 0.5 },  /* th-unvoiced */
-    { "V", 14.0, 0.9, 0.15, 0.0, 1, 0.80, 0.5 },   /* fricative */
+    { "TH", 15.5, 0.3, 0.70, 0.0, 0, 0.60, 0.4 },  /* th-unvoiced */
+    { "V", 14.0, 0.9, 0.15, 0.0, 1, 0.55, 0.4 },   /* fricative */
     { "W", 19.0, 1.2, 0.35, 0.0, 1, 0.00, 0.5 },   /* glide */
     { "Y", 13.0, 0.7, 0.85, 0.0, 1, 0.00, 0.5 },   /* glide */
-    { "Z", 15.0, 0.35, 0.80, 0.0, 1, 0.90, 0.5 },  /* sibilant */
-    { "ZH", 14.0, 0.35, 0.60, 0.0, 1, 0.90, 0.5 }, /* sibilant */
+    { "Z", 15.0, 0.35, 0.80, 0.0, 1, 0.65, 0.4 },  /* sibilant */
+    { "ZH", 14.0, 0.35, 0.60, 0.0, 1, 0.65, 0.4 }, /* sibilant */
 };
 
 static const wb_phone_t *find_phone(const char *ph, int *stress) {
@@ -594,13 +594,33 @@ int main(int argc, char **argv) {
         t0 += ev[i].dur;
     }
 
+    /* loudness normalization (gap I): boost output to a speech-typical RMS
+     * (~-20 dBFS) so it's comparable to real TTS, not 4x too quiet */
+    {
+        double rms = 0;
+        for (int i = 0; i < nsamp; i++) rms += out[i] * out[i];
+        rms = sqrt(rms / (nsamp > 0 ? nsamp : 1));
+        double target = 0.10;   /* ~ -20 dBFS */
+        double gain = rms > 1e-6 ? target / rms : 1.0;
+        if (gain > 4.0) gain = 4.0;   /* limit so we don't clip silence */
+        double peak = 0;
+        for (int i = 0; i < nsamp; i++) {
+            out[i] *= gain;
+            double v = fabs(out[i]);
+            if (v > peak) peak = v;
+        }
+        if (peak > 0.99) {  /* re-normalize if we clipped */
+            for (int i = 0; i < nsamp; i++) out[i] *= 0.99 / peak;
+        }
+        printf("  loudness: rms %.3f -> %.3f (gain %.2fx)\n", rms, target, gain);
+    }
+
     wb_wav_write(out_path, out, (size_t)nsamp, SR);
     char aiff_path[512];
     snprintf(aiff_path, sizeof(aiff_path), "%s", out_path);
     char *dot = strrchr(aiff_path, '.');
     if (dot) strcpy(dot, ".aiff");
     wb_aiff_write(aiff_path, out, (size_t)nsamp, SR);
-
     /* verify: measure F0 + quality */
     wb_f0_measure_t f0m = wb_measure_f0(out, (size_t)nsamp, SR);
     wb_quality_measure_t q = wb_measure_quality(out, (size_t)nsamp, SR);

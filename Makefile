@@ -7,7 +7,7 @@ SRC     = src/wb_tract.c src/wb_glottis.c src/wb_wav.c src/wb_dsp.c src/wb_reade
           src/wuburvc/wubu_master.c src/wuburvc/wubu_consonant.c src/wuburvc/wubu_breath.c src/wuburvc/wubu_harmony.c src/wuburvc/wubu_fft.c src/wuburvc/wubu_stft.c
 OBJ     = $(SRC:.c=.o)
 
-TOOLS   = tools/wb_speak tools/wb_analyze tools/wb_fit tools/wb_absorb tools/wb_toon tools/wb_sing tools/wb_master tools/wb_vc tools/wb_tts tools/wb_planner
+TOOLS   = tools/wb_speak tools/wb_analyze tools/wb_fit tools/wb_absorb tools/wb_toon tools/wb_sing tools/wb_master tools/wb_vc tools/wb_tts tools/wb_planner tools/wb_compare
 
 all: $(TOOLS)
 
@@ -40,6 +40,9 @@ tools/wb_tts: tools/wb_tts.c $(OBJ)
 
 tools/wb_planner: tools/wb_planner.c $(OBJ)
 	$(CC) $(CFLAGS) -o $@ tools/wb_planner.c $(OBJ) $(LDLIBS)
+
+tools/wb_compare: tools/wb_compare.c $(OBJ)
+	$(CC) $(CFLAGS) -o $@ tools/wb_compare.c $(OBJ) $(LDLIBS)
 
 src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<

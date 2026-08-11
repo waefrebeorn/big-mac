@@ -488,6 +488,16 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
          * npos 0 = default alveolar (preserves Pink Trombone behaviour). */
         double npos = ph->npos > 0 ? ph->npos * T->tract_n / 44.0 : -1.0;
         wb_tract_set_noise_pos(T->tract, npos);
+        /* R019 frication fix: force a narrow gap (diam ~0.40) at the noise
+         * source so the turbulence gate (openness 0.3..0.7) opens. The tongue
+         * constriction may not form in time during short fricatives, which is
+         * why /s ʃ f/ came out as low-frequency mush instead of frication. */
+        if (ph->turb > 0.1 && ph->velum < 0.05 && npos >= 2) {
+            int ni = (int)npos;
+            if (ni < 2) ni = 2;
+            if (ni >= T->tract_n) ni = T->tract_n - 1;
+            wb_tract_set_diameter(T->tract, ni, 0.40);
+        }
         double noise = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
         int phonate;
         double turb;
@@ -546,6 +556,13 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
         double gl = wb_glottis_run_step(T->glottis, lam1, noise * 0.3);
         double vocal = wb_tract_run_step(T->tract, gl, turb, lam1)
                      + wb_tract_run_step(T->tract, gl, turb, lam2);
+        /* R019 direct frication: add the shaped fricative noise straight to
+         * the output for fricatives/affricates (turb>0.1), so /s ʃ f θ v z/
+         * are clearly audible. The tract turbulence gate is fragile (needs
+         * the constriction to coincide with the source in time), which is why
+         * fricatives previously came out as low-frequency mush. */
+        if (ph->turb > 0.1 && ph->velum < 0.05)
+            vocal += turb * 0.8;
         if (nf_fc > 0) vocal = wb_biquad_run(&T->nasal_notch, vocal);   /* nasal antiformant */
         /* phonation onset/offset transients (gap F80): smooth 10ms ramps
          * so voiced segments fade in/out instead of switching abruptly */

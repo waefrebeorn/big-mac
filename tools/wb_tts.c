@@ -285,6 +285,7 @@ typedef struct {
     wb_biquad_t fric_filt;   /* fricative spectral shaper (R012-A1) */
     wb_biquad_t nasal_notch; /* nasal antiformant zero (P0) */
     int sine_mode;           /* formant-track sine render (P2) */
+    int pitch_accent;        /* Japanese pitch-accent mode */
     double sine_ph1, sine_ph2, sine_ph3;  /* sine oscillator phases */
 } wb_tts_t;
 
@@ -458,6 +459,17 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
         /* articulation: coarticulated blend of prev/cur/next targets */
         double ti, td, lips, velum, round;
         blend_targets(prev, ph, next, t, &ti, &td, &lips, &velum, &round);
+        /* R018 vowel reduction (Lindblom/van Bergem): unstressed vowels reduce
+         * toward schwa — more central and shorter. Pulls the articulation
+         * partway to the central /ə/ target (ti=15, td=2.6, lips=0.75). */
+        {
+            int is_vowel = ph->voiced && ph->turb < 0.05 && ph->velum < 0.05;
+            if (is_vowel && stress == 0 && !T->pitch_accent) {
+                ti += (15.0 - ti) * 0.35;
+                td += (2.6 - td) * 0.35;
+                lips += (0.75 - lips) * 0.35;
+            }
+        }
         wb_tract_set_rest_diameter(T->tract, ti, td);
         wb_tract_set_lips(T->tract, lips);
         wb_tract_set_lip_rounding(T->tract, round);
@@ -957,6 +969,7 @@ int main(int argc, char **argv) {
     wb_tts_t T = { tract, g, ch, out, nsamp, base_f0, base_f0 };
     T.tract_n = vtl_n;   /* R017: effective VTL (used for noise-source scaling) */
     T.sine_mode = g_sine_mode;
+    T.pitch_accent = g_pitch_accent;
 
     double t0 = 0.15;
     for (int i = 0; i < nev; i++) {

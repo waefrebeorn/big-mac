@@ -281,6 +281,7 @@ typedef struct {
     double *out;
     int nsamp;
     double f0_phrase_start, f0_phrase_end;  /* intonation contour */
+    int tract_n;           /* effective VTL section count (R017: -vtl) */
     wb_biquad_t fric_filt;   /* fricative spectral shaper (R012-A1) */
     wb_biquad_t nasal_notch; /* nasal antiformant zero (P0) */
     int sine_mode;           /* formant-track sine render (P2) */
@@ -465,7 +466,7 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
          * (labiodental /f v/ at the lips, sibilants at the teeth, stops at
          * their place). Scaled from 44-scale to this character's tract.
          * npos 0 = default alveolar (preserves Pink Trombone behaviour). */
-        double npos = ph->npos > 0 ? ph->npos * T->ch->tract_n / 44.0 : -1.0;
+        double npos = ph->npos > 0 ? ph->npos * T->tract_n / 44.0 : -1.0;
         wb_tract_set_noise_pos(T->tract, npos);
         double noise = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
         int phonate;
@@ -629,6 +630,7 @@ int main(int argc, char **argv) {
      * Filter both out so the positional parsing below is unchanged. */
     int g_pitch_accent = 0, g_sine_mode = 0, g_phone_mode = 0, g_whisper = 0, g_fry = 0;
     int g_tone = 0;   /* 1-4 Mandarin lexical tone applied per word */
+    int g_vtl = 0;    /* override tract section count (vocal-tract length) */
     double g_breathiness = 0.0;
     {
         int w = 1;
@@ -640,6 +642,7 @@ int main(int argc, char **argv) {
             if (!strcmp(argv[a], "-fry")) { g_fry = 1; continue; }
             if (!strcmp(argv[a], "-breathy") && a + 1 < argc) { g_breathiness = atof(argv[++a]); continue; }
             if (!strcmp(argv[a], "-tone") && a + 1 < argc) { g_tone = atoi(argv[++a]); continue; }
+            if (!strcmp(argv[a], "-vtl") && a + 1 < argc) { g_vtl = atoi(argv[++a]); continue; }
             argv[w++] = argv[a];
         }
         argc = w;
@@ -921,7 +924,10 @@ int main(int argc, char **argv) {
     /* ---------------- render ---------------- */
     int nsamp = (int)(total * SR);
     double *out = calloc((size_t)nsamp, sizeof(double));
-    wb_tract_t *tract = wb_tract_new(ch->tract_n);
+    int vtl_n = g_vtl > 0 ? g_vtl : ch->tract_n;
+    if (vtl_n < 20) vtl_n = 20;
+    if (vtl_n > 80) vtl_n = 80;
+    wb_tract_t *tract = wb_tract_new(vtl_n);
     wb_glottis_t *g = wb_glottis_new();
     wb_glottis_set_tenseness(g, ch->tenseness * em->tenseness / 0.65);
     wb_glottis_set_jitter(g, ch->jitter + em->jitter);
@@ -937,6 +943,7 @@ int main(int argc, char **argv) {
      * (Kept simple: em->intensity already carries the emotion loudness.) */
 
     wb_tts_t T = { tract, g, ch, out, nsamp, base_f0, base_f0 };
+    T.tract_n = vtl_n;   /* R017: effective VTL (used for noise-source scaling) */
     T.sine_mode = g_sine_mode;
 
     double t0 = 0.15;

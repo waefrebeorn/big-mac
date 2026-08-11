@@ -19,7 +19,8 @@
 #include <string.h>
 
 /* ---------- formant extraction via LPC frequency response ---------- */
-/* Evaluate |H(e^{jw})| for the LPC filter 1/A(z) at normalized freq f (0..0.5). */
+/* Evaluate |H(e^{jw})| for the LPC synthesis filter 1/A(z) where
+ * A(z) = 1 - sum_k a[k] z^-(k+1)  (Levinson-Durbin sign convention). */
 static double lpc_gain_at(const double *a, int p, double f) {
     double w = 2.0 * M_PI * f;
     double re = 1.0, im = 0.0;
@@ -30,8 +31,8 @@ static double lpc_gain_at(const double *a, int p, double f) {
         double npr = pr * zr - pi * zi;
         double npi = pr * zi + pi * zr;
         pr = npr; pi = npi;
-        re += a[k] * pr;
-        im += a[k] * pi;
+        re -= a[k] * pr;   /* MINUS: A(z) = 1 - sum a_k z^-k */
+        im -= a[k] * pi;
     }
     double denom = re * re + im * im;
     return denom > 1e-12 ? 1.0 / sqrt(denom) : 0.0;
@@ -40,14 +41,15 @@ static double lpc_gain_at(const double *a, int p, double f) {
 /* peak-pick the LPC spectrum for formants */
 static void find_formants(const double *a, int p, int sample_rate,
                           double *F, int *nF, int maxF) {
-    /* scan only 100..4000 Hz (speech formants live there), 10 Hz steps */
-    double f_lo = 100.0, f_hi = 4000.0;
+    /* fine scan 50..4000 Hz in 5 Hz steps (speech formants live there) */
+    double f_lo = 50.0, f_hi = 4000.0;
     if (f_hi > sample_rate / 2.0) f_hi = sample_rate / 2.0;
-    int nsteps = (int)((f_hi - f_lo) / 10.0);
+    int step = 5;
+    int nsteps = (int)((f_hi - f_lo) / step);
     double *g = malloc((size_t)nsteps * sizeof(double));
     if (!g) { *nF = 0; return; }
     for (int i = 0; i < nsteps; i++) {
-        double f = (f_lo + (double)i * 10.0) / (double)sample_rate;
+        double f = (f_lo + (double)i * step) / (double)sample_rate;
         g[i] = lpc_gain_at(a, p, f);
     }
     /* collect local maxima (strict), sorted by frequency */
@@ -55,9 +57,8 @@ static void find_formants(const double *a, int p, int sample_rate,
     if (!cands) { free(g); *nF = 0; return; }
     int count = 0;
     for (int i = 1; i < nsteps - 1; i++) {
-        if (g[i] > g[i-1] && g[i] >= g[i+1]) {
-            /* keep only peaks at least 40% as strong as the global max */
-            cands[count++] = f_lo + (double)i * 10.0;
+        if (g[i] >= g[i-1] && g[i] > g[i+1]) {
+            cands[count++] = f_lo + (double)i * step;
         }
     }
     /* formants are the LOWEST maxF peaks (F1 < F2 < F3) */
@@ -201,26 +202,33 @@ int main(int argc, char **argv) {
     double f0 = wb_yin_f0(a.data, win, a.sample_rate);
     printf("F0 (YIN): %.1f Hz\n", f0);
 
-    /* LPC formants on a voiced window */
-    int p = 16;
+    /* LPC formants on a short voiced window (~30 ms = 2-3 pitch periods;
+     * a long window makes autocorrelation model pitch, not formants).
+     * Order: sr/1000+4 rule of thumb (44.1k -> ~48; 24-28 is enough here). */
+    int p = 24;
+    size_t fwin = (size_t)(a.sample_rate * 0.030);
+    if (fwin > a.n) fwin = a.n;
+    /* center the window in the middle half of the file (steady region) */
+    size_t wstart = a.n / 4;
+    if (wstart + fwin > a.n) wstart = a.n - fwin;
     double *R = malloc(((size_t)p + 1) * sizeof(double));
     double *coef = malloc((size_t)p * sizeof(double));
     if (R && coef) {
         /* pre-emphasis + window */
-        double *w = malloc(win * sizeof(double));
+        double *w = malloc(fwin * sizeof(double));
         if (w) {
-            for (size_t i = 0; i < win; i++) {
-                double pre = a.data[i] - (i > 0 ? 0.97 * a.data[i-1] : 0);
-                double hann = 0.5 * (1 - cos(2 * M_PI * i / (win - 1)));
+            for (size_t i = 0; i < fwin; i++) {
+                double pre = a.data[wstart + i] - (i > 0 ? 0.97 * a.data[wstart + i - 1] : 0);
+                double hann = 0.5 * (1 - cos(2 * M_PI * i / (fwin - 1)));
                 w[i] = pre * hann;
             }
-            wb_acorr(w, win, R, (size_t)p);
+            wb_acorr(w, fwin, R, (size_t)p);
             double E = 0;
             memset(coef, 0, (size_t)p * sizeof(double));
             if (wb_lpc(R, p, coef, &E) == 0) {
                 double F[5]; int nF = 0;
                 find_formants(coef, p, a.sample_rate, F, &nF, 4);
-                printf("formants (LPC-%d):", p);
+                printf("formants (LPC-%d, 30ms):", p);
                 for (int k = 0; k < nF; k++) printf(" F%d=%.0f", k + 1, F[k]);
                 printf("\n");
             } else {

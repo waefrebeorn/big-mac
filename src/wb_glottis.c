@@ -26,6 +26,8 @@ struct wb_glottis {
     int fry;              /* vocal-fry / creak register (low irregular pulses) */
     double breathiness;   /* extra aspiration noise 0..1 (raises H1-H2, lowers HNR) */
     int phase_count;      /* fry cycle counter */
+    double rq;            /* return-quotient 0..1: LF return-phase = 1st-order lowpass */
+    double rq_state;      /* lowpass state (spectral-tilt control) */
 };
 
 static void wb_setup_waveform(wb_glottis_t *g, double lambda);
@@ -60,6 +62,9 @@ void wb_glottis_set_whisper(wb_glottis_t *g, int on) { g->whisper = on ? 1 : 0; 
 void wb_glottis_set_fry(wb_glottis_t *g, int on) { g->fry = on ? 1 : 0; }
 void wb_glottis_set_breathiness(wb_glottis_t *g, double b) {
     g->breathiness = b < 0 ? 0 : (b > 1 ? 1 : b);
+}
+void wb_glottis_set_return_quotient(wb_glottis_t *g, double rq) {
+    g->rq = rq < 0 ? 0 : (rq > 1 ? 1 : rq);
 }
 
 static double lcg(void) {
@@ -155,6 +160,16 @@ double wb_glottis_run_step(wb_glottis_t *g, double lambda, double aspiration_noi
      * lowers HNR (breathy-voice correlate). */
     asp += g->breathiness * g->intensity * 0.5 * (2 * lcg() - 1);
     out += asp;
+
+    /* R017 return-quotient knob: the LF return phase is equivalent to a
+     * first-order low-pass; a larger RQ (longer return) adds high-frequency
+     * spectral tilt (raises H1-H2, darkens the source). Applied here so it
+     * also colours whisper/fry. */
+    if (g->rq > 0.0) {
+        double alpha_lp = 1.0 - exp(-2.0 * M_PI * (60.0 + 300.0 * (1.0 - g->rq)) / 44100.0);
+        out = g->rq_state + alpha_lp * (out - g->rq_state);
+        g->rq_state = out;
+    }
     return out;
 }
 

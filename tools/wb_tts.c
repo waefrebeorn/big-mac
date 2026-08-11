@@ -631,7 +631,7 @@ int main(int argc, char **argv) {
     int g_pitch_accent = 0, g_sine_mode = 0, g_phone_mode = 0, g_whisper = 0, g_fry = 0;
     int g_tone = 0;   /* 1-4 Mandarin lexical tone applied per word */
     int g_vtl = 0;    /* override tract section count (vocal-tract length) */
-    double g_breathiness = 0.0;
+    double g_breathiness = 0.0, g_rq = 0.0;
     {
         int w = 1;
         for (int a = 1; a < argc; a++) {
@@ -643,6 +643,7 @@ int main(int argc, char **argv) {
             if (!strcmp(argv[a], "-breathy") && a + 1 < argc) { g_breathiness = atof(argv[++a]); continue; }
             if (!strcmp(argv[a], "-tone") && a + 1 < argc) { g_tone = atoi(argv[++a]); continue; }
             if (!strcmp(argv[a], "-vtl") && a + 1 < argc) { g_vtl = atoi(argv[++a]); continue; }
+            if (!strcmp(argv[a], "-rq") && a + 1 < argc) { g_rq = atof(argv[++a]); continue; }
             argv[w++] = argv[a];
         }
         argc = w;
@@ -938,6 +939,7 @@ int main(int argc, char **argv) {
     if (g_whisper) wb_glottis_set_whisper(g, 1);
     if (g_fry) { wb_glottis_set_fry(g, 1); wb_glottis_set_frequency(g, ch->f0 * 0.5); }
     if (g_breathiness > 0) wb_glottis_set_breathiness(g, g_breathiness);
+    if (g_rq > 0) wb_glottis_set_return_quotient(g, g_rq);
     /* planner energy: scale output amplitude per word is complex mid-render;
      * we apply it as a gentle global loudness from the planner's average.
      * (Kept simple: em->intensity already carries the emotion loudness.) */

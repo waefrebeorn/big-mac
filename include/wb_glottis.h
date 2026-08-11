@@ -24,6 +24,7 @@ void wb_glottis_set_intensity(wb_glottis_t *g, double intensity);
 void wb_glottis_set_whisper(wb_glottis_t *g, int on);     /* open-glottis turbulence, no F0 */
 void wb_glottis_set_fry(wb_glottis_t *g, int on);         /* vocal-fry / creak register */
 void wb_glottis_set_breathiness(wb_glottis_t *g, double b); /* 0..1 extra aspiration noise */
+void wb_glottis_set_return_quotient(wb_glottis_t *g, double rq); /* 0..1 spectral-tilt lowpass */
 
 /* One sample of glottal flow. aspiration_noise in [-1,1]. */
 double wb_glottis_run_step(wb_glottis_t *g, double lambda, double aspiration_noise);

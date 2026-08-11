@@ -8,6 +8,7 @@
  */
 #include "wb_measure.h"
 #include "wb_dsp.h"
+#include "wuburvc/wubu_consonant.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -202,66 +203,67 @@ wb_formant_measure_t wb_measure_formants(const double *x, size_t n, int sr) {
 
 /* ---------------- Quality: jitter/shimmer/HNR/CPP/tilt (A16-A21) ---------------- */
 
-/* Voiced-region extraction: use the frame F0 confidence to build a voiced
- * mask, then find CONTIGUOUS voiced segments (with margin smoothing). We
- * return segments, not a stitched buffer — stitching concatenated frames
- * creates artificial discontinuities that fake zero-crossings and poison
- * jitter/shimmer. */
+/* Voiced-region extraction: use wuburvc's spectral-flatness + HNR voicing
+ * detector (Wiener entropy + harmonic energy — the SOTA recipe) on the
+ * f0 frame grid, then find CONTIGUOUS voiced segments. We return segments,
+ * not a stitched buffer — stitching concatenated frames creates artificial
+ * discontinuities that fake zero-crossings and poison jitter/shimmer. */
 typedef struct { size_t start; size_t len; } wb_seg_t;
 
 static size_t extract_voiced_segments(const double *x, size_t n, int sr,
                                       wb_seg_t *segs, size_t max_segs) {
-    (void)x;
-    /* frame-level voiced mask */
-    size_t frame = (size_t)(sr * 0.030);
-    if (frame < 4) frame = 4;
-    size_t hop = frame / 2;
-    size_t nframes = n > frame ? 1 + (n - frame) / hop : 1;
+    /* wuburvc's detector wants float PCM + a 100 fps f0 contour.
+     * Convert, run YIN on 40 ms windows with 10 ms hop (sample-hold),
+     * then call wubu_consonant_uv. */
+    int hop = sr / 100;
+    if (hop < 1) hop = 1;
+    int n_frames = (int)(n / hop);
+    if (n_frames < 1) return 0;
+    if (n_frames > 65536) n_frames = 65536;
 
-    unsigned char *mask = calloc(nframes, 1);
-    if (!mask) return 0;
-
-    for (size_t f = 0; f < nframes; f++) {
-        size_t start = f * hop;
-        if (start + frame > n) start = n - frame;
-        double f0 = wb_yin_f0(x + start, frame, sr);
-        /* confidence via normalized autocorrelation peak */
-        size_t maxlag = (size_t)(sr / 50.0);
-        if (maxlag > frame) maxlag = frame;
-        double *R = malloc((maxlag + 1) * sizeof(double));
-        double conf = 0;
-        if (R) {
-            wb_acorr(x + start, frame, R, maxlag);
-            size_t tmin = (size_t)(sr / 500.0), tmax = maxlag;
-            size_t best = tmin;
-            for (size_t t = tmin + 1; t <= tmax; t++) if (R[t] > R[best]) best = t;
-            if (R[0] > 0) conf = R[best] / R[0];
-            free(R);
-        }
-        mask[f] = (f0 > 40 && f0 < 500 && conf > 0.35) ? 1 : 0;
+    float *pcm = malloc((size_t)n * sizeof(float));
+    float *f0c = calloc((size_t)n_frames, sizeof(float));
+    unsigned char *vmask = calloc((size_t)n_frames, 1);
+    float *uv = calloc((size_t)n_frames, sizeof(float));
+    if (!pcm || !f0c || !vmask || !uv) {
+        free(pcm); free(f0c); free(vmask); free(uv);
+        return 0;
     }
+    for (size_t i = 0; i < n; i++) pcm[i] = (float)x[i];
+
+    size_t frame = (size_t)(sr * 0.040);
+    double held = 0;
+    for (int f = 0; f < n_frames; f++) {
+        size_t start = (size_t)f * (size_t)hop;
+        if (start + frame > n) break;
+        double f0 = wb_yin_f0(x + start, frame, sr);
+        if (f0 > 40 && f0 < 500) held = f0;
+        f0c[f] = (float)held;
+    }
+
+    int got = wubu_consonant_uv(pcm, (int)n, sr, f0c, n_frames, uv, NULL, 2048, hop);
+    if (got < 0) { free(pcm); free(f0c); free(vmask); free(uv); return 0; }
+    if (got > n_frames) got = n_frames;
 
     /* margin smoothing: a frame is voiced if it or either neighbor is */
-    unsigned char *vmask = calloc(nframes, 1);
-    if (!vmask) { free(mask); return 0; }
-    for (size_t f = 0; f < nframes; f++) {
-        if (mask[f]) {
+    for (int f = 0; f < got; f++) {
+        if (uv[f] > 0.5f) {
             vmask[f] = 1;
             if (f > 0) vmask[f-1] = 1;
-            if (f + 1 < nframes) vmask[f+1] = 1;
+            if (f + 1 < got) vmask[f+1] = 1;
         }
     }
-    free(mask);
+    free(uv); free(f0c); free(pcm);
 
     /* contiguous runs of voiced frames -> sample segments */
     size_t nsegs = 0;
-    size_t f = 0;
-    while (f < nframes && nsegs < max_segs) {
+    int f = 0;
+    while (f < got && nsegs < max_segs) {
         if (vmask[f]) {
-            size_t fend = f;
-            while (fend + 1 < nframes && vmask[fend + 1]) fend++;
-            size_t s = f * hop;
-            size_t e = (fend + 1) * hop + frame;
+            int fend = f;
+            while (fend + 1 < got && vmask[fend + 1]) fend++;
+            size_t s = (size_t)f * (size_t)hop;
+            size_t e = (size_t)(fend + 1) * (size_t)hop + frame;
             if (e > n) e = n;
             if (e > s) {
                 segs[nsegs].start = s;

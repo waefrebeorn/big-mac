@@ -804,21 +804,30 @@ static double phone_duration(const wb_phone_t *ph, int stress,
                              int is_word_final, int is_phrase_final,
                              const wb_phone_t *prev, const wb_phone_t *next) {
     int is_vowel = (ph->voiced && ph->turb < 0.05 && ph->velum < 0.05);
-    double d;
+    /* Klatt structure (Festival/MaryTTS source): each phone has an INHERENT
+     * (context-neutral) duration and a MINIMUM floor; context factors either
+     * compress the segment toward the floor or lengthen it above inherent.
+     *   dur = min + (inherent - min) * rule_product
+     * (Allen-Hunnicutt-Klatt MITalk ch.9; Brinckmann & Trouvain 2002). */
+    double inh = is_vowel ? 0.085 : 0.055;   /* inherent (context-neutral) */
+    double min = is_vowel ? 0.035 : 0.025;   /* minimum floor */
+    double f = 1.0;                          /* rule_product */
     if (is_vowel) {
-        d = 0.080;                                   /* inherent vowel base */
-        d *= stress_len(stress);                     /* stress length table */
-        d *= LENGTH_MOD[cons_class(next)] / 100.0;   /* voicing effect */
-        if (is_word_final) d *= 1.10;                /* word-final syllable */
-        if (is_phrase_final) d *= 1.30;              /* phrase-final */
+        f *= stress_len(stress);                     /* stress length table */
+        f *= LENGTH_MOD[cons_class(next)] / 100.0;   /* voicing effect */
+        if (is_word_final) f *= 1.10;                /* word-final syllable */
+        if (is_phrase_final) f *= 1.30;              /* phrase-final */
+        /* RULE7 unstressed shortening: strong compression AND min/2 so
+         * unstressed vowels fall well below the floor (stress-timing). */
+        if (stress == 0 && !is_phrase_final) { f *= 0.70; min *= 0.5; }
     } else {
-        d = 0.055;                                   /* inherent consonant base */
-        if (stress == 0) d *= 0.85;                  /* unstressed shorter */
+        if (stress == 0) { f *= 0.70; min *= 0.5; }  /* unstressed cons */
         if (prev && next && prev->td < 0.3 && next->td < 0.3)
-            d *= 0.75;                               /* stop-cluster shortening */
-        if (next && next->turb >= 0.05) d *= 1.10;   /* frication needs time */
+            f *= 0.75;                               /* stop-cluster shortening */
+        if (next && next->turb >= 0.05) f *= 1.10;   /* frication needs time */
     }
-    if (d < 0.030) d = 0.030;
+    double d = min + (inh - min) * f;
+    if (d < 0.020) d = 0.020;
     if (d > 0.20) d = 0.20;
     return d;
 }

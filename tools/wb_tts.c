@@ -631,6 +631,7 @@ int main(int argc, char **argv) {
     int g_pitch_accent = 0, g_sine_mode = 0, g_phone_mode = 0, g_whisper = 0, g_fry = 0;
     int g_tone = 0;   /* 1-4 Mandarin lexical tone applied per word */
     int g_vtl = 0;    /* override tract section count (vocal-tract length) */
+    double g_rate = 1.0;  /* speaking-rate multiplier (<1 fast, >1 slow) */
     double g_breathiness = 0.0, g_rq = 0.0;
     {
         int w = 1;
@@ -644,6 +645,7 @@ int main(int argc, char **argv) {
             if (!strcmp(argv[a], "-tone") && a + 1 < argc) { g_tone = atoi(argv[++a]); continue; }
             if (!strcmp(argv[a], "-vtl") && a + 1 < argc) { g_vtl = atoi(argv[++a]); continue; }
             if (!strcmp(argv[a], "-rq") && a + 1 < argc) { g_rq = atof(argv[++a]); continue; }
+            if (!strcmp(argv[a], "-rate") && a + 1 < argc) { g_rate = atof(argv[++a]); if (g_rate < 0.3) g_rate = 0.3; if (g_rate > 3.0) g_rate = 3.0; continue; }
             argv[w++] = argv[a];
         }
         argc = w;
@@ -757,10 +759,10 @@ int main(int argc, char **argv) {
         while (p) {
             int st;
             const wb_phone_t *ph = find_phone(p, &st);
-            if (ph) phrase_dur += phone_duration(ph, st, wi == nwords-1, 0, 0);
+            if (ph) phrase_dur += phone_duration(ph, st, wi == nwords-1, 0, 0) * g_rate;
             p = strtok(NULL, " ");
         }
-        phrase_dur += 0.06;  /* word gap (shorter than before) */
+        phrase_dur += 0.06 * g_rate;  /* word gap (shorter than before) */
     }
     if (phrase_dur < 0.5) phrase_dur = 0.5;
 
@@ -785,7 +787,7 @@ int main(int argc, char **argv) {
                         if (is_question) { f0s = base_f0 * 0.95; f0e = base_f0 * 1.35; }
                         else { f0s = base_f0 * 1.05; f0e = base_f0 * 0.85; }
                         ev[nev].ph = ph; ev[nev].stress = 0;
-                        ev[nev].dur = phone_duration(ph, 0, wi == nwords-1, 0, 0);
+                        ev[nev].dur = phone_duration(ph, 0, wi == nwords-1, 0, 0) * g_rate;
                         ev[nev].f0_start = f0s; ev[nev].f0_end = f0e;
                         ev[nev].energy = 0.9;
                         t_abs += ev[nev].dur;
@@ -794,7 +796,7 @@ int main(int argc, char **argv) {
                     p = strtok(NULL, " ");
                 }
             }
-            t_abs += 0.08;
+            t_abs += 0.08 * g_rate;
             continue;
         }
         char buf[128]; snprintf(buf, sizeof(buf), "%s", ph_str);
@@ -891,6 +893,7 @@ int main(int argc, char **argv) {
             int is_final = (wi == nwords - 1 && pi == nphones - 1);
             double dur = phone_duration(ph, st, is_final, prev_cons && next_cons, 0);
             dur *= p_dur;   /* planner duration multiplier */
+            dur *= g_rate;  /* R017 speaking rate */
             if (g_pitch_accent) {
                 /* mora-isochronous timing (Japanese): a vowel is ~1 mora,
                  * a consonant ~0.5 mora; morae run at a steady rate. */
@@ -914,10 +917,10 @@ int main(int argc, char **argv) {
             j_global++;
         }
         /* planner boundary: b0 no pause .. b4 long pause (gap C: prosody) */
-        double gap = 0.06;
-        if (use_planner) gap = 0.03 + 0.10 * p_boundary * p_boundary;
-        else if (punct[wi] == ',' ) gap = 0.15;
-        else if (punct[wi]) gap = 0.28;
+        double gap = 0.06 * g_rate;
+        if (use_planner) gap = (0.03 + 0.10 * p_boundary * p_boundary) * g_rate;
+        else if (punct[wi] == ',' ) gap = 0.15 * g_rate;
+        else if (punct[wi]) gap = 0.28 * g_rate;
         t_abs += gap;  /* word gap */
     }
     double total = t_abs + 0.3;

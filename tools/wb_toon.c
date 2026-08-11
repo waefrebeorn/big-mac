@@ -12,6 +12,8 @@
 #include "wb_tract.h"
 #include "wb_glottis.h"
 #include "wb_wav.h"
+#include "wb_aiff.h"
+#include "wb_midi.h"
 #include "wb_measure.h"
 
 #include <stdio.h>
@@ -263,7 +265,37 @@ int main(int argc, char **argv) {
     double *out = malloc((size_t)SR * 10 * sizeof(double));
     int n = 0;
     render_line(toon, line, out, &n);
+
+    /* WAV + AIFF (GarageBand-native) */
     wb_wav_write(argv[2], out, (size_t)n, SR);
+    char aiff_path[512];
+    snprintf(aiff_path, sizeof(aiff_path), "%s", argv[2]);
+    char *dot = strrchr(aiff_path, '.');
+    if (dot) strcpy(dot, ".aiff");
+    wb_aiff_write(aiff_path, out, (size_t)n, SR);
+
+    /* MIDI pitch track: one note per word group, pitch = nearest MIDI
+     * note to the character's f0 (singing the line as a drone melody). */
+    {
+        /* map f0 to MIDI note */
+        int midi = (int)(69 + 12 * log2(toon->f0 / 440.0) + 0.5);
+        if (midi < 0) midi = 0;
+        if (midi > 127) midi = 127;
+        /* 4 beats total, one note per beat */
+        wb_midi_note_t notes[4];
+        for (int k = 0; k < 4; k++) {
+            notes[k].start_beats = k;
+            notes[k].duration_beats = 0.9;
+            notes[k].note = midi;
+            notes[k].velocity = 90;
+        }
+        char midi_path[512];
+        snprintf(midi_path, sizeof(midi_path), "%s", argv[2]);
+        char *mdot = strrchr(midi_path, '.');
+        if (mdot) strcpy(mdot, ".mid");
+        wb_midi_write(midi_path, notes, 4, 120, 480);
+        printf("midi (f0=%d -> note %d): %s\n", (int)toon->f0, midi, midi_path);
+    }
 
     /* verify with our own analyzer */
     wb_f0_measure_t f0m = wb_measure_f0(out, (size_t)n, SR);

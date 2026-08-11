@@ -75,7 +75,6 @@ typedef struct {
     const char *name;
     double f0_shift;      /* multiply base f0 */
     double f0_range;      /* intonation excursion multiplier */
-    double tempo;         /* phones/sec (5.2 = neutral) */
     double intensity;     /* glottis intensity */
     double tenseness;     /* 0 breathy .. 1 pressed */
     double jitter;
@@ -85,12 +84,12 @@ typedef struct {
 } wb_emotion_t;
 
 static const wb_emotion_t EMOTIONS[] = {
-    { "neutral", 1.00, 1.00, 5.2, 0.80, 0.65, 0.005, 0.01, 0.002, 5.0 },
-    { "happy",   1.15, 1.60, 6.0, 0.88, 0.60, 0.006, 0.02, 0.004, 6.0 },
-    { "sad",     0.85, 0.55, 3.9, 0.55, 0.45, 0.010, 0.04, 0.002, 4.0 },
-    { "angry",   1.20, 1.80, 6.4, 0.98, 0.92, 0.012, 0.05, 0.003, 5.5 },
-    { "fearful", 1.30, 1.90, 6.2, 0.90, 0.85, 0.018, 0.06, 0.010, 7.0 },
-    { "surprised",1.35, 2.00, 5.8, 0.95, 0.80, 0.008, 0.03, 0.006, 6.5 },
+    { "neutral", 1.00, 1.00, 0.80, 0.65, 0.005, 0.01, 0.002, 5.0 },
+    { "happy",   1.15, 1.60, 0.88, 0.60, 0.006, 0.02, 0.004, 6.0 },
+    { "sad",     0.85, 0.55, 0.55, 0.45, 0.010, 0.04, 0.002, 4.0 },
+    { "angry",   1.20, 1.80, 0.98, 0.92, 0.012, 0.05, 0.003, 5.5 },
+    { "fearful", 1.30, 1.90, 0.90, 0.85, 0.018, 0.06, 0.010, 7.0 },
+    { "surprised",1.35, 2.00, 0.95, 0.80, 0.008, 0.03, 0.006, 6.5 },
 };
 
 static const wb_emotion_t *find_emotion(const char *name) {
@@ -117,6 +116,8 @@ typedef struct {
     double turb;       /* turbulence (fricative) 0..1 */
     double dur;        /* relative duration */
     double ti2, td2;   /* diphthong glide end-target (0 = none, gap G82) */
+    double fric_fc;    /* fricative spectral center Hz (R012-A1, 0=flat) */
+    double fric_bw;    /* fricative bandwidth Hz */
 } wb_phone_t;
 
 /* Reference formant targets: F1/F2 for vowels (Peterson & Barney-ish),
@@ -143,10 +144,10 @@ static const wb_phone_t PHONES[] = {
     { "B", 14.0, 0.2, 0.10, 0.0, 1, 0.00, 0.4 },   /* stop, voiced */
     { "CH", 14.0, 0.3, 0.60, 0.0, 0, 0.80, 0.5 },  /* affricate */
     { "D", 15.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4 },   /* stop, voiced */
-    { "DH", 15.5, 0.3, 0.70, 0.0, 1, 0.60, 0.5 },  /* th-voiced */
-    { "F", 14.0, 0.9, 0.15, 0.0, 0, 0.55, 0.4 },   /* fricative (quieter) */
-    { "G", 17.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4 },   /* stop, voiced */
-    { "HH", 16.0, 1.4, 0.90, 0.0, 0, 0.50, 0.4 },  /* h */
+    { "DH", 15.5, 0.3, 0.70, 0.0, 1, 0.60, 0.5, 0, 0, 2500, 1500 },  /* th-voiced */
+    { "F", 14.0, 0.9, 0.15, 0.0, 0, 0.55, 0.4, 0, 0, 2500, 1400 },   /* labiodental (Birkholz fc=2500) */
+    { "G", 17.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4, 0, 0, 0, 0 },   /* stop, voiced */
+    { "HH", 16.0, 1.4, 0.90, 0.0, 0, 0.50, 0.4, 0, 0, 0, 0 },  /* h */
     { "JH", 14.0, 0.3, 0.60, 0.0, 1, 0.80, 0.5 },  /* affricate voiced */
     { "K", 17.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4 },   /* stop */
     { "L", 14.0, 0.6, 0.80, 0.0, 1, 0.00, 0.6 },   /* liquid */
@@ -155,15 +156,15 @@ static const wb_phone_t PHONES[] = {
     { "NG", 17.0, 0.5, 0.80, 1.0, 1, 0.00, 0.5 },  /* nasal */
     { "P", 14.0, 0.2, 0.10, 0.0, 0, 0.00, 0.4 },   /* stop */
     { "R", 13.5, 0.7, 0.70, 0.0, 1, 0.00, 0.6 },   /* liquid */
-    { "S", 15.0, 0.35, 0.80, 0.0, 0, 0.65, 0.4 },  /* sibilant (quieter) */
-    { "SH", 14.0, 0.35, 0.60, 0.0, 0, 0.65, 0.4 }, /* sibilant */
-    { "T", 15.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4 },   /* stop */
-    { "TH", 15.5, 0.3, 0.70, 0.0, 0, 0.60, 0.4 },  /* th-unvoiced */
-    { "V", 14.0, 0.9, 0.15, 0.0, 1, 0.55, 0.4 },   /* fricative */
-    { "W", 19.0, 1.2, 0.35, 0.0, 1, 0.00, 0.5 },   /* glide */
-    { "Y", 13.0, 0.7, 0.85, 0.0, 1, 0.00, 0.5 },   /* glide */
-    { "Z", 15.0, 0.35, 0.80, 0.0, 1, 0.65, 0.4 },  /* sibilant */
-    { "ZH", 14.0, 0.35, 0.60, 0.0, 1, 0.65, 0.4 }, /* sibilant */
+    { "S", 15.0, 0.35, 0.80, 0.0, 0, 0.65, 0.4, 0, 0, 6000, 2500 },  /* hard sibilant (Birkholz 6000) */
+    { "SH", 14.0, 0.35, 0.60, 0.0, 0, 0.65, 0.4, 0, 0, 3200, 1600 }, /* soft sibilant (Birkholz 3200) */
+    { "T", 15.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4, 0, 0, 4500, 1500 },   /* stop (burst high) */
+    { "TH", 15.5, 0.3, 0.70, 0.0, 0, 0.60, 0.4, 0, 0, 3200, 1600 },  /* dental */
+    { "V", 14.0, 0.9, 0.15, 0.0, 1, 0.55, 0.4, 0, 0, 2500, 1400 },   /* labiodental */
+    { "W", 19.0, 1.2, 0.35, 0.0, 1, 0.00, 0.5, 0, 0, 0, 0 },   /* glide */
+    { "Y", 13.0, 0.7, 0.85, 0.0, 1, 0.00, 0.5, 0, 0, 0, 0 },   /* glide */
+    { "Z", 15.0, 0.35, 0.80, 0.0, 1, 0.65, 0.4, 0, 0, 6000, 2500 },  /* hard sibilant */
+    { "ZH", 14.0, 0.35, 0.60, 0.0, 1, 0.65, 0.4, 0, 0, 3200, 1600 }, /* soft sibilant */
 };
 
 static const wb_phone_t *find_phone(const char *ph, int *stress) {
@@ -211,6 +212,12 @@ static double tone_shape(int tone, double u) {
 }
 
 /* ---------------- render ---------------- */
+/* biquad bandpass state (R012-A1 fricative spectral shaping) */
+typedef struct {
+    double b0, b1, b2, a1, a2;   /* coefficients */
+    double z1, z2;               /* state */
+} wb_biquad_t;
+
 typedef struct {
     wb_tract_t *tract;
     wb_glottis_t *glottis;
@@ -218,6 +225,7 @@ typedef struct {
     double *out;
     int nsamp;
     double f0_phrase_start, f0_phrase_end;  /* intonation contour */
+    wb_biquad_t fric_filt;   /* fricative spectral shaper (R012-A1) */
 } wb_tts_t;
 
 /* Coarticulation smoothing (R010 gap A1/A2/A3 — VTL-style):
@@ -256,10 +264,38 @@ static void blend_targets(const wb_phone_t *prev, const wb_phone_t *cur,
     *velum = p->velum * carry + cur->velum    * w_cur + n->velum * anti;
 }
 
+/* ---------------- biquad bandpass filter for fricative shaping (R012-A1)
+ * Shapes the turbulence noise spectrum to the fricative's front-cavity
+ * resonance (Birkholz 2006): /s/ ~6000Hz, /ʃ/ ~3200Hz, /f/ ~2500Hz.
+ * Direct-form-II biquad, state kept per phone. */
+static void wb_biquad_bandpass(wb_biquad_t *f, double fc, double bw, int sr) {
+    double q = fc / bw;
+    if (q < 0.5) q = 0.5;
+    if (q > 20) q = 20;
+    double w0 = 2.0 * M_PI * fc / sr;
+    double alpha = sin(w0) / (2.0 * q);
+    double cosw = cos(w0);
+    double a0 = 1.0 + alpha;
+    f->b0 = alpha / a0;
+    f->b1 = 0.0;
+    f->b2 = -alpha / a0;
+    f->a1 = -2.0 * cosw / a0;
+    f->a2 = (1.0 - alpha) / a0;
+    f->z1 = f->z2 = 0.0;
+}
+
+static double wb_biquad_run(wb_biquad_t *f, double x) {
+    double y = f->b0 * x + f->z1;
+    f->z1 = f->b1 * x - f->a1 * y + f->z2;
+    f->z2 = f->b2 * x - f->a2 * y;
+    return y;
+}
+
 static void tts_render(wb_tts_t *T, double t0, double dur,
                        const wb_phone_t *ph, int stress,
                        const wb_phone_t *prev, const wb_phone_t *next,
                        double f0_start, double f0_end, double energy) {
+    (void)stress;   /* (stress used for amplitude in the caller) */
     int s0 = (int)(t0 * SR), s1 = (int)((t0 + dur) * SR);
     if (s1 > T->nsamp) s1 = T->nsamp;
     /* stop detection: closed tract (td small), no frication, not nasal.
@@ -268,6 +304,9 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
     int is_voiceless_stop = is_stop && !ph->voiced;
     int burst_done = 0;
     int vot_samples = is_voiceless_stop ? (int)(0.035 * SR) : 0;  /* 35ms VOT */
+    /* init the fricative spectral filter for this phone */
+    if (ph->fric_fc > 0) wb_biquad_bandpass(&T->fric_filt, ph->fric_fc, ph->fric_bw, SR);
+    else { T->fric_filt.a1 = T->fric_filt.a2 = T->fric_filt.z1 = T->fric_filt.z2 = 0; }
     for (int j = s0; j < s1; j++) {
         double t = (double)(j - s0) / (s1 - s0);   /* 0..1 within phone */
         int jj = j - s0;  /* sample into phone */
@@ -291,8 +330,12 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
         double lam1 = (double)m / BLOCK, lam2 = (m + 0.5) / BLOCK;
         double noise = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
         double gl = wb_glottis_run_step(T->glottis, lam1, noise * 0.3);
-        /* release burst: short noise burst at stop onset (gap D39) */
+        /* fricative spectral shaping (R012-A1): bandpass the noise to the
+         * phone's front-cavity resonance so /s/ /=/ =/ (Birkholz 2006) */
         double turb = noise * 0.3 * ph->turb;
+        if (ph->fric_fc > 0)
+            turb = wb_biquad_run(&T->fric_filt, turb);
+        /* release burst: short noise burst at stop onset (gap D39) */
         if (is_stop && !burst_done) {
             double burst_gain = is_voiceless_stop ? 0.8 : 0.4;
             double env = exp(-(double)jj / (0.008 * SR));  /* 8ms decay */
@@ -402,7 +445,8 @@ int main(int argc, char **argv) {
     }
     /* emotion applies to the character's voice */
     base_f0 *= em->f0_shift;
-    double tempo = em->tempo;
+    double tempo = 0;  /* (unused; kept for readability) */
+    (void)tempo;
     printf("tts: \"%s\" as %s (%s)\n", text, ch->name, em->name);
 
     /* ---------------- tokenize: words + punctuation ---------------- */

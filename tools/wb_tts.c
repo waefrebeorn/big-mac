@@ -211,6 +211,15 @@ static double tone_shape(int tone, double u) {
     }
 }
 
+/* Tokyo-style binary H/L pitch accent: ONE tonic (high) mora per word.
+ * Rule (Tokyo dialect): if the accent is on the first mora -> HꜜL L L…;
+ * if on a later mora -> L H…Hꜜ L L… (first low, accented up to it high,
+ * then a downstep to low). High = +step, low = -step. */
+static double pa_high(int accent, int i) {
+    if (accent == 0) return (i == 0) ? 1.0 : 0.0;      /* Hꜜ L L L */
+    return (i >= 1 && i <= accent) ? 1.0 : 0.0;         /* L H..Hꜜ L L */
+}
+
 /* ---------------- render ---------------- */
 /* biquad bandpass state (R012-A1 fricative spectral shaping) */
 typedef struct {
@@ -226,7 +235,60 @@ typedef struct {
     int nsamp;
     double f0_phrase_start, f0_phrase_end;  /* intonation contour */
     wb_biquad_t fric_filt;   /* fricative spectral shaper (R012-A1) */
+    wb_biquad_t nasal_notch; /* nasal antiformant zero (P0) */
+    int sine_mode;           /* formant-track sine render (P2) */
+    double sine_ph1, sine_ph2, sine_ph3;  /* sine oscillator phases */
 } wb_tts_t;
+
+/* Vowel formant targets (Peterson & Barney) for the sine-track mode. */
+static const struct { const char *ph; double f1, f2, f3; } WB_FORMANTS[] = {
+    { "AA", 730, 1090, 2440 }, { "AE", 660, 1720, 2410 }, { "AH", 640, 1190, 2390 },
+    { "AO", 570,  840, 2410 }, { "AW", 640, 1190, 2390 }, { "AY", 600, 1800, 2500 },
+    { "EH", 530, 1840, 2480 }, { "ER", 490, 1350, 1690 }, { "EY", 440, 2150, 2760 },
+    { "IH", 390, 1990, 2550 }, { "IY", 270, 2290, 3010 }, { "OW", 570,  840, 2410 },
+    { "OY", 470, 1050, 2500 }, { "UH", 440, 1020, 2240 }, { "UW", 300,  870, 2240 },
+};
+
+/* Formant track for a phone: vowels get their Peterson-Barney targets.
+ * Consonants have an F2 "locus" (Delattre & Liberman 1952 — the F2 frequency
+ * the transition starts/ends at, the primary place cue) and the render glides
+ * from that locus into the vowel's F2. Loci approximate classic values:
+ * labial /b p/ ~700, alveolar /d t n/ ~1800, velar /g k ŋ/ ~2500. */
+static double consonant_locus(const wb_phone_t *ph) {
+    switch (ph->ph[0]) {
+    case 'B': case 'P': case 'M': case 'W': return 700.0;
+    case 'D': case 'T': case 'N': return 1800.0;
+    case 'G': case 'K': return 2500.0;
+    case 'L': case 'R': return 1300.0;
+    case 'S': case 'Z': return 4000.0;
+    case 'F': case 'V': case 'TH': case 'DH': return 1700.0;
+    case 'Y': return 2200.0;
+    default: return 1600.0;
+    }
+}
+static void phone_formants(const wb_phone_t *ph, const wb_phone_t *prev,
+                           const wb_phone_t *next, double *f1, double *f2, double *f3) {
+    for (size_t k = 0; k < sizeof(WB_FORMANTS)/sizeof(WB_FORMANTS[0]); k++)
+        if (!strcmp(WB_FORMANTS[k].ph, ph->ph)) { *f1=WB_FORMANTS[k].f1; *f2=WB_FORMANTS[k].f2; *f3=WB_FORMANTS[k].f3; return; }
+    /* consonant: NG is a two-letter phone; check it before the single-letter switch */
+    if (strcmp(ph->ph, "NG") == 0) { *f1=300; *f2=2500; *f3=2400; return; }
+    if (strcmp(ph->ph, "SH") == 0 || strcmp(ph->ph, "ZH") == 0 ||
+        strcmp(ph->ph, "CH") == 0 || strcmp(ph->ph, "JH") == 0) { *f1=300; *f2=2500; *f3=3000; return; }
+    *f1 = 300.0;
+    *f2 = consonant_locus(ph);
+    *f3 = 2500.0;
+}
+
+/* Nasal antiformant (P0): the murmur of /m/ /n/ /ŋ/ has a spectral ZERO
+ * (the antiformant) that is the key place cue — /m/ ~750-1250 Hz, /n/
+ * ~2500 Hz, /ŋ/ ~1800 Hz. We notch the tract output during nasal phones. */
+static double nasal_antiformant_fc(const wb_phone_t *ph) {
+    if (ph->velum < 0.5) return 0.0;              /* not a nasal */
+    if (ph->ph[0] == 'M') return 1000.0;          /* /m/ labial */
+    if (ph->ph[0] == 'N') return 2500.0;          /* /n/ alveolar */
+    if (strcmp(ph->ph, "NG") == 0) return 1800.0; /* /ŋ/ velar */
+    return 0.0;
+}
 
 /* Coarticulation smoothing (R010 gap A1/A2/A3 — VTL-style):
  * the articulators don't snap between phone targets; they GLIDE with
@@ -291,6 +353,23 @@ static double wb_biquad_run(wb_biquad_t *f, double x) {
     return y;
 }
 
+/* Biquad notch (band-reject) — used for the nasal antiformant zero. */
+static void wb_biquad_notch(wb_biquad_t *f, double fc, double bw, int sr) {
+    double q = fc / bw;
+    if (q < 0.5) q = 0.5;
+    if (q > 20) q = 20;
+    double w0 = 2.0 * M_PI * fc / sr;
+    double alpha = sin(w0) / (2.0 * q);
+    double cosw = cos(w0);
+    double a0 = 1.0 + alpha;
+    f->b0 = 1.0 / a0;
+    f->b1 = -2.0 * cosw / a0;
+    f->b2 = 1.0 / a0;
+    f->a1 = -2.0 * cosw / a0;
+    f->a2 = (1.0 - alpha) / a0;
+    f->z1 = f->z2 = 0.0;
+}
+
 static void tts_render(wb_tts_t *T, double t0, double dur,
                        const wb_phone_t *ph, int stress,
                        const wb_phone_t *prev, const wb_phone_t *next,
@@ -299,14 +378,28 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
     int s0 = (int)(t0 * SR), s1 = (int)((t0 + dur) * SR);
     if (s1 > T->nsamp) s1 = T->nsamp;
     /* stop detection: closed tract (td small), no frication, not nasal.
-     * Stops get a release burst (gap D39) + VOT (D40). */
+     * Stops get a closure phase then a release burst (gap D39) + aspiration.
+     * Affricates CH/JH are stops that release into a fricative instead of a
+     * burst, so they share the closure phase. */
     int is_stop = (ph->td < 0.3 && ph->turb < 0.05 && ph->velum < 0.05);
     int is_voiceless_stop = is_stop && !ph->voiced;
-    int burst_done = 0;
-    int vot_samples = is_voiceless_stop ? (int)(0.035 * SR) : 0;  /* 35ms VOT */
+    int is_affricate = !is_stop && (strcmp(ph->ph, "CH") == 0 || strcmp(ph->ph, "JH") == 0);
+    int has_closure = is_stop || is_affricate;
     /* init the fricative spectral filter for this phone */
     if (ph->fric_fc > 0) wb_biquad_bandpass(&T->fric_filt, ph->fric_fc, ph->fric_bw, SR);
     else { T->fric_filt.a1 = T->fric_filt.a2 = T->fric_filt.z1 = T->fric_filt.z2 = 0; }
+    double nf_fc = nasal_antiformant_fc(ph);   /* P0: nasal spectral zero */
+    if (nf_fc > 0) wb_biquad_notch(&T->nasal_notch, nf_fc, 400.0, SR);
+    int dur_samp = s1 - s0;
+    /* Stop closure phase: a real stop holds a closed tract in silence
+     * (voiceless /p t k/) or a low "voice bar" (voiced /b d g/) for the
+     * first ~55% of its duration, THEN releases. The old code fired the
+     * burst at onset with no closure, which made stops sound mushy and
+     * smear into the following vowel. Affricates get a shorter (~40%)
+     * closure before the fricative release. */
+    int closure_frac = is_affricate ? 40 : 55;
+    int closure_samples = has_closure ? (dur_samp * closure_frac / 100) : 0;
+    int release_start = closure_samples;
     for (int j = s0; j < s1; j++) {
         double t = (double)(j - s0) / (s1 - s0);   /* 0..1 within phone */
         int jj = j - s0;  /* sample into phone */
@@ -318,36 +411,65 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
         wb_tract_set_rest_diameter(T->tract, ti, td);
         wb_tract_set_lips(T->tract, lips);
         wb_tract_set_velum(T->tract, velum);
-        /* voicing + VOT: voiceless stops delay phonation (D40) */
-        int phonate = ph->voiced && jj >= vot_samples;
-        if (phonate) {
-            wb_glottis_set_frequency(T->glottis, f0);
-            wb_glottis_set_intensity(T->glottis, 0.8);
+        double noise = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
+        int phonate;
+        double turb;
+        if (has_closure) {
+            if (jj < release_start) {
+                /* CLOSURE: tract closed, no frication. Voiced stops keep a
+                 * low-amplitude voice bar; voiceless stops are silent. */
+                turb = 0.0;
+                if (ph->voiced) {
+                    wb_glottis_set_frequency(T->glottis, f0);
+                    wb_glottis_set_intensity(T->glottis, 0.25);
+                    phonate = 1;
+                } else {
+                    wb_glottis_set_intensity(T->glottis, 0.0);
+                    phonate = 0;
+                }
+            } else if (is_affricate) {
+                /* AFFRICATE release: the closure bursts into its homorganic
+                 * fricative (CH -> ʃ, JH -> ʒ), not a stop burst. */
+                wb_glottis_set_frequency(T->glottis, f0);
+                wb_glottis_set_intensity(T->glottis, ph->voiced ? 0.6 : 0.0);
+                phonate = ph->voiced;
+                turb = noise * 0.3 * ph->turb;
+                if (ph->fric_fc > 0)
+                    turb = wb_biquad_run(&T->fric_filt, turb);
+            } else {
+                /* RELEASE: place-shaped burst (Dorman 1977: burst spectrum
+                 * cues place — P low ~500Hz, T/K high ~4.5/2kHz via fric_fc),
+                 * then a light aspiration tail for voiceless stops. */
+                int rel = jj - release_start;
+                double rel_t = (double)rel / SR;
+                wb_glottis_set_intensity(T->glottis, 0.0);
+                phonate = 0;
+                double burst_env = exp(-rel_t / 0.008);   /* 8ms decay */
+                turb = noise * (is_voiceless_stop ? 0.8 : 0.4) * burst_env;
+                if (is_voiceless_stop && rel_t > 0.015)
+                    turb = noise * 0.3 * 0.25;   /* light aspiration tail */
+                if (ph->fric_fc > 0)
+                    turb = wb_biquad_run(&T->fric_filt, turb);
+            }
         } else {
-            wb_glottis_set_intensity(T->glottis, 0.0);
+            /* vowel or continuant: glottis on if voiced, frication if turb */
+            phonate = ph->voiced;
+            if (phonate) {
+                wb_glottis_set_frequency(T->glottis, f0);
+                wb_glottis_set_intensity(T->glottis, 0.8);
+            } else {
+                wb_glottis_set_intensity(T->glottis, 0.0);
+            }
+            turb = noise * 0.3 * ph->turb;
+            if (ph->fric_fc > 0)
+                turb = wb_biquad_run(&T->fric_filt, turb);
         }
         int m = j % BLOCK;
         double lam1 = (double)m / BLOCK, lam2 = (m + 0.5) / BLOCK;
-        double noise = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
         double gl = wb_glottis_run_step(T->glottis, lam1, noise * 0.3);
-        /* fricative spectral shaping (R012-A1): bandpass the noise to the
-         * phone's front-cavity resonance so /s/ /=/ =/ (Birkholz 2006) */
-        double turb = noise * 0.3 * ph->turb;
-        if (ph->fric_fc > 0)
-            turb = wb_biquad_run(&T->fric_filt, turb);
-        /* release burst: short noise burst at stop onset, shaped to the
-         * stop's place spectrum (Dorman 1977: burst freq + F2 cue place) */
-        if (is_stop && !burst_done) {
-            double burst_gain = is_voiceless_stop ? 0.8 : 0.4;
-            double env = exp(-(double)jj / (0.008 * SR));  /* 8ms decay */
-            double burst_noise = noise;
-            if (ph->fric_fc > 0)
-                burst_noise = wb_biquad_run(&T->fric_filt, noise);
-            turb += burst_noise * burst_gain * env;
-            if (jj > (int)(0.012 * SR)) burst_done = 1;
-        }
         double vocal = wb_tract_run_step(T->tract, gl, turb, lam1)
                      + wb_tract_run_step(T->tract, gl, turb, lam2);
+        if (nf_fc > 0) vocal = wb_biquad_run(&T->nasal_notch, vocal);   /* nasal antiformant */
         /* phonation onset/offset transients (gap F80): smooth 10ms ramps
          * so voiced segments fade in/out instead of switching abruptly */
         double env = 1.0;
@@ -361,6 +483,50 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
             wb_glottis_finish_block(T->glottis, phonate, (double)BLOCK / SR);
             wb_tract_finish_block(T->tract, (double)BLOCK / SR);
         }
+    }
+}
+
+/* ---------------- P2 formant-track sine render (the "cheat") ----------------
+ * Three sine oscillators track F1/F2/F3 (Remez sine-wave speech — the formant
+ * TRACKS alone carry intelligibility). Ultra-light: a few sin() per sample,
+ * no waveguide, ideal for the 1-core real-time voice-changer path. */
+static void sine_render_phone(wb_tts_t *T, double t0, double dur,
+                              const wb_phone_t *ph, const wb_phone_t *prev,
+                              const wb_phone_t *next,
+                              double f0_start, double f0_end, double energy) {
+    int s0 = (int)(t0 * SR), s1 = (int)((t0 + dur) * SR);
+    if (s1 > T->nsamp) s1 = T->nsamp;
+    if (s1 <= s0) return;
+    (void)f0_start; (void)f0_end;
+    /* formant sets for prev / cur / next so the F2 locus glides into the
+     * vowel's F2 (coarticulated, smooth — like blend_targets for the tract) */
+    double pf1,pf2,pf3, cf1,cf2,cf3, nf1,nf2,nf3;
+    phone_formants(prev ? prev : ph, prev, ph, &pf1,&pf2,&pf3);
+    phone_formants(ph, prev, next, &cf1,&cf2,&cf3);
+    phone_formants(next ? next : ph, ph, next, &nf1,&nf2,&nf3);
+    double step = 1.0 / (double)SR;
+    for (int j = s0; j < s1; j++) {
+        double t = (double)(j - s0) / (double)(s1 - s0);
+        double carry = 0, anti = 0;
+        if (t < 0.30) carry = 1.0 - t / 0.30;
+        if (t > 0.70) anti = (t - 0.70) / 0.30;
+        double w = 1.0 - 0.6 * (carry + anti); if (w < 0.15) w = 0.15;
+        double f1 = pf1*carry + cf1*w + nf1*anti;
+        double f2 = pf2*carry + cf2*w + nf2*anti;
+        double f3 = pf3*carry + cf3*w + nf3*anti;
+        T->sine_ph1 += 2 * M_PI * f1 * step;
+        T->sine_ph2 += 2 * M_PI * f2 * step;
+        T->sine_ph3 += 2 * M_PI * f3 * step;
+        double v = 0.5 * sin(T->sine_ph1) + 0.3 * sin(T->sine_ph2) + 0.2 * sin(T->sine_ph3);
+        double amp = ph->voiced ? 1.0 : 0.12;   /* voiceless quieter */
+        int jj = j - s0;
+        int n_env = (int)(0.010 * SR);
+        double env = 1.0;
+        if (ph->voiced) {
+            if (jj < n_env) env = (double)jj / n_env;
+            if (s1 - j - 1 < n_env) env = (double)(s1 - j - 1) / n_env;
+        }
+        T->out[j] += v * amp * env * 0.25 * energy;
     }
 }
 
@@ -401,10 +567,26 @@ static double phrase_f0(double u, double base) {
 }
 
 int main(int argc, char **argv) {
+    /* -pa: Japanese-style binary H/L pitch accent + mora-isochronous timing
+     * (Tokyo dialect: every word has ONE tonic mora). -sine: formant-track
+     * "sine-wave speech" mode (Remez) — three oscillators track F1/F2/F3.
+     * Filter both out so the positional parsing below is unchanged. */
+    int g_pitch_accent = 0, g_sine_mode = 0;
+    {
+        int w = 1;
+        for (int a = 1; a < argc; a++) {
+            if (!strcmp(argv[a], "-pa")) { g_pitch_accent = 1; continue; }
+            if (!strcmp(argv[a], "-sine")) { g_sine_mode = 1; continue; }
+            argv[w++] = argv[a];
+        }
+        argc = w;
+    }
     if (argc < 4) {
-        fprintf(stderr, "usage: wb_tts \"<text>\" <character> <out.wav> [f0] [emotion] [planner.mlp]\n");
-        fprintf(stderr, "       wb_tts -f <file> <character> <out.wav> [f0] [emotion] [planner.mlp]\n");
+        fprintf(stderr, "usage: wb_tts \\\"<text>\\\" <character> <out.wav> [f0] [emotion] [planner.mlp] [-pa] [-sine]\n");
+        fprintf(stderr, "       wb_tts -f <file> <character> <out.wav> [f0] [emotion] [planner.mlp] [-pa] [-sine]\n");
         fprintf(stderr, "  emotions: neutral happy sad angry fearful surprised\n");
+        fprintf(stderr, "  -pa: Tokyo-style binary H/L pitch accent + mora timing (Japanese prosody)\n");
+        fprintf(stderr, "  -sine: formant-track mode — 3 sine oscillators track F1/F2/F3 (sine-wave speech, ultra-light)\n");
         return 1;
     }
     /* read text from a file (API path, gap I97) */
@@ -580,14 +762,29 @@ int main(int argc, char **argv) {
             p_boundary = bmaxi;
         }
 
+        /* Japanese pitch-accent: ONE tonic (high) mora per word — the first
+         * stressed phone, else the last mora (common unaccented-last pattern). */
+        int pa_accent = nphones - 1;
+        if (g_pitch_accent) {
+            for (int k = 0; k < nphones; k++) {
+                int s2;
+                if (find_phone(phones[k], &s2) && s2 > 0) { pa_accent = k; break; }
+            }
+        }
+
         for (int pi = 0; pi < nphones; pi++) {
             int st;
             const wb_phone_t *ph = find_phone(phones[pi], &st);
             if (!ph) continue;
             /* prosody: stress bump + phrase contour + declination */
             double f0s = base_f0, f0e = base_f0;
-            double local = (double)phone_idx / (nphones > 1 ? nphones - 1 : 1);
             double u_phrase = (double)wi / (nwords > 1 ? nwords - 1 : 1);
+            if (g_pitch_accent) {
+                /* binary H/L step: constant within the mora, no glide */
+                double step = base_f0 * (pa_high(pa_accent, phone_idx) ? 1.16 : 0.88);
+                f0s = f0e = step;
+            } else {
+            double local = (double)phone_idx / (nphones > 1 ? nphones - 1 : 1);
             /* apply the planner's tone shape (WordVoice 7-tone taxonomy),
              * scaled by the planner's pitch offset */
             double shape_s = tone_shape(p_tone, (double)phone_idx / (nphones > 0 ? nphones : 1));
@@ -607,12 +804,19 @@ int main(int argc, char **argv) {
                 f0e = base_f0 * decl * (0.95 + 0.15 * pct * em->f0_range - 0.10 * em->f0_range) * shape_e * pitch_mult * micro;
                 if (st > 0) { f0s *= 1.10; f0e *= 1.05; }
             }
+            }
             /* Klatt duration: context + stress + phrase-final + planner dur */
             int prev_cons = pi > 0;
             int next_cons = pi + 1 < nphones;
             int is_final = (wi == nwords - 1 && pi == nphones - 1);
             double dur = phone_duration(ph, st, is_final, prev_cons && next_cons, 0);
             dur *= p_dur;   /* planner duration multiplier */
+            if (g_pitch_accent) {
+                /* mora-isochronous timing (Japanese): a vowel is ~1 mora,
+                 * a consonant ~0.5 mora; morae run at a steady rate. */
+                int is_v = (ph->voiced && ph->turb < 0.05 && ph->velum < 0.05);
+                dur = (is_v ? 0.095 : 0.048) * p_dur;
+            }
             ev[nev].ph = ph; ev[nev].stress = st;
             ev[nev].dur = dur;
             ev[nev].f0_start = f0s; ev[nev].f0_end = f0e;
@@ -653,13 +857,18 @@ int main(int argc, char **argv) {
      * (Kept simple: em->intensity already carries the emotion loudness.) */
 
     wb_tts_t T = { tract, g, ch, out, nsamp, base_f0, base_f0 };
+    T.sine_mode = g_sine_mode;
 
     double t0 = 0.15;
     for (int i = 0; i < nev; i++) {
         const wb_phone_t *prev = i > 0 ? ev[i-1].ph : ev[i].ph;
         const wb_phone_t *next = i + 1 < nev ? ev[i+1].ph : ev[i].ph;
-        tts_render(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress, prev, next,
-                   ev[i].f0_start, ev[i].f0_end, ev[i].energy);
+        if (g_sine_mode)
+            sine_render_phone(&T, t0, ev[i].dur, ev[i].ph, prev, next,
+                              ev[i].f0_start, ev[i].f0_end, ev[i].energy);
+        else
+            tts_render(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress, prev, next,
+                       ev[i].f0_start, ev[i].f0_end, ev[i].energy);
         t0 += ev[i].dur;
     }
 

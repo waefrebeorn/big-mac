@@ -219,20 +219,49 @@ typedef struct {
     double f0_phrase_start, f0_phrase_end;  /* intonation contour */
 } wb_tts_t;
 
+/* Coarticulation smoothing (R010 gap A1/A2/A3 — VTL-style):
+ * the articulators don't snap between phone targets; they GLIDE with
+ * overlap. At the start of a phone we're still arriving from the previous
+ * phone's gesture (carryover); near the end we're already anticipating the
+ * next phone's gesture (anticipatory). And vowels never fully reach their
+ * target before the next consonant pulls away (undershoot). We blend the
+ * (ti, td, lips, velum) targets with a cosine overlap window. */
+static void blend_targets(const wb_phone_t *prev, const wb_phone_t *cur,
+                          const wb_phone_t *next, double t,   /* 0..1 in phone */
+                          double *ti, double *td, double *lips, double *velum) {
+    double carry = 0, anti = 0;
+    /* first 30% dominated by carryover from prev, last 30% anticipation
+     * of next; middle is pure current target (with undershoot toward the
+     * surrounding consonant positions for vowels) */
+    if (t < 0.30) carry = 1.0 - t / 0.30;
+    if (t > 0.70) anti = (t - 0.70) / 0.30;
+    double w_cur = 1.0 - 0.6 * (carry + anti);   /* current never fully dominates */
+    w_cur = w_cur < 0.15 ? 0.15 : w_cur;
+
+    const wb_phone_t *p = prev ? prev : cur;
+    const wb_phone_t *n = next ? next : cur;
+    *ti    = p->ti    * carry + cur->ti    * w_cur + n->ti    * anti;
+    *td    = p->td    * carry + cur->td    * w_cur + n->td    * anti;
+    *lips  = p->lips  * carry + cur->lips  * w_cur + n->lips  * anti;
+    *velum = p->velum * carry + cur->velum * w_cur + n->velum * anti;
+}
+
 static void tts_render(wb_tts_t *T, double t0, double dur,
                        const wb_phone_t *ph, int stress,
+                       const wb_phone_t *prev, const wb_phone_t *next,
                        double f0_start, double f0_end) {
     int s0 = (int)(t0 * SR), s1 = (int)((t0 + dur) * SR);
     if (s1 > T->nsamp) s1 = T->nsamp;
-    int voiced_prev = 0;
     for (int j = s0; j < s1; j++) {
         double t = (double)(j - s0) / (s1 - s0);   /* 0..1 within phone */
         /* f0 glide within the phone (intonation) */
         double f0 = f0_start + (f0_end - f0_start) * t;
-        /* articulation: blend from neutral to phone target quickly */
-        wb_tract_set_rest_diameter(T->tract, ph->ti, ph->td);
-        wb_tract_set_lips(T->tract, ph->lips);
-        wb_tract_set_velum(T->tract, ph->velum);
+        /* articulation: coarticulated blend of prev/cur/next targets */
+        double ti, td, lips, velum;
+        blend_targets(prev, ph, next, t, &ti, &td, &lips, &velum);
+        wb_tract_set_rest_diameter(T->tract, ti, td);
+        wb_tract_set_lips(T->tract, lips);
+        wb_tract_set_velum(T->tract, velum);
         if (ph->voiced) {
             wb_glottis_set_frequency(T->glottis, f0);
             wb_glottis_set_intensity(T->glottis, 0.8);
@@ -253,9 +282,7 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
             wb_glottis_finish_block(T->glottis, ph->voiced, (double)BLOCK / SR);
             wb_tract_finish_block(T->tract, (double)BLOCK / SR);
         }
-        voiced_prev = ph->voiced;
     }
-    (void)voiced_prev;
 }
 
 int main(int argc, char **argv) {
@@ -474,7 +501,9 @@ int main(int argc, char **argv) {
 
     double t0 = 0.15;
     for (int i = 0; i < nev; i++) {
-        tts_render(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress,
+        const wb_phone_t *prev = i > 0 ? ev[i-1].ph : ev[i].ph;
+        const wb_phone_t *next = i + 1 < nev ? ev[i+1].ph : ev[i].ph;
+        tts_render(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress, prev, next,
                    ev[i].f0_start, ev[i].f0_end);
         t0 += ev[i].dur;
     }

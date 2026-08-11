@@ -833,11 +833,11 @@ int main(int argc, char **argv) {
             p_boundary = bmaxi;
         }
 
-        /* R017 -tone N: cycling Mandarin lexical tone (1-4) per word.
-         * T1 high-level(55), T2 rising(35), T3 dipping(214), T4 falling(51).
-         * Mapped to tone_shape: flat / rise / valley / strong-fall. */
+        /* R017 -tone N: apply a fixed Mandarin lexical tone (1-4) to every
+         * word. T1 high-level(55), T2 rising(35), T3 dipping(214), T4
+         * falling(51). Mapped to tone_shape: flat / rise / valley / strong-fall. */
         if (g_tone) {
-            int t = (wi % 4) + 1;
+            int t = (g_tone % 4 == 0) ? 4 : g_tone % 4;
             p_tone = (t == 1) ? 0 : (t == 2) ? 1 : (t == 3) ? 6 : 4;
             p_pitch = (t == 1) ? 0.6 : 0.0;   /* T1 rides high */
         }
@@ -940,6 +940,13 @@ int main(int argc, char **argv) {
     if (g_fry) { wb_glottis_set_fry(g, 1); wb_glottis_set_frequency(g, ch->f0 * 0.5); }
     if (g_breathiness > 0) wb_glottis_set_breathiness(g, g_breathiness);
     if (g_rq > 0) wb_glottis_set_return_quotient(g, g_rq);
+    /* R017 tone phonation: tone languages fuse contour with phonation type.
+     * T3 (dipping) is often creaky at the tail; T4 (falling) breathy. */
+    if (g_tone) {
+        int tt = (g_tone % 4 == 0) ? 4 : g_tone % 4;
+        if (tt == 3) wb_glottis_set_fry(g, 1);         /* dipping -> creaky */
+        else if (tt == 4) wb_glottis_set_breathiness(g, 0.6); /* falling -> breathy */
+    }
     /* planner energy: scale output amplitude per word is complex mid-render;
      * we apply it as a gentle global loudness from the planner's average.
      * (Kept simple: em->intensity already carries the emotion loudness.) */

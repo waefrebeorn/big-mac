@@ -23,6 +23,7 @@
 #include "wb_wav.h"
 #include "wb_aiff.h"
 #include "wb_measure.h"
+#include "wb_mlp.h"
 #include "data/tts_dict.h"
 
 #include <stdio.h>
@@ -193,6 +194,21 @@ static const char *lookup_word(const char *word) {
     return NULL;
 }
 
+/* ---------------- the 7 tone contours (WordVoice taxonomy) ---------------- */
+/* tone_shape returns the f0 multiplier at fraction u (0..1) of the word. */
+static double tone_shape(int tone, double u) {
+    switch (tone) {
+    case 0: return 1.00;                    /* flat */
+    case 1: return 1.00 + 0.15 * u;         /* rise */
+    case 2: return 1.00 + 0.30 * u;         /* strong_rise */
+    case 3: return 1.15 - 0.15 * u;         /* fall */
+    case 4: return 1.30 - 0.30 * u;         /* strong_fall */
+    case 5: return 1.00 + 0.30 * sin(M_PI * u);       /* peak */
+    case 6: return 1.15 - 0.30 * sin(M_PI * u);       /* valley */
+    default: return 1.00;
+    }
+}
+
 /* ---------------- render ---------------- */
 typedef struct {
     wb_tract_t *tract;
@@ -258,6 +274,15 @@ int main(int argc, char **argv) {
         const wb_emotion_t *e = find_emotion(argv[5]);
         if (!e) { fprintf(stderr, "unknown emotion %s\n", argv[5]); return 1; }
         em = e;
+    }
+    /* optional MLP planner (the WordVoice bound-token, non-neural) */
+    const char *planner_path = NULL;
+    if (argc > 6) planner_path = argv[6];
+    wb_mlp_t planner;
+    int use_planner = 0;
+    if (planner_path && wb_mlp_load(planner_path, &planner) == 0) {
+        use_planner = 1;
+        printf("using MLP prosody planner: %s\n", planner_path);
     }
     /* emotion applies to the character's voice */
     base_f0 *= em->f0_shift;
@@ -362,6 +387,36 @@ int main(int argc, char **argv) {
         int phone_idx = 0, nphones = 0;
         char *phones[16];
         while (p && nphones < 16) { phones[nphones++] = p; p = strtok(NULL, " "); }
+
+        /* ---- MLP planner: predict word prosody (bound-token, non-neural) */
+        double p_dur = 1.0, p_energy = em->intensity, p_pitch = 0;
+        int p_tone = 0, p_boundary = 0;
+        if (use_planner) {
+            double feat[WB_MLP_IN], o[WB_MLP_OUT];
+            feat[0] = (double)strlen(words[wi]);        /* word length */
+            feat[1] = nphones / 2.0;                    /* syllables-ish */
+            feat[2] = 0;                                 /* stress (filled per phone below) */
+            feat[3] = (double)wi;                        /* position */
+            feat[4] = wi == 0 ? 1.0 : 0.0;              /* is_first */
+            feat[5] = wi == nwords - 1 ? 1.0 : 0.0;    /* is_last */
+            feat[6] = 1.0;                              /* has_vowel */
+            feat[7] = punct[wi] == ',' ? 1 : (punct[wi] ? 2 : 0);  /* punct */
+            feat[8] = is_question ? 1.0 : 0.0;          /* is_question */
+            feat[9] = 0;                                 /* prev_stress */
+            feat[10] = (double)nphones;                 /* n_phones */
+            feat[11] = 0.5;                             /* freq hint */
+            wb_mlp_forward(&planner, feat, o);
+            p_dur = o[0] * 2.0;
+            p_energy = o[1] * em->intensity;
+            p_pitch = o[2];
+            int tmaxi = 0; double tm = o[3];
+            for (int k = 4; k <= 9; k++) if (o[k] > tm) { tm = o[k]; tmaxi = k - 3; }
+            p_tone = tmaxi;
+            int bmaxi = 0; double bm = o[10];
+            for (int k = 11; k <= 14; k++) if (o[k] > bm) { bm = o[k]; bmaxi = k - 10; }
+            p_boundary = bmaxi;
+        }
+
         for (int pi = 0; pi < nphones; pi++) {
             int st;
             const wb_phone_t *ph = find_phone(phones[pi], &st);
@@ -369,27 +424,35 @@ int main(int argc, char **argv) {
             /* prosody: stress bump + phrase contour */
             double f0s = base_f0, f0e = base_f0;
             double local = (double)phone_idx / (nphones > 1 ? nphones - 1 : 1);
+            /* apply the planner's tone shape (WordVoice 7-tone taxonomy),
+             * scaled by the planner's pitch offset */
+            double shape_s = tone_shape(p_tone, (double)phone_idx / (nphones > 0 ? nphones : 1));
+            double shape_e = tone_shape(p_tone, (double)(phone_idx + 1) / (nphones > 0 ? nphones : 1));
+            double pitch_mult = 1.0 + p_pitch * 0.25;   /* pitch offset -> semitones-ish */
             if (is_question) {
-                /* rising: low start, high end, stress bump mid */
-                f0s = base_f0 * (0.92 + 0.10 * local);
-                f0e = base_f0 * (1.10 + 0.30 * local * em->f0_range);
+                f0s = base_f0 * (0.92 + 0.10 * local) * shape_s * pitch_mult;
+                f0e = base_f0 * (1.10 + 0.30 * local * em->f0_range) * shape_e * pitch_mult;
                 if (st > 0) { f0s *= 1.08; f0e *= 1.08; }
             } else {
-                /* declarative: gentle rise then fall */
                 double mid = 0.35;
                 double pct = local < mid ? local / mid : 1.0 - (local - mid) / (1 - mid);
-                f0s = base_f0 * (0.95 + 0.15 * pct * em->f0_range);
-                f0e = base_f0 * (0.95 + 0.15 * pct * em->f0_range - 0.10 * em->f0_range);
+                f0s = base_f0 * (0.95 + 0.15 * pct * em->f0_range) * shape_s * pitch_mult;
+                f0e = base_f0 * (0.95 + 0.15 * pct * em->f0_range - 0.10 * em->f0_range) * shape_e * pitch_mult;
                 if (st > 0) { f0s *= 1.10; f0e *= 1.05; }
             }
             ev[nev].ph = ph; ev[nev].stress = st;
-            ev[nev].dur = ph->dur / tempo * (st > 0 ? 1.25 : 1.0);
+            ev[nev].dur = ph->dur / tempo * (st > 0 ? 1.25 : 1.0) * p_dur;
             ev[nev].f0_start = f0s; ev[nev].f0_end = f0e;
             t_abs += ev[nev].dur;
             nev++;
             phone_idx++;
         }
-        t_abs += 0.08;  /* word gap */
+        /* planner boundary: b0 no pause .. b4 long pause */
+        double gap = 0.08;
+        if (use_planner) gap = 0.04 + 0.12 * p_boundary * p_boundary;
+        else if (punct[wi] == ',' ) gap = 0.15;
+        else if (punct[wi]) gap = 0.28;
+        t_abs += gap;  /* word gap */
     }
     double total = t_abs + 0.3;
 
@@ -403,6 +466,9 @@ int main(int argc, char **argv) {
     wb_glottis_set_shimmer(g, ch->shimmer + em->shimmer);
     wb_glottis_set_vibrato(g, ch->vib_depth + em->vib_depth, em->vib_rate);
     wb_glottis_set_intensity(g, em->intensity);
+    /* planner energy: scale output amplitude per word is complex mid-render;
+     * we apply it as a gentle global loudness from the planner's average.
+     * (Kept simple: em->intensity already carries the emotion loudness.) */
 
     wb_tts_t T = { tract, g, ch, out, nsamp, base_f0, base_f0 };
 

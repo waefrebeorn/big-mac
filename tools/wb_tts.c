@@ -470,6 +470,14 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
                 lips += (0.75 - lips) * 0.35;
             }
         }
+        /* R018 nasal coarticulation (Moll & Daniloff): vowels adjacent to a
+         * nasal open the velum partially — anticipatory (before /m n ng/)
+         * and carryover (after) — nasalizing the vowel. */
+        {
+            int is_vowel = ph->voiced && ph->turb < 0.05 && ph->velum < 0.05;
+            int adj_nasal = (prev->velum >= 0.5) || (next->velum >= 0.5);
+            if (is_vowel && adj_nasal) velum += (0.45 - velum) * 0.6;
+        }
         wb_tract_set_rest_diameter(T->tract, ti, td);
         wb_tract_set_lips(T->tract, lips);
         wb_tract_set_lip_rounding(T->tract, round);
@@ -906,6 +914,10 @@ int main(int argc, char **argv) {
             double dur = phone_duration(ph, st, is_final, prev_cons && next_cons, 0);
             dur *= p_dur;   /* planner duration multiplier */
             dur *= g_rate;  /* R017 speaking rate */
+            /* R018 stress-timing (English): unstressed syllables compress to
+             * keep a fairly steady inter-stress interval (Morse-code rhythm);
+             * phrase-final keeps its lengthening from phone_duration. */
+            if (st == 0 && !g_pitch_accent && !is_final) dur *= 0.82;
             if (g_pitch_accent) {
                 /* mora-isochronous timing (Japanese): a vowel is ~1 mora,
                  * a consonant ~0.5 mora; morae run at a steady rate. */

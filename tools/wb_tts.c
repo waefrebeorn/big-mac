@@ -141,20 +141,20 @@ static const wb_phone_t PHONES[] = {
     { "UW", 18.5, 1.3, 0.30, 0.0, 1, 0.00, 1.0 },  /* boot    */
 
     /* consonants */
-    { "B", 14.0, 0.2, 0.10, 0.0, 1, 0.00, 0.4 },   /* stop, voiced */
-    { "CH", 14.0, 0.3, 0.60, 0.0, 0, 0.80, 0.5 },  /* affricate */
-    { "D", 15.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4 },   /* stop, voiced */
+    { "B", 14.0, 0.2, 0.10, 0.0, 1, 0.00, 0.4, 0, 0, 500, 400 },   /* stop labial (burst low) */
+    { "CH", 14.0, 0.3, 0.60, 0.0, 0, 0.80, 0.5, 0, 0, 3200, 1600 },  /* affricate */
+    { "D", 15.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4, 0, 0, 4500, 1800 },   /* stop alveolar (burst high) */
     { "DH", 15.5, 0.3, 0.70, 0.0, 1, 0.60, 0.5, 0, 0, 2500, 1500 },  /* th-voiced */
     { "F", 14.0, 0.9, 0.15, 0.0, 0, 0.55, 0.4, 0, 0, 2500, 1400 },   /* labiodental (Birkholz fc=2500) */
-    { "G", 17.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4, 0, 0, 0, 0 },   /* stop, voiced */
+    { "G", 17.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4, 0, 0, 2000, 1500 },   /* stop velar (burst mid) */
     { "HH", 16.0, 1.4, 0.90, 0.0, 0, 0.50, 0.4, 0, 0, 0, 0 },  /* h */
     { "JH", 14.0, 0.3, 0.60, 0.0, 1, 0.80, 0.5 },  /* affricate voiced */
-    { "K", 17.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4 },   /* stop */
+    { "K", 17.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4, 0, 0, 2000, 1500 },   /* stop velar (burst mid) */
     { "L", 14.0, 0.6, 0.80, 0.0, 1, 0.00, 0.6 },   /* liquid */
     { "M", 14.5, 0.5, 0.10, 1.0, 1, 0.00, 0.5 },   /* nasal */
     { "N", 15.0, 0.5, 0.80, 1.0, 1, 0.00, 0.5 },   /* nasal */
     { "NG", 17.0, 0.5, 0.80, 1.0, 1, 0.00, 0.5 },  /* nasal */
-    { "P", 14.0, 0.2, 0.10, 0.0, 0, 0.00, 0.4 },   /* stop */
+    { "P", 14.0, 0.2, 0.10, 0.0, 0, 0.00, 0.4, 0, 0, 500, 400 },   /* stop labial (burst low) */
     { "R", 13.5, 0.7, 0.70, 0.0, 1, 0.00, 0.6 },   /* liquid */
     { "S", 15.0, 0.35, 0.80, 0.0, 0, 0.65, 0.4, 0, 0, 6000, 2500 },  /* hard sibilant (Birkholz 6000) */
     { "SH", 14.0, 0.35, 0.60, 0.0, 0, 0.65, 0.4, 0, 0, 3200, 1600 }, /* soft sibilant (Birkholz 3200) */
@@ -335,11 +335,15 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
         double turb = noise * 0.3 * ph->turb;
         if (ph->fric_fc > 0)
             turb = wb_biquad_run(&T->fric_filt, turb);
-        /* release burst: short noise burst at stop onset (gap D39) */
+        /* release burst: short noise burst at stop onset, shaped to the
+         * stop's place spectrum (Dorman 1977: burst freq + F2 cue place) */
         if (is_stop && !burst_done) {
             double burst_gain = is_voiceless_stop ? 0.8 : 0.4;
             double env = exp(-(double)jj / (0.008 * SR));  /* 8ms decay */
-            turb += noise * burst_gain * env;
+            double burst_noise = noise;
+            if (ph->fric_fc > 0)
+                burst_noise = wb_biquad_run(&T->fric_filt, noise);
+            turb += burst_noise * burst_gain * env;
             if (jj > (int)(0.012 * SR)) burst_done = 1;
         }
         double vocal = wb_tract_run_step(T->tract, gl, turb, lam1)

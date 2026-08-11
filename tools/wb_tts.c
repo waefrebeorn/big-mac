@@ -67,6 +67,37 @@ static const wb_char_t *find_char(const char *name) {
     return NULL;
 }
 
+/* ---------------- emotion presets (acoustic correlates, Scherer + the
+ * 38-study systematic review: F0 mean/range, rate, intensity, voice
+ * quality) ---------------- */
+typedef struct {
+    const char *name;
+    double f0_shift;      /* multiply base f0 */
+    double f0_range;      /* intonation excursion multiplier */
+    double tempo;         /* phones/sec (5.2 = neutral) */
+    double intensity;     /* glottis intensity */
+    double tenseness;     /* 0 breathy .. 1 pressed */
+    double jitter;
+    double shimmer;
+    double vib_depth;     /* trembling (fear) / warmth (happy) */
+    double vib_rate;
+} wb_emotion_t;
+
+static const wb_emotion_t EMOTIONS[] = {
+    { "neutral", 1.00, 1.00, 5.2, 0.80, 0.65, 0.005, 0.01, 0.002, 5.0 },
+    { "happy",   1.15, 1.60, 6.0, 0.88, 0.60, 0.006, 0.02, 0.004, 6.0 },
+    { "sad",     0.85, 0.55, 3.9, 0.55, 0.45, 0.010, 0.04, 0.002, 4.0 },
+    { "angry",   1.20, 1.80, 6.4, 0.98, 0.92, 0.012, 0.05, 0.003, 5.5 },
+    { "fearful", 1.30, 1.90, 6.2, 0.90, 0.85, 0.018, 0.06, 0.010, 7.0 },
+    { "surprised",1.35, 2.00, 5.8, 0.95, 0.80, 0.008, 0.03, 0.006, 6.5 },
+};
+
+static const wb_emotion_t *find_emotion(const char *name) {
+    for (size_t i = 0; i < sizeof(EMOTIONS)/sizeof(EMOTIONS[0]); i++)
+        if (!strcmp(name, EMOTIONS[i].name)) return &EMOTIONS[i];
+    return NULL;
+}
+
 /* ---------------- FNV-1a (must match gen_tts_dict.py) ---------------- */
 static unsigned int fnv1a(const char *s) {
     unsigned int h = 2166136261u;
@@ -213,7 +244,8 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
 
 int main(int argc, char **argv) {
     if (argc < 4) {
-        fprintf(stderr, "usage: wb_tts \"<text>\" <character> <out.wav> [f0]\n");
+        fprintf(stderr, "usage: wb_tts \"<text>\" <character> <out.wav> [f0] [emotion]\n");
+        fprintf(stderr, "  emotions: neutral happy sad angry fearful surprised\n");
         return 1;
     }
     const char *text = argv[1];
@@ -221,6 +253,16 @@ int main(int argc, char **argv) {
     if (!ch) { fprintf(stderr, "unknown character %s\n", argv[2]); return 1; }
     const char *out_path = argv[3];
     double base_f0 = argc > 4 ? atof(argv[4]) : ch->f0;
+    const wb_emotion_t *em = &EMOTIONS[0];  /* neutral */
+    if (argc > 5) {
+        const wb_emotion_t *e = find_emotion(argv[5]);
+        if (!e) { fprintf(stderr, "unknown emotion %s\n", argv[5]); return 1; }
+        em = e;
+    }
+    /* emotion applies to the character's voice */
+    base_f0 *= em->f0_shift;
+    double tempo = em->tempo;
+    printf("tts: \"%s\" as %s (%s)\n", text, ch->name, em->name);
 
     /* ---------------- tokenize: words + punctuation ---------------- */
     char words[512][32];
@@ -260,7 +302,7 @@ int main(int argc, char **argv) {
     if (nwords > 0 && (punct[nwords-1] == '?' )) is_question = 1;
     if (nwords > 0 && punct[nwords-1] == 0 && strchr(text, '?')) is_question = 1;
 
-    double tempo = 5.2;   /* phones per second base */
+    /* (tempo declared in main) */
     double t_phrase = 0;
     int phrase_nwords = 0;
     int phrase_word_count = 0;
@@ -330,14 +372,14 @@ int main(int argc, char **argv) {
             if (is_question) {
                 /* rising: low start, high end, stress bump mid */
                 f0s = base_f0 * (0.92 + 0.10 * local);
-                f0e = base_f0 * (1.10 + 0.30 * local);
+                f0e = base_f0 * (1.10 + 0.30 * local * em->f0_range);
                 if (st > 0) { f0s *= 1.08; f0e *= 1.08; }
             } else {
                 /* declarative: gentle rise then fall */
                 double mid = 0.35;
                 double pct = local < mid ? local / mid : 1.0 - (local - mid) / (1 - mid);
-                f0s = base_f0 * (0.95 + 0.15 * pct);
-                f0e = base_f0 * (0.95 + 0.15 * pct - 0.10);
+                f0s = base_f0 * (0.95 + 0.15 * pct * em->f0_range);
+                f0e = base_f0 * (0.95 + 0.15 * pct * em->f0_range - 0.10 * em->f0_range);
                 if (st > 0) { f0s *= 1.10; f0e *= 1.05; }
             }
             ev[nev].ph = ph; ev[nev].stress = st;
@@ -356,11 +398,11 @@ int main(int argc, char **argv) {
     double *out = calloc((size_t)nsamp, sizeof(double));
     wb_tract_t *tract = wb_tract_new(ch->tract_n);
     wb_glottis_t *g = wb_glottis_new();
-    wb_glottis_set_tenseness(g, ch->tenseness);
-    wb_glottis_set_jitter(g, ch->jitter);
-    wb_glottis_set_shimmer(g, ch->shimmer);
-    wb_glottis_set_vibrato(g, ch->vib_depth, ch->vib_rate);
-    wb_glottis_set_intensity(g, 0.8);
+    wb_glottis_set_tenseness(g, ch->tenseness * em->tenseness / 0.65);
+    wb_glottis_set_jitter(g, ch->jitter + em->jitter);
+    wb_glottis_set_shimmer(g, ch->shimmer + em->shimmer);
+    wb_glottis_set_vibrato(g, ch->vib_depth + em->vib_depth, em->vib_rate);
+    wb_glottis_set_intensity(g, em->intensity);
 
     wb_tts_t T = { tract, g, ch, out, nsamp, base_f0, base_f0 };
 

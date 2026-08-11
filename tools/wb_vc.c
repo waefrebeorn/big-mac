@@ -204,7 +204,7 @@ int main(int argc, char **argv) {
         }
 
         /* retrieval: formants -> knobs */
-        double ti = 16.0, td = 0.9, lips = 0.7;
+        double ti = 16.0, td = 2.2, lips = 0.7;   /* td 2.2 = open vowel (R014: td is real constriction) */
         if (an.f1 > 0) {
             wb_retrieve_lookup(&rtab, an.f1, an.f2 > 0 ? an.f2 : 1500.0, &ti, &td, &lips);
         }
@@ -220,12 +220,19 @@ int main(int argc, char **argv) {
 
         render_chunk(tract, g, f0, out + start, CHUNK);
 
-        /* reward: how well did we match? measure our own output formants */
+        /* reward: how well did we match? measure our own output formants.
+         * R017 enrichment: reward F1 AND F2 match (formant similarity), so
+         * the learner picks a tune that recreates the vowel, not just F1. */
         wb_formant_measure_t fm = wb_measure_formants(out + start, CHUNK, SR);
         double our_f1 = fm.n > 0 ? fm.F[0] : 0;
+        double our_f2 = fm.n > 1 ? fm.F[1] : 0;
+        double tgt_f2 = an.f2 > 0 ? an.f2 : 1500.0;
         double reward = 0;
         if (an.f1 > 0 && our_f1 > 0) {
-            reward = 1.0 - fabs(our_f1 - an.f1) / (an.f1 > 0 ? an.f1 : 1.0);
+            double r1 = 1.0 - fabs(our_f1 - an.f1) / an.f1;
+            double r2 = (our_f2 > 0) ? 1.0 - fabs(our_f2 - tgt_f2) / tgt_f2 : 0.5;
+            if (r1 < 0) r1 = 0; if (r2 < 0) r2 = 0;
+            reward = 0.6 * r1 + 0.4 * r2;
             if (reward < 0) reward = 0;
         }
         int s_f0n = wb_learn_f0_bucket(last_f0);

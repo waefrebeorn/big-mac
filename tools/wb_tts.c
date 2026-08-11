@@ -118,6 +118,9 @@ typedef struct {
     double ti2, td2;   /* diphthong glide end-target (0 = none, gap G82) */
     double fric_fc;    /* fricative spectral center Hz (R012-A1, 0=flat) */
     double fric_bw;    /* fricative bandwidth Hz */
+    double round;      /* R013 mouth: lip rounding 0..1 (pursed tube -> lower F2/F3) */
+    double npos;       /* R013 mouth: turbulence source position in 44-scale
+                          sections (0 = default/alveolar) */
 } wb_phone_t;
 
 /* Reference formant targets: F1/F2 for vowels (Peterson & Barney-ish),
@@ -127,44 +130,44 @@ static const wb_phone_t PHONES[] = {
     { "AA", 20.0, 1.1, 0.90, 0.0, 1, 0.00, 1.0 },  /* father  */
     { "AE", 15.5, 0.8, 0.90, 0.0, 1, 0.00, 1.0 },  /* cat     */
     { "AH", 16.5, 1.2, 0.80, 0.0, 1, 0.00, 0.8 },  /* but     */
-    { "AO", 17.5, 1.0, 0.60, 0.0, 1, 0.00, 1.0 },  /* thought */
-    { "AW", 16.0, 1.2, 0.50, 0.0, 1, 0.00, 1.2, 18.5, 1.3 },  /* cow     a->ʊ */
+    { "AO", 17.5, 1.0, 0.60, 0.0, 1, 0.00, 1.0, 0.6 },  /* thought (rounded) */
+    { "AW", 16.0, 1.2, 0.50, 0.0, 1, 0.00, 1.2, 18.5, 1.3, 0.6 },  /* cow     a->ʊ */
     { "AY", 15.5, 1.0, 0.85, 0.0, 1, 0.00, 1.2, 13.0, 0.6 },  /* hide    a->ɪ */
     { "EH", 15.0, 0.8, 0.90, 0.0, 1, 0.00, 0.9, 0, 0 },
     { "ER", 13.5, 0.6, 0.80, 0.0, 1, 0.00, 1.0, 0, 0 },  /* bird    */
     { "EY", 14.5, 0.7, 0.85, 0.0, 1, 0.00, 1.1, 13.0, 0.6 },  /* bait    e->ɪ */
     { "IH", 14.0, 0.8, 0.90, 0.0, 1, 0.00, 0.7 },  /* bit     */
     { "IY", 13.0, 0.6, 0.85, 0.0, 1, 0.00, 1.0 },  /* beet    */
-    { "OW", 18.0, 1.1, 0.55, 0.0, 1, 0.00, 1.1, 18.5, 1.3 },  /* boat    o->ʊ */
-    { "OY", 16.0, 1.0, 0.60, 0.0, 1, 0.00, 1.2, 13.0, 0.6 },  /* boy     ɔ->ɪ */
-    { "UH", 17.0, 1.2, 0.50, 0.0, 1, 0.00, 0.8 },  /* book    */
-    { "UW", 18.5, 1.3, 0.30, 0.0, 1, 0.00, 1.0 },  /* boot    */
+    { "OW", 18.0, 1.1, 0.55, 0.0, 1, 0.00, 1.1, 18.5, 1.3, 0.9 },  /* boat    o->ʊ */
+    { "OY", 16.0, 1.0, 0.60, 0.0, 1, 0.00, 1.2, 13.0, 0.6, 0.9 },  /* boy     ɔ->ɪ */
+    { "UH", 17.0, 1.2, 0.50, 0.0, 1, 0.00, 0.8, 0.85 },  /* book    */
+    { "UW", 18.5, 1.3, 0.30, 0.0, 1, 0.00, 1.0, 1.0 },  /* boot    */
 
     /* consonants */
-    { "B", 14.0, 0.2, 0.10, 0.0, 1, 0.00, 0.4, 0, 0, 500, 400 },   /* stop labial (burst low) */
-    { "CH", 14.0, 0.3, 0.60, 0.0, 0, 0.80, 0.5, 0, 0, 3200, 1600 },  /* affricate */
-    { "D", 15.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4, 0, 0, 4500, 1800 },   /* stop alveolar (burst high) */
-    { "DH", 15.5, 0.3, 0.70, 0.0, 1, 0.60, 0.5, 0, 0, 2500, 1500 },  /* th-voiced */
-    { "F", 14.0, 0.9, 0.15, 0.0, 0, 0.55, 0.4, 0, 0, 2500, 1400 },   /* labiodental (Birkholz fc=2500) */
-    { "G", 17.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4, 0, 0, 2000, 1500 },   /* stop velar (burst mid) */
+    { "B", 14.0, 0.2, 0.10, 0.0, 1, 0.00, 0.4, 0, 0, 500, 400, 0, 39 },   /* stop labial (burst at lips) */
+    { "CH", 14.0, 0.3, 0.60, 0.0, 0, 0.80, 0.5, 0, 0, 3200, 1600, 1.0, 29.5 },  /* affricate */
+    { "D", 15.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4, 0, 0, 4500, 1800, 0, 32 },   /* stop alveolar (burst at teeth) */
+    { "DH", 15.5, 0.3, 0.70, 0.0, 1, 0.60, 0.5, 0, 0, 2500, 1500, 0, 31.5 },  /* th-voiced (dental) */
+    { "F", 14.0, 0.9, 0.15, 0.0, 0, 0.55, 0.4, 0, 0, 2500, 1400, 0, 37.5 },   /* labiodental (noise at lip/teeth) */
+    { "G", 17.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4, 0, 0, 2000, 1500, 0, 26 },   /* stop velar (burst back) */
     { "HH", 16.0, 1.4, 0.90, 0.0, 0, 0.50, 0.4, 0, 0, 0, 0 },  /* h */
-    { "JH", 14.0, 0.3, 0.60, 0.0, 1, 0.80, 0.5 },  /* affricate voiced */
-    { "K", 17.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4, 0, 0, 2000, 1500 },   /* stop velar (burst mid) */
+    { "JH", 14.0, 0.3, 0.60, 0.0, 1, 0.80, 0.5, 0, 0, 0, 0, 1.0, 29.5 },  /* affricate voiced */
+    { "K", 17.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4, 0, 0, 2000, 1500, 0, 26 },   /* stop velar (burst back) */
     { "L", 14.0, 0.6, 0.80, 0.0, 1, 0.00, 0.6 },   /* liquid */
-    { "M", 14.5, 0.5, 0.10, 0.7, 1, 0.00, 0.5 },   /* nasal (partial velum) */
-    { "N", 15.0, 0.5, 0.80, 0.7, 1, 0.00, 0.5 },   /* nasal */
-    { "NG", 17.0, 0.5, 0.80, 0.7, 1, 0.00, 0.5 },  /* nasal */
-    { "P", 14.0, 0.2, 0.10, 0.0, 0, 0.00, 0.4, 0, 0, 500, 400 },   /* stop labial (burst low) */
-    { "R", 13.5, 0.7, 0.70, 0.0, 1, 0.00, 0.6 },   /* liquid */
-    { "S", 15.0, 0.35, 0.80, 0.0, 0, 0.65, 0.4, 0, 0, 6000, 2500 },  /* hard sibilant (Birkholz 6000) */
-    { "SH", 14.0, 0.35, 0.60, 0.0, 0, 0.65, 0.4, 0, 0, 3200, 1600 }, /* soft sibilant (Birkholz 3200) */
-    { "T", 15.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4, 0, 0, 4500, 1500 },   /* stop (burst high) */
-    { "TH", 15.5, 0.3, 0.70, 0.0, 0, 0.60, 0.4, 0, 0, 3200, 1600 },  /* dental */
-    { "V", 14.0, 0.9, 0.15, 0.0, 1, 0.55, 0.4, 0, 0, 2500, 1400 },   /* labiodental */
-    { "W", 19.0, 1.2, 0.35, 0.0, 1, 0.00, 0.5, 0, 0, 0, 0 },   /* glide */
+    { "M", 14.5, 0.5, 0.10, 0.7, 1, 0.00, 0.5, 0, 0, 0, 0, 0, 39 },   /* nasal bilabial (velum) */
+    { "N", 15.0, 0.5, 0.80, 0.7, 1, 0.00, 0.5, 0, 0, 0, 0, 0, 32 },   /* nasal alveolar */
+    { "NG", 17.0, 0.5, 0.80, 0.7, 1, 0.00, 0.5, 0, 0, 0, 0, 0, 26 },  /* nasal velar */
+    { "P", 14.0, 0.2, 0.10, 0.0, 0, 0.00, 0.4, 0, 0, 500, 400, 0, 39 },   /* stop labial (burst at lips) */
+    { "R", 13.5, 0.7, 0.70, 0.0, 1, 0.00, 0.6, 0.5 },   /* liquid (lip-rounded) */
+    { "S", 15.0, 0.35, 0.80, 0.0, 0, 0.65, 0.4, 0, 0, 6000, 2500, 0, 32.5 },  /* hard sibilant (small front cavity) */
+    { "SH", 14.0, 0.35, 0.60, 0.0, 0, 0.65, 0.4, 0, 0, 3200, 1600, 1.0, 29.5 }, /* soft sibilant (rounded, big front cavity) */
+    { "T", 15.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4, 0, 0, 4500, 1500, 0, 32 },   /* stop alveolar (burst at teeth) */
+    { "TH", 15.5, 0.3, 0.70, 0.0, 0, 0.60, 0.4, 0, 0, 3200, 1600, 0, 31.5 },  /* dental */
+    { "V", 14.0, 0.9, 0.15, 0.0, 1, 0.55, 0.4, 0, 0, 2500, 1400, 0, 37.5 },   /* labiodental (noise at lip/teeth) */
+    { "W", 19.0, 1.2, 0.35, 0.0, 1, 0.00, 0.5, 0, 0, 0, 0, 1.0 },   /* glide (rounded) */
     { "Y", 13.0, 0.7, 0.85, 0.0, 1, 0.00, 0.5, 0, 0, 0, 0 },   /* glide */
-    { "Z", 15.0, 0.35, 0.80, 0.0, 1, 0.65, 0.4, 0, 0, 6000, 2500 },  /* hard sibilant */
-    { "ZH", 14.0, 0.35, 0.60, 0.0, 1, 0.65, 0.4, 0, 0, 3200, 1600 }, /* soft sibilant */
+    { "Z", 15.0, 0.35, 0.80, 0.0, 1, 0.65, 0.4, 0, 0, 6000, 2500, 0, 32.5 },  /* hard sibilant (small front cavity) */
+    { "ZH", 14.0, 0.35, 0.60, 0.0, 1, 0.65, 0.4, 0, 0, 3200, 1600, 1.0, 29.5 }, /* soft sibilant (rounded, big front cavity) */
 };
 
 static const wb_phone_t *find_phone(const char *ph, int *stress) {
@@ -299,7 +302,8 @@ static double nasal_antiformant_fc(const wb_phone_t *ph) {
  * (ti, td, lips, velum) targets with a cosine overlap window. */
 static void blend_targets(const wb_phone_t *prev, const wb_phone_t *cur,
                           const wb_phone_t *next, double t,   /* 0..1 in phone */
-                          double *ti, double *td, double *lips, double *velum) {
+                          double *ti, double *td, double *lips, double *velum,
+                          double *round) {
     double carry = 0, anti = 0;
     /* first 30% dominated by carryover from prev, last 30% anticipation
      * of next; middle is pure current target (with undershoot toward the
@@ -324,6 +328,7 @@ static void blend_targets(const wb_phone_t *prev, const wb_phone_t *cur,
     *td    = p->td    * carry + ctd           * w_cur + n->td    * anti;
     *lips  = p->lips  * carry + cur->lips     * w_cur + n->lips  * anti;
     *velum = p->velum * carry + cur->velum    * w_cur + n->velum * anti;
+    *round = p->round * carry + cur->round    * w_cur + n->round * anti;
 }
 
 /* ---------------- biquad bandpass filter for fricative shaping (R012-A1)
@@ -406,11 +411,18 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
         /* f0 glide within the phone (intonation) */
         double f0 = f0_start + (f0_end - f0_start) * t;
         /* articulation: coarticulated blend of prev/cur/next targets */
-        double ti, td, lips, velum;
-        blend_targets(prev, ph, next, t, &ti, &td, &lips, &velum);
+        double ti, td, lips, velum, round;
+        blend_targets(prev, ph, next, t, &ti, &td, &lips, &velum, &round);
         wb_tract_set_rest_diameter(T->tract, ti, td);
         wb_tract_set_lips(T->tract, lips);
+        wb_tract_set_lip_rounding(T->tract, round);
         wb_tract_set_velum(T->tract, velum);
+        /* R013 mouth: place the frication source at this phone's constriction
+         * (labiodental /f v/ at the lips, sibilants at the teeth, stops at
+         * their place). Scaled from 44-scale to this character's tract.
+         * npos 0 = default alveolar (preserves Pink Trombone behaviour). */
+        double npos = ph->npos > 0 ? ph->npos * T->ch->tract_n / 44.0 : -1.0;
+        wb_tract_set_noise_pos(T->tract, npos);
         double noise = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
         int phonate;
         double turb;

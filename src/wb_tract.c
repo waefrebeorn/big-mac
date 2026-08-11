@@ -28,6 +28,10 @@ struct wb_tract {
     int last_obstruction;
     double movement_speed;
 
+    /* R013 mouth controls */
+    double lip_rounding;   /* 0..1 lip protrusion/rounding (pursed terminal tube) */
+    double noise_index;    /* frication source section; <0 = default (tip_start) */
+
     double reflection_left, reflection_right, reflection_nose;
     double new_reflection_left, new_reflection_right, new_reflection_nose;
 
@@ -88,6 +92,8 @@ wb_tract_t *wb_tract_new(int n) {
     t->last_obstruction = -1;
     t->movement_speed = 15.0;
     t->velum_target = 0.01;
+    t->lip_rounding = 0.0;
+    t->noise_index = -1.0;
 
     /* rest diameters */
     for (int i = 0; i < n; i++) {
@@ -151,11 +157,32 @@ void wb_tract_set_rest_diameter(wb_tract_t *t, double tongue_index, double tongu
 }
 
 void wb_tract_set_lips(wb_tract_t *t, double aperture) {
+    /* The terminal tube (lip region) is narrowed to the aperture. With lip
+     * rounding > 0 we additionally purse it into a horn — the narrowing is
+     * strongest at the very lip and tapers backward, modelling protrusion
+     * (a longer, narrower lip tube). This is what pushes F2/F3 down for
+     * rounded vowels /u o/ and labialized /w/ (rounding acoustics). */
+    double r = t->lip_rounding;
+    int lo = t->lip_start - 2;
+    int span = t->n - lo;                 /* terminal tube length */
     for (int i = t->lip_start - 2; i < t->n; i++) {
         double v = aperture * 1.9;
         if (v > t->rest_diameter[i]) v = t->rest_diameter[i];
+        if (r > 0.0 && span > 0) {
+            double fwd = (double)(i - lo) / (double)span;   /* 0 at tube start, 1 at lip */
+            double narrow = 1.0 - 0.6 * r * (0.35 + 0.65 * fwd);
+            v *= narrow;
+        }
         t->target_diameter[i] = v;
     }
+}
+
+void wb_tract_set_lip_rounding(wb_tract_t *t, double amount) {
+    t->lip_rounding = clampd(amount, 0.0, 1.0);
+}
+
+void wb_tract_set_noise_pos(wb_tract_t *t, double index) {
+    t->noise_index = index;
 }
 
 void wb_tract_set_teeth(wb_tract_t *t, double gap) {
@@ -229,7 +256,13 @@ static void add_turbulence_at(wb_tract_t *t, double noise, double index, double 
 }
 
 static void add_turbulence(wb_tract_t *t, double noise) {
-    int idx = t->tip_start;
+    /* R013 mouth: the frication source sits where the constriction actually
+     * is. Labiodental /f v/ inject at the lips; sibilants inject at the
+     * teeth; stops inject at their place of articulation. Default (noise_index
+     * < 0) is the alveolar tip, preserving the original Pink Trombone path.
+     * The front cavity between source and lips then sizes the spectral peak. */
+    int idx = t->noise_index < 0 ? t->tip_start
+                                 : (int)clampd(t->noise_index, 2, t->n - 2);
     double d = t->diameter[idx];
     if (d > 0) add_turbulence_at(t, 0.66 * noise, idx, d);
 }

@@ -1,0 +1,4 @@
+src/*.o
+tools/wb_speak
+docs/*.wav
+*.wav

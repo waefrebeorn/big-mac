@@ -196,10 +196,12 @@ int main(int argc, char **argv) {
     printf("demo: %s  (%d Hz, %d ch, %.2f s)\n", argv[1],
            a.sample_rate, a.channels, (double)a.n / a.sample_rate);
 
-    /* F0 via YIN on the whole signal (windowed) */
+    /* F0 via YIN on a mid-signal window (skip the lead-in/ramp) */
     size_t win = a.sample_rate / 2;  /* 500 ms window */
     if (win > a.n) win = a.n;
-    double f0 = wb_yin_f0(a.data, win, a.sample_rate);
+    size_t fstart = a.n / 4;         /* skip lead-in silence */
+    if (fstart + win > a.n) fstart = a.n - win;
+    double f0 = wb_yin_f0(a.data + fstart, win, a.sample_rate);
     printf("F0 (YIN): %.1f Hz\n", f0);
 
     /* LPC formants on a short voiced window (~30 ms = 2-3 pitch periods;

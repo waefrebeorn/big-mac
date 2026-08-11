@@ -35,7 +35,22 @@ test: tools/wb_speak tools/wb_analyze
 	@echo "--- absorb loop: analyze the render ---"
 	./tools/wb_analyze /tmp/bigmac_test.wav
 
-clean:
-	rm -f $(OBJ) $(TOOLS) /tmp/bigmac_test.wav
+test-yin: tools/wb_toon tools/wb_analyze
+	@echo "--- YIN regression: falsetto + baritone characters ---"
+	@./tools/wb_toon mickey /tmp/t_mickey.wav >/dev/null 2>&1
+	@./tools/wb_toon homer /tmp/t_homer.wav >/dev/null 2>&1
+	@./tools/wb_toon betty /tmp/t_betty.wav >/dev/null 2>&1
+	@f0=$$(./tools/wb_analyze /tmp/t_mickey.wav 2>/dev/null | grep "F0 (YIN)" | awk '{print $$3}'); \
+	 echo "mickey (preset 320): measured $$f0"; \
+	 awk -v f="$$f0" 'BEGIN{ok=(f>310 && f<330); print (ok?"PASS":"FAIL"), "mickey F0", f; exit !ok}'
+	@f0=$$(./tools/wb_analyze /tmp/t_homer.wav 2>/dev/null | grep "F0 (YIN)" | awk '{print $$3}'); \
+	 echo "homer (preset 105): measured $$f0"; \
+	 awk -v f="$$f0" 'BEGIN{ok=(f>95 && f<115); print (ok?"PASS":"FAIL"), "homer F0", f; exit !ok}'
+	@f0=$$(./tools/wb_analyze /tmp/t_betty.wav 2>/dev/null | grep "F0 (YIN)" | awk '{print $$3}'); \
+	 echo "betty (preset 380): measured $$f0"; \
+	 awk -v f="$$f0" 'BEGIN{ok=(f>370 && f<390); print (ok?"PASS":"FAIL"), "betty F0", f; exit !ok}'
 
-.PHONY: all test clean
+clean:
+	rm -f $(OBJ) $(TOOLS) /tmp/bigmac_test.wav /tmp/t_*.wav
+
+.PHONY: all test test-yin clean

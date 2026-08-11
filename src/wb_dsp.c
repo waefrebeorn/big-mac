@@ -112,17 +112,28 @@ double wb_yin_f0(const double *x, size_t n, int sample_rate) {
         cmnd[tau] = running > 0 ? d[tau] * (double)tau / running : 1.0;
     }
 
-    /* find first tau where cmnd < threshold (0.15), then local min */
+    /* find the FIRST tau whose cmnd dips below threshold, then take the
+     * LOCAL MINIMUM in its neighborhood (the classic YIN two-step) */
     double best_tau = 0.0;
     int found = 0;
     for (size_t tau = tau_min; tau < tau_max; tau++) {
         if (cmnd[tau] < 0.15) {
-            /* local min in [tau-1, tau+1] */
-            size_t lo = tau > 0 ? tau - 1 : tau;
-            size_t hi = tau + 1 < tau_max ? tau + 1 : tau_max;
+            /* walk forward to the local minimum */
             size_t best = tau;
-            for (size_t k = lo; k <= hi; k++) if (cmnd[k] < cmnd[best]) best = k;
-            best_tau = (double)best;
+            while (best + 1 < tau_max && cmnd[best + 1] < cmnd[best]) best++;
+            /* parabolic interpolation around best for sub-sample precision */
+            if (best > 0 && best + 1 < tau_max) {
+                double a = cmnd[best - 1], b = cmnd[best], c = cmnd[best + 1];
+                double den = a - 2 * b + c;
+                if (fabs(den) > 1e-12) {
+                    double off = 0.5 * (a - c) / den;   /* [-0.5, 0.5] */
+                    best_tau = (double)best + off;
+                } else {
+                    best_tau = (double)best;
+                }
+            } else {
+                best_tau = (double)best;
+            }
             found = 1;
             break;
         }

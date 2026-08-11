@@ -316,22 +316,23 @@ static double phone_duration(const wb_phone_t *ph, int stress,
                              int is_phrase_final, int prev_consonant,
                              int next_consonant) {
     double d;
-    /* classify: vowels vs consonants */
-    int is_vowel = (ph->turb < 0.05 && ph->velum < 0.05 && ph->td > 0.5);
+    /* classify: vowels = voiced, non-nasal (velum closed), no frication.
+     * This correctly catches /IY/ (td 0.6) and all vowels. */
+    int is_vowel = (ph->voiced && ph->turb < 0.05 && ph->velum < 0.05);
     if (is_vowel) {
-        d = 0.075;                    /* vowel base */
+        d = 0.085;                    /* vowel base (lengthened) */
         if (stress > 0) d *= 1.35;    /* stressed vowel longer */
     } else {
-        d = 0.055;                    /* consonant base */
+        d = 0.050;                    /* consonant base (shortened) */
     }
     /* Klatt context rules */
     if (is_phrase_final) d *= 1.30;           /* phrase-final lengthening */
     if (prev_consonant && next_consonant) d *= 0.75;  /* cluster shortening */
     if (is_vowel && ph->voiced) d *= 1.05;    /* voiced vowel slightly longer */
     /* reduce function words / schwa */
-    if (stress == 0 && !is_vowel) d *= 0.85;  /* unstressed consonants shorter */
+    if (stress == 0 && !is_vowel) d *= 0.80;  /* unstressed consonants shorter */
     if (d < 0.030) d = 0.030;
-    if (d > 0.16) d = 0.16;
+    if (d > 0.18) d = 0.18;
     return d;
 }
 

@@ -355,24 +355,45 @@ static double phrase_f0(double u, double base) {
 
 int main(int argc, char **argv) {
     if (argc < 4) {
-        fprintf(stderr, "usage: wb_tts \"<text>\" <character> <out.wav> [f0] [emotion]\n");
+        fprintf(stderr, "usage: wb_tts \"<text>\" <character> <out.wav> [f0] [emotion] [planner.mlp]\n");
+        fprintf(stderr, "       wb_tts -f <file> <character> <out.wav> [f0] [emotion] [planner.mlp]\n");
         fprintf(stderr, "  emotions: neutral happy sad angry fearful surprised\n");
         return 1;
     }
-    const char *text = argv[1];
-    const wb_char_t *ch = find_char(argv[2]);
-    if (!ch) { fprintf(stderr, "unknown character %s\n", argv[2]); return 1; }
-    const char *out_path = argv[3];
-    double base_f0 = argc > 4 ? atof(argv[4]) : ch->f0;
+    /* read text from a file (API path, gap I97) */
+    static char file_text[4096];
+    const char *text;
+    char *a2 = argv[2], *a3 = argv[3];
+    char *a4 = argc > 4 ? argv[4] : NULL;
+    char *a5 = argc > 5 ? argv[5] : NULL;
+    char *a6 = argc > 6 ? argv[6] : NULL;
+    if (!strcmp(argv[1], "-f") && argc >= 4) {
+        FILE *tf = fopen(argv[2], "r");
+        if (!tf) { fprintf(stderr, "cannot read %s\n", argv[2]); return 1; }
+        size_t got = fread(file_text, 1, sizeof(file_text)-1, tf);
+        file_text[got] = 0;
+        fclose(tf);
+        text = file_text;
+        a2 = argv[3];               /* char */
+        a3 = argc > 4 ? argv[4] : NULL;   /* out */
+        a4 = argc > 5 ? argv[5] : NULL;   /* f0 */
+        a5 = argc > 6 ? argv[6] : NULL;   /* emotion */
+        a6 = argc > 7 ? argv[7] : NULL;   /* planner */
+    } else {
+        text = argv[1];
+    }
+    const wb_char_t *ch = find_char(a2);
+    if (!ch) { fprintf(stderr, "unknown character %s\n", a2); return 1; }
+    const char *out_path = a3;
+    double base_f0 = a4 ? atof(a4) : ch->f0;
     const wb_emotion_t *em = &EMOTIONS[0];  /* neutral */
-    if (argc > 5) {
-        const wb_emotion_t *e = find_emotion(argv[5]);
-        if (!e) { fprintf(stderr, "unknown emotion %s\n", argv[5]); return 1; }
+    if (a5) {
+        const wb_emotion_t *e = find_emotion(a5);
+        if (!e) { fprintf(stderr, "unknown emotion %s\n", a5); return 1; }
         em = e;
     }
     /* optional MLP planner (the WordVoice bound-token, non-neural) */
-    const char *planner_path = NULL;
-    if (argc > 6) planner_path = argv[6];
+    const char *planner_path = a6;
     wb_mlp_t planner;
     int use_planner = 0;
     if (planner_path && wb_mlp_load(planner_path, &planner) == 0) {

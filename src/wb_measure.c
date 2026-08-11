@@ -184,9 +184,11 @@ wb_formant_measure_t wb_measure_formants(const double *x, size_t n, int sr) {
     /* first 4 peaks are F1..F4; bandwidth via -3dB around each peak */
     for (int k = 0; k < np && k < 4; k++) {
         m.F[k] = freqs[k];
-        /* find -3dB points around peak */
+        /* find -3dB points around peak (bounds-checked) */
         double target = peaks[k] / sqrt(2.0);
         int pi = (int)((freqs[k] - f_lo) / step);
+        if (pi < 0) pi = 0;
+        if (pi >= nsteps) pi = nsteps - 1;
         int lo = pi, hi = pi;
         while (lo > 0 && g[lo] > target) lo--;
         while (hi < nsteps - 1 && g[hi] > target) hi++;
@@ -312,8 +314,8 @@ wb_quality_measure_t wb_measure_quality(const double *x, size_t n, int sr) {
         if (n < N) N = 1; while (N < n && N < 65536) N <<= 1;
         if (N >= 2) {
             double *win = malloc(N * sizeof(double));
-            double *Re = malloc((N / 2 + 1) * sizeof(double));
-            double *Im = malloc((N / 2 + 1) * sizeof(double));
+            double *Re = malloc(N * sizeof(double));   /* rfft needs N work space */
+            double *Im = malloc(N * sizeof(double));
             if (win && Re && Im) {
                 size_t start = n / 2 - N / 2;
                 for (size_t i = 0; i < N; i++) {
@@ -347,8 +349,8 @@ wb_quality_measure_t wb_measure_quality(const double *x, size_t n, int sr) {
         if (n < N) N = 1; while (N < n && N < 65536) N <<= 1;
         if (N >= 2) {
             double *win = malloc(N * sizeof(double));
-            double *Re = malloc((N / 2 + 1) * sizeof(double));
-            double *Im = malloc((N / 2 + 1) * sizeof(double));
+            double *Re = malloc(N * sizeof(double));   /* rfft needs N work space */
+            double *Im = malloc(N * sizeof(double));
             if (win && Re && Im) {
                 size_t start = n / 2 - N / 2;
                 for (size_t i = 0; i < N; i++) {
@@ -377,12 +379,13 @@ wb_quality_measure_t wb_measure_quality(const double *x, size_t n, int sr) {
 /* Proper CPP via real cepstrum (A20) */
 double wb_measure_cpp(const double *x, size_t n, int sr) {
     (void)sr;
+    enum { SR_CPP = 44100 };
     size_t N = 2048;
     if (n < N) N = 1; while (N < n && N < 65536) N <<= 1;
     if (N < 2) return 0.0;
     double *win = malloc(N * sizeof(double));
-    double *Re = malloc((N / 2 + 1) * sizeof(double));
-    double *Im = malloc((N / 2 + 1) * sizeof(double));
+    double *Re = malloc(N * sizeof(double));   /* rfft needs N work space */
+    double *Im = malloc(N * sizeof(double));
     if (!win || !Re || !Im) { free(win); free(Re); free(Im); return 0.0; }
     size_t start = n / 2 - N / 2;
     for (size_t i = 0; i < N; i++) {
@@ -401,11 +404,17 @@ double wb_measure_cpp(const double *x, size_t n, int sr) {
     }
     /* inverse FFT: forward with conjugated spectrum then scale by 1/N */
     /* (we compute the cepstral peak directly in the quefrency loop below) */
-    /* CPP: cepstral peak prominence (A20) */
+    /* CPP: cepstral peak prominence (A20).
+     * Only scan the pitch-relevant quefrency range (2ms..20ms => 50-500Hz
+     * F0), which is both faster and more correct than scanning everything. */
     double cpp = 0.0;
     {
+        size_t q_min = (size_t)(SR_CPP / 500.0);   /* 500 Hz -> 88 bins @44.1k */
+        size_t q_max = (size_t)(SR_CPP / 50.0);    /* 50 Hz  -> 882 bins */
+        if (q_min < 1) q_min = 1;
+        if (q_max >= N / 2) q_max = N / 2 - 1;
         double maxc = -1e18;
-        for (size_t q = 1; q < N / 2; q++) {
+        for (size_t q = q_min; q <= q_max; q++) {
             double acc = 0;
             for (size_t k = 0; k < N; k++) {
                 double ang = 2.0 * M_PI * (double)(q * k) / N;

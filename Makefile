@@ -3,10 +3,10 @@ CC      = cc
 CFLAGS  = -std=c11 -O2 -Wall -Wextra -Iinclude
 LDLIBS  = -lm
 
-SRC     = src/wb_tract.c src/wb_glottis.c src/wb_wav.c src/wb_dsp.c src/wb_reader.c src/wb_measure.c
+SRC     = src/wb_tract.c src/wb_glottis.c src/wb_wav.c src/wb_dsp.c src/wb_reader.c src/wb_measure.c src/wb_print.c
 OBJ     = $(SRC:.c=.o)
 
-TOOLS   = tools/wb_speak tools/wb_analyze tools/wb_fit
+TOOLS   = tools/wb_speak tools/wb_analyze tools/wb_fit tools/wb_absorb tools/wb_toon
 
 all: $(TOOLS)
 
@@ -18,6 +18,12 @@ tools/wb_analyze: tools/wb_analyze.c $(OBJ)
 
 tools/wb_fit: tools/wb_fit.c $(OBJ)
 	$(CC) $(CFLAGS) -o $@ tools/wb_fit.c $(OBJ) $(LDLIBS)
+
+tools/wb_absorb: tools/wb_absorb.c $(OBJ)
+	$(CC) $(CFLAGS) -o $@ tools/wb_absorb.c $(OBJ) $(LDLIBS)
+
+tools/wb_toon: tools/wb_toon.c $(OBJ)
+	$(CC) $(CFLAGS) -o $@ tools/wb_toon.c $(OBJ) $(LDLIBS)
 
 src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<

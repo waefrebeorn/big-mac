@@ -22,8 +22,9 @@ int wb_lpc(const double *R, int p, double *a, double *E);
 
 /* ---------- FFT (radix-2, in place, real input) ---------- */
 /* Forward FFT: x is n real samples (n must be power of 2, n>=2).
- * Output: Re[0..n/2], Im[0..n/2] (the two halves of the spectrum).
- * Re/Im arrays must have n/2+1 entries. Returns 0 on success. */
+ * Re and Im are used as n-length WORK buffers (bit-reversal + butterflies);
+ * on return, Re[0..n/2]/Im[0..n/2] hold the spectrum (rest is scratch).
+ * Callers must allocate Re/Im with n entries. Returns 0 on success. */
 int wb_rfft(const double *x, size_t n, double *Re, double *Im);
 
 /* ---------- YIN pitch (simplified) ---------- */

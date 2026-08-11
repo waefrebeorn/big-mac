@@ -539,8 +539,12 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
                 phonate = 0;
                 double burst_env = exp(-rel_t / 0.008);   /* 8ms decay */
                 turb = noise * (is_voiceless_stop ? 0.8 : 0.4) * burst_env;
-                if (is_voiceless_stop && rel_t > 0.015)
-                    turb = noise * 0.3 * 0.25;   /* light aspiration tail */
+                /* R013 VOT: English voiceless stops /p t k/ have ~40-60ms of
+                 * aspiration after the burst before the vowel's voicing
+                 * (Voice Onset Time). The old tail was too quiet (0.075) and
+                 * too short, making stops sound like a click with no release. */
+                if (is_voiceless_stop && rel_t > 0.010)
+                    turb = noise * 0.32 * exp(-(rel_t - 0.010) / 0.030);
                 if (ph->fric_fc > 0)
                     turb = wb_biquad_run(&T->fric_filt, turb);
             }
@@ -760,27 +764,62 @@ static void klatt_render_phone(wb_tts_t *T, double t0, double dur,
  * stress (stressed ~1.3x), phrase-final lengthening, prepausal, consonant
  * cluster shortening, voiced-vowel lengthening. Base rate ~14 phones/sec
  * (real speech) instead of our old ~5/sec — the measured 1.7x slowness. */
-static double phone_duration(const wb_phone_t *ph, int stress,
-                             int is_phrase_final, int prev_consonant,
-                             int next_consonant) {
-    double d;
-    /* classify: vowels = voiced, non-nasal (velum closed), no frication.
-     * This correctly catches /IY/ (td 0.6) and all vowels. */
-    int is_vowel = (ph->voiced && ph->turb < 0.05 && ph->velum < 0.05);
-    if (is_vowel) {
-        d = 0.085;                    /* vowel base (lengthened) */
-        if (stress > 0) d *= 1.35;    /* stressed vowel longer */
-    } else {
-        d = 0.050;                    /* consonant base (shortened) */
+/* R013 TIMING: the real duration model (from espeak-ng setlengths.c + Klatt
+ * 1979 / van Santen literature). English is stress-timed: every phone has an
+ * inherent duration, multiplied by context factors — the FOLLOWING consonant
+ * (voicing effect), stress level, word-finality, phrase-finality, cluster,
+ * and rate. Replaces the old fixed per-class heuristic, which ignored the
+ * voicing effect (the single biggest timing cue). */
+
+/* consonant class used by the length_mod table (following-consonant effect
+ * on a vowel): 0 neutral/vowel, 1 pause/boundary, 2 voiceless stop,
+ * 3 voiceless fric, 4 nasal, 5 voiced stop, 6 voiced fric, 7 liquid/glide. */
+static int cons_class(const wb_phone_t *p) {
+    if (!p) return 1;
+    if (p->turb >= 0.05) {              /* fricative/affricate */
+        return p->voiced ? 6 : 3;
     }
-    /* Klatt context rules */
-    if (is_phrase_final) d *= 1.30;           /* phrase-final lengthening */
-    if (prev_consonant && next_consonant) d *= 0.75;  /* cluster shortening */
-    if (is_vowel && ph->voiced) d *= 1.05;    /* voiced vowel slightly longer */
-    /* reduce function words / schwa */
-    if (stress == 0 && !is_vowel) d *= 0.80;  /* unstressed consonants shorter */
+    if (p->velum >= 0.5) return 4;      /* nasal */
+    if (p->td < 0.3) {                  /* stop: voiced vs voiceless */
+        return p->voiced ? 5 : 2;
+    }
+    if (p->voiced) return 7;            /* liquid/glide/approximant */
+    return 0;
+}
+
+/* length_mod: how the FOLLOWING consonant changes a vowel's duration
+ * (%). voiceless stop 80 (short), voiced stop 105 (long) — the voicing
+ * effect; pause 125 (final lengthening); nasal 90. */
+static const double LENGTH_MOD[8] = { 100, 125, 80, 100, 90, 105, 110, 105 };
+
+/* stress-length table (espeak-ng stressLength en-US ratios, normalized so
+ * unstressed=1.0): unstressed 1.0, secondary ~1.3, primary ~1.4, tonic ~1.9 */
+static double stress_len(int stress) {
+    if (stress == 0) return 1.0;
+    if (stress == 2) return 1.30;   /* secondary */
+    return 1.40;                    /* primary (and tonic, +further below) */
+}
+
+static double phone_duration(const wb_phone_t *ph, int stress,
+                             int is_word_final, int is_phrase_final,
+                             const wb_phone_t *prev, const wb_phone_t *next) {
+    int is_vowel = (ph->voiced && ph->turb < 0.05 && ph->velum < 0.05);
+    double d;
+    if (is_vowel) {
+        d = 0.080;                                   /* inherent vowel base */
+        d *= stress_len(stress);                     /* stress length table */
+        d *= LENGTH_MOD[cons_class(next)] / 100.0;   /* voicing effect */
+        if (is_word_final) d *= 1.10;                /* word-final syllable */
+        if (is_phrase_final) d *= 1.30;              /* phrase-final */
+    } else {
+        d = 0.055;                                   /* inherent consonant base */
+        if (stress == 0) d *= 0.85;                  /* unstressed shorter */
+        if (prev && next && prev->td < 0.3 && next->td < 0.3)
+            d *= 0.75;                               /* stop-cluster shortening */
+        if (next && next->turb >= 0.05) d *= 1.10;   /* frication needs time */
+    }
     if (d < 0.030) d = 0.030;
-    if (d > 0.18) d = 0.18;
+    if (d > 0.20) d = 0.20;
     return d;
 }
 
@@ -930,7 +969,7 @@ int main(int argc, char **argv) {
         while (p) {
             int st;
             const wb_phone_t *ph = find_phone(p, &st);
-            if (ph) phrase_dur += phone_duration(ph, st, wi == nwords-1, 0, 0) * g_rate;
+            if (ph) phrase_dur += phone_duration(ph, st, 1, wi == nwords-1, NULL, NULL) * g_rate;
             p = strtok(NULL, " ");
         }
         phrase_dur += 0.06 * g_rate;  /* word gap (shorter than before) */
@@ -959,7 +998,7 @@ int main(int argc, char **argv) {
                         else { f0s = base_f0 * 1.05; f0e = base_f0 * 0.85; }
                         ev[nev].ph = ph; ev[nev].stress = 0;
                         ev[nev].t0_abs = t_abs;
-                        ev[nev].dur = phone_duration(ph, 0, wi == nwords-1, 0, 0) * g_rate;
+                        ev[nev].dur = phone_duration(ph, 0, 1, wi == nwords-1, NULL, NULL) * g_rate;
                         ev[nev].f0_start = f0s; ev[nev].f0_end = f0e;
                         ev[nev].energy = 0.9;
                         t_abs += ev[nev].dur;
@@ -1082,11 +1121,13 @@ int main(int argc, char **argv) {
                 f0e = base_f0 * m * shape_e * pitch_mult * micro;
             }
             }
-            /* Klatt duration: context + stress + phrase-final + planner dur */
-            int prev_cons = pi > 0;
-            int next_cons = pi + 1 < nphones;
+            /* R013 duration: context (voicing of following consonant) +
+             * stress-length + word-final + phrase-final + cluster. */
             int is_final = (wi == nwords - 1 && pi == nphones - 1);
-            double dur = phone_duration(ph, st, is_final, prev_cons && next_cons, 0);
+            int s_tmp;
+            const wb_phone_t *pp = pi > 0 ? find_phone(phones[pi-1], &s_tmp) : NULL;
+            const wb_phone_t *pn = pi + 1 < nphones ? find_phone(phones[pi+1], &s_tmp) : NULL;
+            double dur = phone_duration(ph, st, pi == nphones - 1, is_final, pp, pn);
             dur *= p_dur;   /* planner duration multiplier */
             dur *= g_rate;  /* R017 speaking rate */
             /* R018 stress-timing (English): unstressed syllables compress to

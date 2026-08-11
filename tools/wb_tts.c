@@ -126,24 +126,27 @@ typedef struct {
 /* Reference formant targets: F1/F2 for vowels (Peterson & Barney-ish),
  * mapped to the tract via the retrieval table at runtime. */
 static const wb_phone_t PHONES[] = {
-    /* vowels — ti/td tuned to the KL tract (14 = mid, lower = front).
-     * td is now the REAL tongue constriction (R013 fix: tongue reaches tube),
-     * so vowels use td 2.0-3.0 (open) — old 0.6-1.3 choked the tract. */
-    { "AA", 20.0, 3.0, 0.90, 0.0, 1, 0.00, 1.0 },  /* father  */
-    { "AE", 11.0, 2.6, 0.90, 0.0, 1, 0.00, 1.0 },  /* cat     */
-    { "AH", 16.0, 3.0, 0.80, 0.0, 1, 0.00, 0.8 },  /* but     */
-    { "AO", 18.0, 2.6, 0.60, 0.0, 1, 0.00, 1.0, 0.6 },  /* thought (rounded) */
-    { "AW", 16.0, 2.8, 0.50, 0.0, 1, 0.00, 1.2, 18.5, 2.6, 0.6 },  /* cow     a->ʊ */
-    { "AY", 13.0, 2.6, 0.85, 0.0, 1, 0.00, 1.2, 11.0, 2.4 },  /* hide    a->ɪ */
-    { "EH", 10.0, 2.6, 0.90, 0.0, 1, 0.00, 0.9, 0, 0 },
-    { "ER", 14.0, 2.2, 0.80, 0.0, 1, 0.00, 1.0, 0, 0 },  /* bird    */
-    { "EY", 11.0, 2.6, 0.85, 0.0, 1, 0.00, 1.1, 10.0, 2.4 },  /* bait    e->ɪ */
-    { "IH", 11.0, 2.2, 0.90, 0.0, 1, 0.00, 0.7 },  /* bit     */
-    { "IY", 9.0, 2.4, 0.85, 0.0, 1, 0.00, 1.0 },  /* beet    */
-    { "OW", 18.0, 2.6, 0.55, 0.0, 1, 0.00, 1.1, 18.5, 2.6, 0.9 },  /* boat    o->ʊ */
-    { "OY", 18.0, 2.6, 0.60, 0.0, 1, 0.00, 1.2, 11.0, 2.4, 0.9 },  /* boy     ɔ->ɪ */
-    { "UH", 17.0, 2.2, 0.50, 0.0, 1, 0.00, 0.8, 0.85 },  /* book    */
-    { "UW", 18.5, 2.4, 0.30, 0.0, 1, 0.00, 1.0, 1.0 },  /* boot    */
+    /* vowels — ti = tongue constriction position. R020 fix: FRONT vowels
+     * (/i ɪ e ɛ æ/) need the constriction NEAR THE FRONT (high ti ~24-29)
+     * to reach their high F2; BACK vowels need low-mid ti. Before this fix
+     * the front vowels were placed at ti 9-11 (the BACK), collapsing them
+     * toward low-F2 back vowels — the "no English" bug. Verified against
+     * the tract: IY ti=29 -> F2 2553, AE ti=24 -> F2 1842, AA ti=16 -> F2 1154. */
+    { "AA", 16.0, 3.0, 0.90, 0.0, 1, 0.00, 1.0 },  /* father  (back-open) */
+    { "AE", 24.0, 2.6, 0.90, 0.0, 1, 0.00, 1.0 },  /* cat     (front) */
+    { "AH", 18.0, 3.0, 0.80, 0.0, 1, 0.00, 0.8 },  /* but     (central) */
+    { "AO", 15.0, 2.6, 0.60, 0.0, 1, 0.00, 1.0, 0.6 },  /* thought (back, rounded) */
+    { "AW", 15.0, 2.8, 0.50, 0.0, 1, 0.00, 1.2, 14.0, 2.6, 0.6 },  /* cow     a->ʊ */
+    { "AY", 16.0, 2.6, 0.85, 0.0, 1, 0.00, 1.2, 27.0, 2.4 },  /* hide    a->ɪ (front end) */
+    { "EH", 24.0, 2.6, 0.90, 0.0, 1, 0.00, 0.9, 0, 0 },  /* bed (front) */
+    { "ER", 19.0, 2.2, 0.80, 0.0, 1, 0.00, 1.0, 0, 0 },  /* bird  (central rhotic) */
+    { "EY", 25.0, 2.6, 0.85, 0.0, 1, 0.00, 1.1, 24.0, 2.4 },  /* bait  e->ɪ (front) */
+    { "IH", 27.0, 2.2, 0.90, 0.0, 1, 0.00, 0.7 },  /* bit  (front) */
+    { "IY", 29.0, 2.4, 0.85, 0.0, 1, 0.00, 1.0 },  /* beet  (front-close) */
+    { "OW", 15.0, 2.6, 0.55, 0.0, 1, 0.00, 1.1, 14.0, 2.6, 0.9 },  /* boat  o->ʊ */
+    { "OY", 16.0, 2.6, 0.60, 0.0, 1, 0.00, 1.2, 25.0, 2.4, 0.9 },  /* boy   ɔ->ɪ (front end) */
+    { "UH", 14.0, 2.2, 0.50, 0.0, 1, 0.00, 0.8, 0.85 },  /* book  (back) */
+    { "UW", 14.0, 2.4, 0.30, 0.0, 1, 0.00, 1.0, 1.0 },  /* boot  (back-close) */
 
     /* consonants */
     { "B", 14.0, 0.2, 0.10, 0.0, 1, 0.00, 0.4, 0, 0, 500, 400, 0, 39 },   /* stop labial (burst at lips) */
@@ -285,8 +288,11 @@ typedef struct {
     wb_biquad_t fric_filt;   /* fricative spectral shaper (R012-A1) */
     wb_biquad_t nasal_notch; /* nasal antiformant zero (P0) */
     int sine_mode;           /* formant-track sine render (P2) */
+    int klatt_mode;          /* R020 Klatt-cascade formant render */
     int pitch_accent;        /* Japanese pitch-accent mode */
     double sine_ph1, sine_ph2, sine_ph3;  /* sine oscillator phases */
+    /* R020 Klatt cascade resonator states (persist across samples+phones) */
+    double k_y1[6], k_y2[6];   /* cascade resonators F1..F5 (indices 0..4) */
 } wb_tts_t;
 
 /* Vowel formant targets (Peterson & Barney) for the sine-track mode. */
@@ -624,6 +630,131 @@ static void sine_render_phone(wb_tts_t *T, double t0, double dur,
     }
 }
 
+/* ---------------- R020: Klatt cascade formant render ----------------
+ * The state-of-the-art formant technique (Klatt & Klatt 1990; espeak-ng
+ * wavegen). A glottal pulse train is passed through a CASCADE of 2-pole
+ * resonators (F1..F5), producing intelligible vowels whose peaks follow the
+ * Peterson-Barney targets in WB_FORMANTS. Fricatives = noise through a
+ * bandpass at fric_fc; nasals = voice through resonators + an antiformant
+ * notch; voiceless stops = silent closure + release burst + aspiration.
+ * Pure formant-based (no neural banks, no sample concatenation), matching
+ * the state of the art in the espeak-ng/flite references. */
+static void wb_reson_set(double f, double bw, int sr, double *a0, double *a1, double *a2) {
+    double r = exp(-M_PI * bw / (double)sr);
+    double arg = 2.0 * M_PI * f / (double)sr;
+    *a1 = -2.0 * r * cos(arg);
+    *a2 = r * r;
+    *a0 = 1.0 - r;
+}
+static double wb_reson_run(double a0, double a1, double a2, double x,
+                           double *y1, double *y2) {
+    double y = a0 * x - a1 * (*y1) - a2 * (*y2);
+    *y2 = *y1; *y1 = y;
+    return y;
+}
+
+static void klatt_render_phone(wb_tts_t *T, double t0, double dur,
+                               const wb_phone_t *ph, int stress,
+                               const wb_phone_t *prev, const wb_phone_t *next,
+                               double f0_start, double f0_end, double energy) {
+    (void)stress;
+    int s0 = (int)(t0 * SR), s1 = (int)((t0 + dur) * SR);
+    if (s1 > T->nsamp) s1 = T->nsamp;
+    if (s1 <= s0) return;
+    double pf1,pf2,pf3, cf1,cf2,cf3, nf1,nf2,nf3;
+    phone_formants(prev ? prev : ph, prev, ph, &pf1,&pf2,&pf3);
+    phone_formants(ph, prev, next, &cf1,&cf2,&cf3);
+    phone_formants(next ? next : ph, ph, next, &nf1,&nf2,&nf3);
+
+    int is_vowel = ph->voiced && ph->turb < 0.05 && ph->velum < 0.05;
+    int is_nasal = ph->velum >= 0.5;
+    int is_fric  = ph->turb >= 0.05 && !is_nasal;
+    int is_stop  = ph->td < 0.3 && ph->turb < 0.05 && ph->velum < 0.05;
+    int has_closure = is_stop && !ph->voiced;   /* voiceless stop: closure+burst+asp */
+    int closure = 0, release = 0;
+    if (has_closure) {
+        closure = (s1 - s0) * 55 / 100;
+        release = closure + (int)(0.007 * SR);
+        if (release > s1 - s0) release = s1 - s0;
+    }
+    if (ph->fric_fc > 0) wb_biquad_bandpass(&T->fric_filt, ph->fric_fc, ph->fric_bw, SR);
+    else { T->fric_filt.a1 = T->fric_filt.a2 = T->fric_filt.z1 = T->fric_filt.z2 = 0; }
+    double nf_fc = nasal_antiformant_fc(ph);
+    if (nf_fc > 0) wb_biquad_notch(&T->nasal_notch, nf_fc, 400.0, SR);
+
+    double gint = (ph->voiced && !has_closure) ? 0.7 : 0.0;
+    wb_glottis_set_intensity(T->glottis, gint);
+    int blk = 0;
+
+    for (int j = s0; j < s1; j++) {
+        /* update the glottis frequency every block (finish_block is what
+         * copies ui_frequency into the oscillation) and re-assert intensity */
+        if (++blk >= 1024) {
+            wb_glottis_finish_block(T->glottis, gint > 0.0, 1024.0 / SR);
+            wb_glottis_set_intensity(T->glottis, gint);
+            blk = 0;
+        }
+        double t = (double)(j - s0) / (double)(s1 - s0);
+        int jj = j - s0;
+        double f0 = f0_start + (f0_end - f0_start) * t;
+        double carry = 0, anti = 0;
+        if (t < 0.30) carry = 1.0 - t / 0.30;
+        if (t > 0.70) anti = (t - 0.70) / 0.30;
+        double w = 1.0 - 0.6 * (carry + anti); if (w < 0.15) w = 0.15;
+        double f1 = pf1*carry + cf1*w + nf1*anti;
+        double f2 = pf2*carry + cf2*w + nf2*anti;
+        double f3 = pf3*carry + cf3*w + nf3*anti;
+        double f4 = f3 * 1.35, f5 = f4 * 1.25;
+        double a0,a1,a2;
+        double out = 0.0;
+
+        if (is_nasal) {
+            wb_glottis_set_frequency(T->glottis, f0);
+            double v = wb_glottis_run_step(T->glottis, 0, 0);
+            wb_reson_set(f1, 80, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[0],&T->k_y2[0]);
+            wb_reson_set(f2,100, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[1],&T->k_y2[1]);
+            wb_reson_set(f3,200, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[2],&T->k_y2[2]);
+            v = wb_biquad_run(&T->nasal_notch, v);
+            out = v * 40.0 * 0.55;
+        } else if (is_fric) {
+            double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
+            double src = nz;
+            if (ph->voiced) {
+                wb_glottis_set_frequency(T->glottis, f0);
+                src = 0.5 * wb_glottis_run_step(T->glottis, 0, 0) + 0.5 * nz;
+            }
+            out = wb_biquad_run(&T->fric_filt, src) * 0.45;
+        } else if (has_closure) {
+            if (jj < closure) { out = 0.0; }
+            else if (jj < release) {
+                double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
+                double decay = 1.0 - (double)(jj - closure) / (double)(release - closure);
+                out = nz * 0.35 * decay;
+            } else {
+                double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
+                double v = nz;
+                wb_reson_set(f2,200, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[1],&T->k_y2[1]);
+                wb_reson_set(f3,250, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[2],&T->k_y2[2]);
+                out = v * 0.25;
+            }
+        } else if (is_vowel || ph->voiced) {
+            wb_glottis_set_frequency(T->glottis, f0);
+            double v = wb_glottis_run_step(T->glottis, 0, 0);
+            wb_reson_set(f1, 80, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[0],&T->k_y2[0]);
+            wb_reson_set(f2,100, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[1],&T->k_y2[1]);
+            wb_reson_set(f3,200, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[2],&T->k_y2[2]);
+            wb_reson_set(f4,300, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[3],&T->k_y2[3]);
+            wb_reson_set(f5,400, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[4],&T->k_y2[4]);
+            out = v;
+        }
+        int n_env = (int)(0.012 * SR);
+        double env = 1.0;
+        if (jj < n_env) env = (double)jj / n_env;
+        if (s1 - j - 1 < n_env) env = (double)(s1 - j - 1) / n_env;
+        T->out[j] += out * env * energy * 0.30;
+    }
+}
+
 /* ---------------- Klatt-style duration rules (gap B) ----------------
  * Base durations in seconds per phone class, then context modifiers:
  * stress (stressed ~1.3x), phrase-final lengthening, prepausal, consonant
@@ -666,6 +797,7 @@ int main(int argc, char **argv) {
      * "sine-wave speech" mode (Remez) — three oscillators track F1/F2/F3.
      * Filter both out so the positional parsing below is unchanged. */
     int g_pitch_accent = 0, g_sine_mode = 0, g_phone_mode = 0, g_whisper = 0, g_fry = 0;
+    int g_klatt_mode = 0;
     int g_tone = 0;   /* 1-4 Mandarin lexical tone applied per word */
     double g_vtl = 0.0;  /* override tract length (integer sections + fractional) */
     double g_rate = 1.0;  /* speaking-rate multiplier (<1 fast, >1 slow) */
@@ -675,6 +807,7 @@ int main(int argc, char **argv) {
         for (int a = 1; a < argc; a++) {
             if (!strcmp(argv[a], "-pa")) { g_pitch_accent = 1; continue; }
             if (!strcmp(argv[a], "-sine")) { g_sine_mode = 1; continue; }
+            if (!strcmp(argv[a], "-klatt")) { g_klatt_mode = 1; continue; }
             if (!strcmp(argv[a], "-p")) { g_phone_mode = 1; continue; }
             if (!strcmp(argv[a], "-whisper")) { g_whisper = 1; continue; }
             if (!strcmp(argv[a], "-fry")) { g_fry = 1; continue; }
@@ -1029,6 +1162,7 @@ int main(int argc, char **argv) {
     wb_tts_t T = { tract, g, ch, out, nsamp, base_f0, base_f0 };
     T.tract_n = vtl_n;   /* R017: effective VTL (used for noise-source scaling) */
     T.sine_mode = g_sine_mode;
+    T.klatt_mode = g_klatt_mode;
     T.pitch_accent = g_pitch_accent;
 
     double t0 = 0.15;
@@ -1040,6 +1174,9 @@ int main(int argc, char **argv) {
         if (g_sine_mode)
             sine_render_phone(&T, t0, ev[i].dur, ev[i].ph, prev, next,
                               ev[i].f0_start, ev[i].f0_end, ev[i].energy);
+        else if (g_klatt_mode)
+            klatt_render_phone(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress, prev, next,
+                               ev[i].f0_start, ev[i].f0_end, ev[i].energy);
         else
             tts_render(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress, prev, next,
                        ev[i].f0_start, ev[i].f0_end, ev[i].energy);

@@ -96,7 +96,7 @@ wb_tract_t *wb_tract_new(int n) {
     t->glottal_reflection = 0.75;
     t->lip_reflection = -0.85;
     t->last_obstruction = -1;
-    t->movement_speed = 15.0;
+    t->movement_speed = 60.0;
     t->velum_target = 0.01;
     t->lip_rounding = 0.0;
     t->noise_index = -1.0;

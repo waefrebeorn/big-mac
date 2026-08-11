@@ -756,6 +756,7 @@ int main(int argc, char **argv) {
         const wb_phone_t *ph;
         int stress;
         double dur;       /* seconds */
+        double t0_abs;    /* absolute start time (R018: preserves word gaps) */
         double f0_start, f0_end;
         double energy;    /* amplitude gain for this phone (gap C28-33) */
     } wb_event_t;
@@ -807,6 +808,7 @@ int main(int argc, char **argv) {
                         if (is_question) { f0s = base_f0 * 0.95; f0e = base_f0 * 1.35; }
                         else { f0s = base_f0 * 1.05; f0e = base_f0 * 0.85; }
                         ev[nev].ph = ph; ev[nev].stress = 0;
+                        ev[nev].t0_abs = t_abs;
                         ev[nev].dur = phone_duration(ph, 0, wi == nwords-1, 0, 0) * g_rate;
                         ev[nev].f0_start = f0s; ev[nev].f0_end = f0e;
                         ev[nev].energy = 0.9;
@@ -929,6 +931,7 @@ int main(int argc, char **argv) {
                 dur = (is_v ? 0.095 : 0.048) * p_dur;
             }
             ev[nev].ph = ph; ev[nev].stress = st;
+            ev[nev].t0_abs = t_abs;
             ev[nev].dur = dur;
             ev[nev].f0_start = f0s; ev[nev].f0_end = f0e;
             /* amplitude variation (gap C28-33): stressed words louder,
@@ -996,6 +999,8 @@ int main(int argc, char **argv) {
     for (int i = 0; i < nev; i++) {
         const wb_phone_t *prev = i > 0 ? ev[i-1].ph : ev[i].ph;
         const wb_phone_t *next = i + 1 < nev ? ev[i+1].ph : ev[i].ph;
+        t0 = ev[i].t0_abs;   /* R018: use the stored absolute time so word
+                                gaps are preserved and no trailing silence */
         if (g_sine_mode)
             sine_render_phone(&T, t0, ev[i].dur, ev[i].ph, prev, next,
                               ev[i].f0_start, ev[i].f0_end, ev[i].energy);

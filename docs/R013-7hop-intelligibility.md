@@ -96,9 +96,11 @@
 are the most invasive):**
 - **P1 — Conical KL sections + fractional delay (Välimäki).** Would modify
   the core waveguide reflection math; risky blind.
-- **P2 — Formant-preserving phase vocoder for wb_vc.** Needs a time-
-  stretcher/inverse-FFT not in the tree; `wb_vc` already preserves formants
-  via articulatory re-synthesis. Documented, not shipped.
+- **P2 — Formant-preserving phase vocoder for wb_vc.** Attempted a phase
+  vocoder pitch shifter (`tools/wb_shift.c`); the 2x upshift produced
+  incoherent output and could not be verified/debugged while muted. Left
+  out of the build, marked experimental. `wb_vc` already preserves formants
+  via articulatory re-synthesis. Needs a session with a listen (or TD-PSOLA).
 
 ## Comparison / verification
 - Nothing re-rendered yet this cycle — this is a research+planning pass. Next cycle applies P0 (F2 locus) and re-runs `make test` + the `cat/bad/kick/church` landmark checks.

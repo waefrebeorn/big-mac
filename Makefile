@@ -6,7 +6,7 @@ LDLIBS  = -lm
 SRC     = src/wb_tract.c src/wb_glottis.c src/wb_wav.c src/wb_dsp.c src/wb_reader.c src/wb_measure.c src/wb_print.c src/wb_aiff.c src/wb_midi.c
 OBJ     = $(SRC:.c=.o)
 
-TOOLS   = tools/wb_speak tools/wb_analyze tools/wb_fit tools/wb_absorb tools/wb_toon
+TOOLS   = tools/wb_speak tools/wb_analyze tools/wb_fit tools/wb_absorb tools/wb_toon tools/wb_sing
 
 all: $(TOOLS)
 
@@ -24,6 +24,9 @@ tools/wb_absorb: tools/wb_absorb.c $(OBJ)
 
 tools/wb_toon: tools/wb_toon.c $(OBJ)
 	$(CC) $(CFLAGS) -o $@ tools/wb_toon.c $(OBJ) $(LDLIBS)
+
+tools/wb_sing: tools/wb_sing.c $(OBJ)
+	$(CC) $(CFLAGS) -o $@ tools/wb_sing.c $(OBJ) $(LDLIBS)
 
 src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<

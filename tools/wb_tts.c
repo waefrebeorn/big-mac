@@ -249,7 +249,7 @@ static void blend_targets(const wb_phone_t *prev, const wb_phone_t *cur,
 static void tts_render(wb_tts_t *T, double t0, double dur,
                        const wb_phone_t *ph, int stress,
                        const wb_phone_t *prev, const wb_phone_t *next,
-                       double f0_start, double f0_end) {
+                       double f0_start, double f0_end, double energy) {
     int s0 = (int)(t0 * SR), s1 = (int)((t0 + dur) * SR);
     if (s1 > T->nsamp) s1 = T->nsamp;
     /* stop detection: closed tract (td small), no frication, not nasal.
@@ -299,7 +299,7 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
             if (jj < n_env) env = (double)jj / n_env;                    /* onset */
             if (s1 - j - 1 < n_env) env = (double)(s1 - j - 1) / n_env;  /* offset */
         }
-        T->out[j] += vocal * 0.125 * env;
+        T->out[j] += vocal * 0.125 * env * energy;
         if (m == BLOCK - 1) {
             wb_glottis_finish_block(T->glottis, phonate, (double)BLOCK / SR);
             wb_tract_finish_block(T->tract, (double)BLOCK / SR);
@@ -403,6 +403,7 @@ int main(int argc, char **argv) {
         int stress;
         double dur;       /* seconds */
         double f0_start, f0_end;
+        double energy;    /* amplitude gain for this phone (gap C28-33) */
     } wb_event_t;
     wb_event_t ev[2048];
     int nev = 0;
@@ -452,8 +453,9 @@ int main(int argc, char **argv) {
                         if (is_question) { f0s = base_f0 * 0.95; f0e = base_f0 * 1.35; }
                         else { f0s = base_f0 * 1.05; f0e = base_f0 * 0.85; }
                         ev[nev].ph = ph; ev[nev].stress = 0;
-                        ev[nev].dur = ph->dur / tempo;
+                        ev[nev].dur = phone_duration(ph, 0, wi == nwords-1, 0, 0);
                         ev[nev].f0_start = f0s; ev[nev].f0_end = f0e;
+                        ev[nev].energy = 0.9;
                         t_abs += ev[nev].dur;
                         nev++;
                     }
@@ -535,6 +537,14 @@ int main(int argc, char **argv) {
             ev[nev].ph = ph; ev[nev].stress = st;
             ev[nev].dur = dur;
             ev[nev].f0_start = f0s; ev[nev].f0_end = f0e;
+            /* amplitude variation (gap C28-33): stressed words louder,
+             * first/last words emphasized, gentle declination, micro */
+            double amp = 0.85 + 0.20 * (st > 0) + 0.10 * (wi == 0 || wi == nwords-1);
+            amp *= (1.0 - 0.10 * u_phrase);            /* amplitude declination */
+            amp *= (1.0 + 0.05 * sin(2 * M_PI * 2.0 * (double)wi));  /* microvar */
+            if (amp > 1.2) amp = 1.2;
+            if (amp < 0.5) amp = 0.5;
+            ev[nev].energy = amp;
             t_abs += ev[nev].dur;
             nev++;
             phone_idx++;
@@ -570,7 +580,7 @@ int main(int argc, char **argv) {
         const wb_phone_t *prev = i > 0 ? ev[i-1].ph : ev[i].ph;
         const wb_phone_t *next = i + 1 < nev ? ev[i+1].ph : ev[i].ph;
         tts_render(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress, prev, next,
-                   ev[i].f0_start, ev[i].f0_end);
+                   ev[i].f0_start, ev[i].f0_end, ev[i].energy);
         t0 += ev[i].dur;
     }
 

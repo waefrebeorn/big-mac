@@ -650,7 +650,7 @@ int main(int argc, char **argv) {
      * Filter both out so the positional parsing below is unchanged. */
     int g_pitch_accent = 0, g_sine_mode = 0, g_phone_mode = 0, g_whisper = 0, g_fry = 0;
     int g_tone = 0;   /* 1-4 Mandarin lexical tone applied per word */
-    int g_vtl = 0;    /* override tract section count (vocal-tract length) */
+    double g_vtl = 0.0;  /* override tract length (integer sections + fractional) */
     double g_rate = 1.0;  /* speaking-rate multiplier (<1 fast, >1 slow) */
     double g_breathiness = 0.0, g_rq = 0.0;
     {
@@ -663,7 +663,7 @@ int main(int argc, char **argv) {
             if (!strcmp(argv[a], "-fry")) { g_fry = 1; continue; }
             if (!strcmp(argv[a], "-breathy") && a + 1 < argc) { g_breathiness = atof(argv[++a]); continue; }
             if (!strcmp(argv[a], "-tone") && a + 1 < argc) { g_tone = atoi(argv[++a]); continue; }
-            if (!strcmp(argv[a], "-vtl") && a + 1 < argc) { g_vtl = atoi(argv[++a]); continue; }
+            if (!strcmp(argv[a], "-vtl") && a + 1 < argc) { g_vtl = atof(argv[++a]); continue; }
             if (!strcmp(argv[a], "-rq") && a + 1 < argc) { g_rq = atof(argv[++a]); continue; }
             if (!strcmp(argv[a], "-rate") && a + 1 < argc) { g_rate = atof(argv[++a]); if (g_rate < 0.3) g_rate = 0.3; if (g_rate > 3.0) g_rate = 3.0; continue; }
             argv[w++] = argv[a];
@@ -959,10 +959,12 @@ int main(int argc, char **argv) {
     /* ---------------- render ---------------- */
     int nsamp = (int)(total * SR);
     double *out = calloc((size_t)nsamp, sizeof(double));
-    int vtl_n = g_vtl > 0 ? g_vtl : ch->tract_n;
+    int vtl_n = g_vtl > 0 ? (int)g_vtl : ch->tract_n;
     if (vtl_n < 20) vtl_n = 20;
     if (vtl_n > 80) vtl_n = 80;
+    double vtl_frac = g_vtl > 0 ? (g_vtl - (int)g_vtl) : 0.0;  /* fractional section */
     wb_tract_t *tract = wb_tract_new(vtl_n);
+    if (vtl_frac > 0) wb_tract_set_length_frac(tract, vtl_frac);  /* R018 fractional-delay */
     wb_glottis_t *g = wb_glottis_new();
     wb_glottis_set_tenseness(g, ch->tenseness * em->tenseness / 0.65);
     wb_glottis_set_jitter(g, ch->jitter + em->jitter);

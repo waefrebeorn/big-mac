@@ -2,6 +2,7 @@
  * wb_tract.c — vocal tract waveguide implementation (strict C11)
  */
 #include "wb_tract.h"
+#include "wb_fdelay.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +32,11 @@ struct wb_tract {
     /* R013 mouth controls */
     double lip_rounding;   /* 0..1 lip protrusion/rounding (pursed terminal tube) */
     double noise_index;    /* frication source section; <0 = default (tip_start) */
+    /* R018 fractional-delay: continuous (non-integer) vocal-tract length.
+     * length_frac in [0,1) extra section; lengthens the tube smoothly so
+     * formants scale continuously (conical/fractional-delay accuracy). */
+    double length_frac;
+    wb_fdelay_t lip_fd;    /* Thiran allpass on the terminal delay line */
 
     double reflection_left, reflection_right, reflection_nose;
     double new_reflection_left, new_reflection_right, new_reflection_nose;
@@ -94,6 +100,8 @@ wb_tract_t *wb_tract_new(int n) {
     t->velum_target = 0.01;
     t->lip_rounding = 0.0;
     t->noise_index = -1.0;
+    t->length_frac = 0.0;
+    wb_fdelay_set(&t->lip_fd, 0.0);
 
     /* rest diameters */
     for (int i = 0; i < n; i++) {
@@ -328,7 +336,9 @@ double wb_tract_run_step(wb_tract_t *t, double glottal_output, double turbulence
     add_turbulence(t, turbulence_noise);
 
     t->junction_R[0] = t->L[0] * t->glottal_reflection + glottal_output;
-    t->junction_L[t->n] = t->R[t->n - 1] * t->lip_reflection;
+    double r_lip = t->R[t->n - 1];
+    if (t->length_frac > 0) r_lip = wb_fdelay_run(&t->lip_fd, r_lip);
+    t->junction_L[t->n] = r_lip * t->lip_reflection;
 
     for (int i = 1; i < t->n; i++) {
         double r = t->reflection[i] * (1 - lambda) + t->new_reflection[i] * lambda;
@@ -375,6 +385,16 @@ void wb_tract_finish_block(wb_tract_t *t, double block_time) {
 }
 
 int wb_tract_n(const wb_tract_t *t) { return t->n; }
+
+void wb_tract_set_length_frac(wb_tract_t *t, double frac) {
+    /* continuous (fractional) tract-length extension: frac in [0,1) extra
+     * section, realised as a Thiran allpass on the terminal delay line so
+     * formants scale continuously between integer section counts. */
+    if (frac < 0) frac = 0;
+    if (frac > 1) frac = 1;
+    t->length_frac = frac;
+    wb_fdelay_set(&t->lip_fd, frac);
+}
 
 void wb_tract_set_diameter(wb_tract_t *t, int idx, double d) {
     if (idx < 0 || idx >= t->n) return;

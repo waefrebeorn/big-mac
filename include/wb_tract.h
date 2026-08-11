@@ -36,7 +36,8 @@ void wb_tract_set_lip_rounding(wb_tract_t *t, double amount);
  * position (tip_start). Places labiodental /f v/ noise at the lips and
  * sibilant noise at the teeth, so the front cavity (source..lip) sizes
  * the noise spectral peak. */
-void wb_tract_set_noise_pos(wb_tract_t *t, double index);
+void wb_tract_set_noise_pos(wb_tract_t *t, double index); /* <0 = default alveolar */
+void wb_tract_set_length_frac(wb_tract_t *t, double frac); /* 0..1 extra section (fractional-delay) */
 
 /* Advance one sample step. Returns lip+nose output. */
 double wb_tract_run_step(wb_tract_t *t, double glottal_output, double turbulence_noise, double lambda);

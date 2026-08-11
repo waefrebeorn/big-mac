@@ -146,31 +146,41 @@ void wb_tract_free(wb_tract_t *t) {
 }
 
 void wb_tract_set_rest_diameter(wb_tract_t *t, double tongue_index, double tongue_diameter) {
+    /* The tongue constriction must reach the tube. reshape() moves `diameter`
+     * toward `target_diameter`, so the rest (tongue) shape has to be written
+     * into BOTH rest_diameter (the neutral reference lips clamp against) AND
+     * target_diameter (what the tube actually moves toward). Before this fix
+     * only rest_diameter was set — the tongue bump never reached the tube, so
+     * every vowel rendered through the default (flat) shape and sounded alike
+     * (the "wawa machine"). */
     for (int i = t->blade_start; i < t->lip_start; i++) {
         double tt = 1.1 * M_PI * (tongue_index - i) / (double)(t->tip_start - t->blade_start);
         double fixed = 2.0 + (tongue_diameter - 2.0) / 1.5;
         double curve = (1.5 - fixed + 1.7) * cos(tt);
         if (i == t->blade_start - 2 || i == t->lip_start - 1) curve *= 0.8;
         if (i == t->blade_start     || i == t->lip_start - 2) curve *= 0.94;
-        t->rest_diameter[i] = 1.5 - curve;
+        double d = 1.5 - curve;
+        t->rest_diameter[i] = d;
+        t->target_diameter[i] = d;
     }
 }
 
 void wb_tract_set_lips(wb_tract_t *t, double aperture) {
     /* The terminal tube (lip region) is narrowed to the aperture. With lip
-     * rounding > 0 we additionally purse it into a horn — the narrowing is
-     * strongest at the very lip and tapers backward, modelling protrusion
-     * (a longer, narrower lip tube). This is what pushes F2/F3 down for
-     * rounded vowels /u o/ and labialized /w/ (rounding acoustics). */
+     * rounding > 0 we additionally purse it into a longer horn — the
+     * constricted zone extends backward proportionally to rounding (modelling
+     * PROTRUSION as an increased lip-tube length, which is what lowers F2/F3),
+     * and the narrowing is strongest at the very lip, tapering back. */
     double r = t->lip_rounding;
-    int lo = t->lip_start - 2;
-    int span = t->n - lo;                 /* terminal tube length */
-    for (int i = t->lip_start - 2; i < t->n; i++) {
+    int lo = t->lip_start - 2 - (int)(r * 4.0);   /* more rounding = longer lip tube */
+    if (lo < 2) lo = 2;
+    int span = t->n - lo;
+    for (int i = lo; i < t->n; i++) {
         double v = aperture * 1.9;
         if (v > t->rest_diameter[i]) v = t->rest_diameter[i];
         if (r > 0.0 && span > 0) {
             double fwd = (double)(i - lo) / (double)span;   /* 0 at tube start, 1 at lip */
-            double narrow = 1.0 - 0.6 * r * (0.35 + 0.65 * fwd);
+            double narrow = 1.0 - 0.7 * r * (0.4 + 0.6 * fwd);
             v *= narrow;
         }
         t->target_diameter[i] = v;

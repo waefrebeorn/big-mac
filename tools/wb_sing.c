@@ -113,7 +113,7 @@ int main(int argc, char **argv) {
         double ti = 20.0 - (f1_target - f1_rest) / f1_rest * 3.0;
         if (ti < 11.0) ti = 11.0;
         if (ti > 20.0) ti = 20.0;
-        wb_tract_set_rest_diameter(tract, ti, 0.9);
+        wb_tract_set_rest_diameter(tract, ti, 2.4);   /* open vowel tube (R013 fix) */
         wb_tract_set_lips(tract, 0.7);
 
         wb_glottis_set_frequency(g, f0);

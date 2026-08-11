@@ -37,12 +37,14 @@ int main(int argc, char **argv) {
     double *out = malloc((size_t)n_samples * sizeof(double));
     if (!out) { fprintf(stderr, "malloc failed\n"); return 1; }
 
-    /* A simple vowel sweep: aa -> iy -> uw -> aa (tongue moves) */
+    /* A simple vowel sweep: aa -> iy -> uw -> aa (tongue moves).
+     * td is the real tongue constriction (R013 fix), so vowels need td
+     * ~2.4-2.8 (open) — the old 0.6-1.4 choked the tube shut. */
     const double sweep[4][2] = {
-        {20.0, 1.1},  /* aa */
-        {13.5, 0.6},  /* iy */
-        {18.0, 1.4},  /* uw */
-        {20.0, 1.1},  /* aa */
+        {20.0, 2.8},  /* aa */
+        {13.5, 2.4},  /* iy */
+        {18.0, 2.6},  /* uw */
+        {20.0, 2.8},  /* aa */
     };
     const int sweep_len = 4;
 

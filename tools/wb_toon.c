@@ -137,9 +137,10 @@ static double phone_ti(const char *p) {
 }
 
 static double phone_td(const char *p) {
-    if (!strcmp(p, "aa") || !strcmp(p, "ah") || !strcmp(p, "ow") || !strcmp(p, "uh") || !strcmp(p, "uw")) return 1.3;
-    if (!strcmp(p, "iy") || !strcmp(p, "ih") || !strcmp(p, "er")) return 0.6;
-    return 0.9;
+    /* td is the real tongue constriction (R013 fix). Vowels need open
+     * tubes (~2.4); consonants need a degree of constriction (~1.2). */
+    if (strchr("aeiouy", p[0]) && strlen(p) <= 2) return 2.4;
+    return 1.2;
 }
 
 static double phone_dur(const char *p) {

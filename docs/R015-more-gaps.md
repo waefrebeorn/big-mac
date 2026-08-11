@@ -108,3 +108,25 @@ partially open), not just the nasal consonant itself (R010 D52/D53).
 ## Next cycle target
 F1 (front-vowel narrow constriction) and F2 (fricative timing) — the two
 remaining wawa-killers — then F3 (tilt/HNR breathiness).
+
+## Implemented: expanded inventory + `-p` phone mode
+To "make more vowels and consonants," the phone table grew from ~40 to a
+broad IPA-style set (9 new vowels + 25 new consonants, ~74+ total):
+- **Vowels**: rounded-front /y ø œ/ (YY/OE/OEH), unrounded back /ɯ/ (UUX),
+  schwa /ə/ (SCH), near-open /ɐ/ (VAX), nasal vowels /ɛ̃ ɑ̃ ɔ̃/ (ENN/ANN/ONN).
+- **Consonants**: palatal stops /c ɟ/ (CY/JY), uvular stops /q ɢ/ (QV/GV),
+  glottal /ʔ/ (QX), bilabial fricatives /ɸ β/ (PHI/BTA), palatal /ʝ/ (CJ),
+  uvular fricatives /ʁ χ/ (RHO/KHI), lateral fricatives /ɬ ɮ/ (LLL/LLZ),
+  retroflex /ʈ ɖ ʂ ʐ/ (RT/RD/RS/RZ), affricates /ts dz pf/ (TS/DZ/PF),
+  approximants /ʋ ɹ ɥ ɰ/ (VV/RY/JW/GW).
+
+New **`-p` phone mode**: `wb_tts "IY S IY K S" homer out.wav -p` renders each
+token as a phone code directly (bypasses the dictionary), so the whole
+inventory is speakable. Verified: 17 new phones render non-silent; new vowels
+are distinct (YY F2=2480, OE=2380, SCH=2165, …). Gates green.
+
+Honest note: the model can only separate a limited number of articulations —
+uvular≈velar, retroflex≈alveolar, many back fricatives collapse — so several
+of the ~74 are acoustically similar until a richer articulatory model exists.
+The "1000 lol" is beyond any real language (max ~150); ~74 is a solid,
+speakable inventory.

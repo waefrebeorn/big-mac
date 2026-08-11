@@ -170,6 +170,48 @@ static const wb_phone_t PHONES[] = {
     { "Y", 13.0, 2.4, 0.85, 0.0, 1, 0.00, 0.5, 0, 0, 0, 0 },   /* glide (open) */
     { "Z", 31.0, 2.1, 0.80, 0.0, 1, 0.65, 0.4, 0, 0, 6000, 2500, 0, 32.5 },  /* hard sibilant (constrict at teeth) */
     { "ZH", 29.0, 2.1, 0.60, 0.0, 1, 0.65, 0.4, 0, 0, 3200, 1600, 1.0, 29.5 }, /* soft sibilant (constrict, rounded, big front cavity) */
+
+    /* ---------- R015 extended inventory (IPA-style, render via -p) ---------- */
+    /* rounded-front + unrounded vowels */
+    { "YY",  10.0, 2.4, 0.40, 0.0, 1, 0.00, 0.9, 0, 0, 0, 0, 1.0 },  /* y  close front rounded */
+    { "OE",  10.0, 2.6, 0.45, 0.0, 1, 0.00, 1.0, 0, 0, 0, 0, 1.0 },  /* ø  close-mid front rounded */
+    { "OEH", 11.0, 2.7, 0.50, 0.0, 1, 0.00, 1.0, 0, 0, 0, 0, 0.9 },  /* œ  open-mid front rounded */
+    { "UUX", 18.5, 2.4, 0.85, 0.0, 1, 0.00, 0.9, 0, 0, 0, 0 },  /* ɯ  close back UNROUNDED (Japanese u) */
+    { "SCH", 15.0, 2.6, 0.75, 0.0, 1, 0.00, 0.7 },  /* ə  schwa (reduced) */
+    { "VAX", 16.0, 3.0, 0.85, 0.0, 1, 0.00, 0.8 },  /* ɐ  near-open central */
+    /* nasal vowels */
+    { "ENN", 10.0, 2.6, 0.85, 0.6, 1, 0.00, 1.0 },  /* ɛ̃  nasalized e */
+    { "ANN", 20.0, 3.0, 0.85, 0.6, 1, 0.00, 1.0 },  /* ɑ̃  nasalized a */
+    { "ONN", 18.0, 2.6, 0.60, 0.6, 1, 0.00, 1.0, 0, 0, 0, 0, 0.6 },  /* ɔ̃  nasalized o */
+    /* palatal + uvular stops */
+    { "CY", 12.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4, 0, 0, 3000, 1500, 0, 28 },  /* c  voiceless palatal stop */
+    { "JY", 12.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4, 0, 0, 3000, 1500, 0, 28 },  /* ɟ  voiced palatal stop */
+    { "QV", 22.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4, 0, 0, 1500, 1000, 0, 23 },  /* q  voiceless uvular stop */
+    { "GV", 22.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4, 0, 0, 1500, 1000, 0, 23 },  /* ɢ  voiced uvular stop */
+    { "QX", 24.0, 0.2, 0.90, 0.0, 0, 0.00, 0.3, 0, 0, 0, 0, 0, 2 },  /* ʔ  glottal stop */
+    /* more fricatives */
+    { "PHI", 14.0, 2.1, 0.30, 0.0, 0, 0.50, 0.4, 0, 0, 1500, 1000, 0, 39 },  /* ɸ  voiceless bilabial fricative */
+    { "BTA", 14.0, 2.1, 0.30, 0.0, 1, 0.50, 0.4, 0, 0, 1500, 1000, 0, 39 },  /* β  voiced bilabial fricative */
+    { "CJ",  12.0, 2.1, 0.80, 0.0, 1, 0.60, 0.4, 0, 0, 3500, 1500, 0, 28 },  /* ʝ  voiced palatal fricative */
+    { "RHO", 22.0, 2.1, 0.70, 0.0, 1, 0.50, 0.4, 0, 0, 1200, 900, 0, 23 },  /* ʁ  voiced uvular fricative */
+    { "KHI", 22.0, 2.1, 0.70, 0.0, 0, 0.50, 0.4, 0, 0, 1200, 900, 0, 23 },  /* χ  voiceless uvular fricative */
+    /* lateral fricatives */
+    { "LLL", 15.0, 1.8, 0.80, 0.0, 0, 0.60, 0.4, 0, 0, 4000, 1500, 0, 32 },  /* ɬ  voiceless lateral fricative */
+    { "LLZ", 15.0, 1.8, 0.80, 0.0, 1, 0.60, 0.4, 0, 0, 4000, 1500, 0, 32 },  /* ɮ  voiced lateral fricative */
+    /* retroflex series */
+    { "RT", 14.0, 0.2, 0.80, 0.0, 0, 0.00, 0.4, 0, 0, 4000, 1500, 0, 31 },  /* ʈ  voiceless retroflex stop */
+    { "RD", 14.0, 0.2, 0.80, 0.0, 1, 0.00, 0.4, 0, 0, 4000, 1500, 0, 31 },  /* ɖ  voiced retroflex stop */
+    { "RS", 14.0, 2.1, 0.60, 0.0, 0, 0.60, 0.4, 0, 0, 3500, 1500, 0, 30 },  /* ʂ  voiceless retroflex fricative */
+    { "RZ", 14.0, 2.1, 0.60, 0.0, 1, 0.60, 0.4, 0, 0, 3500, 1500, 0, 30 },  /* ʐ  voiced retroflex fricative */
+    /* affricates */
+    { "TS", 15.0, 1.6, 0.80, 0.0, 0, 0.80, 0.5, 0, 0, 6000, 2000, 0, 32 },  /* ts */
+    { "DZ", 15.0, 1.6, 0.80, 0.0, 1, 0.80, 0.5, 0, 0, 6000, 2000, 0, 32 },  /* dz */
+    { "PF", 14.0, 1.6, 0.30, 0.0, 0, 0.70, 0.5, 0, 0, 2500, 1200, 0, 38 },  /* pf */
+    /* approximants */
+    { "VV", 14.0, 2.4, 0.40, 0.0, 1, 0.00, 0.5 },  /* ʋ  labiodental approximant */
+    { "RY", 14.0, 2.0, 0.70, 0.0, 1, 0.00, 0.6, 0, 0, 0, 0, 0.5 },  /* ɹ  alveolar approximant */
+    { "JW", 12.0, 2.4, 0.40, 0.0, 1, 0.00, 0.5, 0, 0, 0, 0, 1.0 },  /* ɥ  labial-palatal approximant */
+    { "GW", 20.0, 2.4, 0.80, 0.0, 1, 0.00, 0.5 },  /* ɰ  velar approximant */
 };
 
 static const wb_phone_t *find_phone(const char *ph, int *stress) {
@@ -585,22 +627,26 @@ int main(int argc, char **argv) {
      * (Tokyo dialect: every word has ONE tonic mora). -sine: formant-track
      * "sine-wave speech" mode (Remez) — three oscillators track F1/F2/F3.
      * Filter both out so the positional parsing below is unchanged. */
-    int g_pitch_accent = 0, g_sine_mode = 0;
+    int g_pitch_accent = 0, g_sine_mode = 0, g_phone_mode = 0;
     {
         int w = 1;
         for (int a = 1; a < argc; a++) {
             if (!strcmp(argv[a], "-pa")) { g_pitch_accent = 1; continue; }
             if (!strcmp(argv[a], "-sine")) { g_sine_mode = 1; continue; }
+            if (!strcmp(argv[a], "-p")) { g_phone_mode = 1; continue; }
             argv[w++] = argv[a];
         }
         argc = w;
     }
     if (argc < 4) {
-        fprintf(stderr, "usage: wb_tts \\\"<text>\\\" <character> <out.wav> [f0] [emotion] [planner.mlp] [-pa] [-sine]\n");
-        fprintf(stderr, "       wb_tts -f <file> <character> <out.wav> [f0] [emotion] [planner.mlp] [-pa] [-sine]\n");
-        fprintf(stderr, "  emotions: neutral happy sad angry fearful surprised\n");
-        fprintf(stderr, "  -pa: Tokyo-style binary H/L pitch accent + mora timing (Japanese prosody)\n");
-        fprintf(stderr, "  -sine: formant-track mode — 3 sine oscillators track F1/F2/F3 (sine-wave speech, ultra-light)\n");
+        fprintf(stderr, "usage: wb_tts \\\\\\\"<text>\\\\\\\" <character> <out.wav> [f0] [emotion] [planner.mlp] [-pa] [-sine] [-p]\\n");
+        fprintf(stderr, "       wb_tts -f <file> <character> <out.wav> [f0] [emotion] [planner.mlp] [-pa] [-sine] [-p]\\n");
+        fprintf(stderr, "  emotions: neutral happy sad angry fearful surprised\\n");
+        fprintf(stderr, "  -pa: Tokyo-style binary H/L pitch accent + mora timing (Japanese prosody)\\n");
+        fprintf(stderr, "  -sine: formant-track mode — 3 sine oscillators track F1/F2/F3 (sine-wave speech, ultra-light)\\n");
+        fprintf(stderr, "  -p: PHONE mode — each whitespace token is rendered as a phone code directly\\n");
+        fprintf(stderr, "      (e.g. \\\\\\\"-p \\\\\\\"IY S IY K S\\\\\\\"\\\\\\\"), bypassing the dictionary. Lets you speak the full\\n");
+        fprintf(stderr, "      inventory: rounded front vowels, nasal vowels, retroflex, uvular, lateral, etc.\\n");
         return 1;
     }
     /* read text from a file (API path, gap I97) */
@@ -665,8 +711,9 @@ int main(int argc, char **argv) {
             w[len-1] = 0;
             punct[nwords] = tok[len-1];
         }
-        /* lowercase */
-        for (size_t i = 0; w[i]; i++) w[i] = (char)tolower((unsigned char)w[i]);
+        /* lowercase (except in -p phone mode: phone codes are uppercase) */
+        if (!g_phone_mode)
+            for (size_t i = 0; w[i]; i++) w[i] = (char)tolower((unsigned char)w[i]);
         snprintf(words[nwords], 32, "%s", w);
         nwords++;
         tok = strtok(NULL, " \t\n");
@@ -693,7 +740,7 @@ int main(int argc, char **argv) {
 
     /* first pass: estimate phrase duration */
     for (int wi = 0; wi < nwords; wi++) {
-        const char *ph_str = lookup_word(words[wi]);
+        const char *ph_str = g_phone_mode ? words[wi] : lookup_word(words[wi]);
         if (!ph_str) { phrase_dur += 0.25; continue; }
         char buf[64]; snprintf(buf, sizeof(buf), "%s", ph_str);
         char *p = strtok(buf, " ");
@@ -711,7 +758,7 @@ int main(int argc, char **argv) {
     double t_abs = 0.15;  /* lead-in */
     long j_global = 0;    /* sample-phase counter for microvariation */
     for (int wi = 0; wi < nwords; wi++) {
-        const char *ph_str = lookup_word(words[wi]);
+        const char *ph_str = g_phone_mode ? words[wi] : lookup_word(words[wi]);
         if (!ph_str) {
             /* fallback: spell the word (letter-by-letter via dict) */
             for (size_t k = 0; k < strlen(words[wi]) && nev < 2047; k++) {

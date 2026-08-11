@@ -879,6 +879,7 @@ int main(int argc, char **argv) {
             const wb_phone_t *ph = find_phone(phones[pi], &st);
             if (!ph) continue;
             /* prosody: stress bump + phrase contour + declination */
+            int is_phrase_final = (wi == nwords - 1 && pi == nphones - 1);
             double f0s = base_f0, f0e = base_f0;
             double u_phrase = (double)wi / (nwords > 1 ? nwords - 1 : 1);
             if (g_pitch_accent) {
@@ -905,6 +906,9 @@ int main(int argc, char **argv) {
                 f0s = base_f0 * decl * (0.95 + 0.15 * pct * em->f0_range) * shape_s * pitch_mult * micro;
                 f0e = base_f0 * decl * (0.95 + 0.15 * pct * em->f0_range - 0.10 * em->f0_range) * shape_e * pitch_mult * micro;
                 if (st > 0) { f0s *= 1.10; f0e *= 1.05; }
+                /* R018 phrase-final lowering: the utterance-final syllable
+                 * falls below the declination line (Pierrehumbert). */
+                if (is_phrase_final) { f0s *= 0.97; f0e *= 0.88; }
             }
             }
             /* Klatt duration: context + stress + phrase-final + planner dur */

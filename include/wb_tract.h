@@ -34,4 +34,13 @@ void wb_tract_finish_block(wb_tract_t *t, double block_time);
 /* Diagnostics. */
 int wb_tract_n(const wb_tract_t *t);
 
+/* Per-section diameter access (for the fitting loop / full control).
+ * idx in [0, n). Clamped. */
+void wb_tract_set_diameter(wb_tract_t *t, int idx, double d);
+double wb_tract_get_diameter(const wb_tract_t *t, int idx);
+
+/* Set every section's target diameter at once (fitting loop uses this). */
+void wb_tract_set_all_diameters(wb_tract_t *t, const double *diams, int n);
+void wb_tract_get_all_diameters(const wb_tract_t *t, double *diams, int n);
+
 #endif /* WB_TRACT_H */

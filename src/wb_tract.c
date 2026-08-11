@@ -332,3 +332,30 @@ void wb_tract_finish_block(wb_tract_t *t, double block_time) {
 }
 
 int wb_tract_n(const wb_tract_t *t) { return t->n; }
+
+void wb_tract_set_diameter(wb_tract_t *t, int idx, double d) {
+    if (idx < 0 || idx >= t->n) return;
+    if (d < 0.05) d = 0.05;
+    if (d > 3.0) d = 3.0;
+    t->target_diameter[idx] = d;
+}
+
+double wb_tract_get_diameter(const wb_tract_t *t, int idx) {
+    if (idx < 0 || idx >= t->n) return 0.0;
+    return t->target_diameter[idx];
+}
+
+void wb_tract_set_all_diameters(wb_tract_t *t, const double *diams, int n) {
+    int lim = n < t->n ? n : t->n;
+    for (int i = 0; i < lim; i++) {
+        double d = diams[i];
+        if (d < 0.05) d = 0.05;
+        if (d > 3.0) d = 3.0;
+        t->target_diameter[i] = d;
+    }
+}
+
+void wb_tract_get_all_diameters(const wb_tract_t *t, double *diams, int n) {
+    int lim = n < t->n ? n : t->n;
+    for (int i = 0; i < lim; i++) diams[i] = t->target_diameter[i];
+}

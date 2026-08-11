@@ -465,9 +465,9 @@ static void tts_render(wb_tts_t *T, double t0, double dur,
         {
             int is_vowel = ph->voiced && ph->turb < 0.05 && ph->velum < 0.05;
             if (is_vowel && stress == 0 && !T->pitch_accent) {
-                ti += (15.0 - ti) * 0.35;
-                td += (2.6 - td) * 0.35;
-                lips += (0.75 - lips) * 0.35;
+                ti += (15.0 - ti) * 0.18;   /* gentler reduction so vowels stay legible */
+                td += (2.6 - td) * 0.18;
+                lips += (0.75 - lips) * 0.18;
             }
         }
         /* R018 nasal coarticulation (Moll & Daniloff): vowels adjacent to a
@@ -940,7 +940,7 @@ int main(int argc, char **argv) {
             /* R018 stress-timing (English): unstressed syllables compress to
              * keep a fairly steady inter-stress interval (Morse-code rhythm);
              * phrase-final keeps its lengthening from phone_duration. */
-            if (st == 0 && !g_pitch_accent && !is_final) dur *= 0.82;
+            if (st == 0 && !g_pitch_accent && !is_final) dur *= 0.90;  /* gentler than 0.82 */
             if (g_pitch_accent) {
                 /* mora-isochronous timing (Japanese): a vowel is ~1 mora,
                  * a consonant ~0.5 mora; morae run at a steady rate. */

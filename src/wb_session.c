@@ -19,6 +19,61 @@ wb_session *wb_session_create(void) {
     return s;
 }
 
+/* Deep copy a session: duplicates tracks, clips, notes, audio buffers, and
+ * automation lanes so the copy is fully independent of the source. */
+wb_session *wb_session_copy(const wb_session *src) {
+    if (!src) return NULL;
+    wb_session *d = calloc(1, sizeof(*d));
+    if (!d) return NULL;
+    memcpy(d, src, sizeof(*d));
+    d->tracks = NULL;
+    d->automation = NULL;
+    if (src->track_count > 0) {
+        d->tracks = calloc(src->track_count, sizeof(wb_track));
+        if (!d->tracks) { free(d); return NULL; }
+        memcpy(d->tracks, src->tracks, src->track_count * sizeof(wb_track));
+        for (uint32_t t = 0; t < src->track_count; t++) {
+            wb_track *dt = &d->tracks[t];
+            const wb_track *st = &src->tracks[t];
+            if (st->clip_count > 0) {
+                dt->clips = calloc(st->clip_count, sizeof(wb_clip));
+                if (!dt->clips) { wb_session_destroy(d); return NULL; }
+                memcpy(dt->clips, st->clips, st->clip_count * sizeof(wb_clip));
+                for (uint32_t c = 0; c < st->clip_count; c++) {
+                    wb_clip *dc = &dt->clips[c];
+                    const wb_clip *sc = &st->clips[c];
+                    dc->notes = NULL; dc->audio_data = NULL;
+                    if (sc->note_count > 0) {
+                        dc->notes = calloc(sc->note_count, sizeof(wb_note));
+                        if (!dc->notes) { wb_session_destroy(d); return NULL; }
+                        memcpy(dc->notes, sc->notes, sc->note_count * sizeof(wb_note));
+                    }
+                    if (sc->audio_data && sc->audio_frames > 0) {
+                        size_t bytes = (size_t)sc->audio_frames * sc->audio_channels * sizeof(wb_sample);
+                        dc->audio_data = malloc(bytes);
+                        if (!dc->audio_data) { wb_session_destroy(d); return NULL; }
+                        memcpy(dc->audio_data, sc->audio_data, bytes);
+                    }
+                }
+            }
+        }
+    }
+    if (src->automation_count > 0) {
+        d->automation = calloc(src->automation_count, sizeof(void*));
+        if (!d->automation) { wb_session_destroy(d); return NULL; }
+        for (uint32_t a = 0; a < src->automation_count; a++) {
+            const wb_automation_lane *sl = src->automation[a];
+            wb_automation_lane *dl = wb_automation_lane_create(sl->param);
+            if (!dl) { wb_session_destroy(d); return NULL; }
+            dl->target = sl->target;
+            for (uint32_t p = 0; p < sl->point_count; p++)
+                wb_automation_add_point(dl, sl->points[p].time, sl->points[p].value, sl->points[p].curve);
+            d->automation[a] = dl;
+        }
+    }
+    return d;
+}
+
 void wb_session_destroy(wb_session *s) {
     if (!s) return;
     for (uint32_t t = 0; t < s->track_count; t++) {

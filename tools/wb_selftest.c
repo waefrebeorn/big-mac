@@ -391,10 +391,11 @@ static void test_recorder(void) {
     wb_engine_record(e, 0, 0, 1, 0);
 
     /* simulate a 1-second held note (C4) recorded over the first second */
+    wb_sample rb[4096*2];
     wb_engine_note(e, 0, 60, 100);                 /* note-on at pos 0 */
-    wb_engine_render(e, calloc(1, 4096*2), 4096);  /* advance + flush */
+    wb_engine_render(e, rb, 4096);                 /* advance + flush */
     wb_engine_note(e, 0, 60, 0);                   /* note-off at pos 4096 */
-    wb_engine_render(e, calloc(1, 4096*2), 4096);  /* advance + flush */
+    wb_engine_render(e, rb, 4096);                 /* advance + flush */
 
     wb_engine_record(e, 0, 0, 0, 0);               /* disarm */
     wb_track *tk = &s->tracks[0];
@@ -422,6 +423,66 @@ static void test_recorder(void) {
     }
     wb_session_destroy(s2);
     wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
+
+/* ---- test: undo/redo via session snapshots ------------------------------ */
+static void test_undo(void) {
+    printf("test_undo\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_undo *u = wb_undo_create();
+
+    /* checkpoint the empty session, then add a track + note */
+    wb_undo_checkpoint(u, s);
+    wb_track *tr = wb_session_add_track(s, "Lead", 0);
+    strcpy(tr->inserts[0].id, "fm");
+    wb_session_add_note(tr, 0, 44100, 60, 100);
+    CHECK(s->track_count == 1 && tr->clips[0].note_count == 1, "edit applied");
+
+    /* checkpoint again, then change the note pitch */
+    wb_undo_checkpoint(u, s);
+    s->tracks[0].clips[0].notes[0].pitch = 72;
+    CHECK(s->tracks[0].clips[0].notes[0].pitch == 72, "second edit applied");
+    CHECK(wb_undo_depth(u) == 2, "two undo checkpoints recorded");
+
+    /* undo: back to pitch 60 */
+    int ok = wb_undo_undo(u, &s);
+    CHECK(ok == 1, "undo #1 performed");
+    CHECK(s->tracks[0].clips[0].notes[0].pitch == 60, "undo restores pitch 60");
+    CHECK(wb_undo_redo_depth(u) == 1, "redo stack has one entry");
+
+    /* undo again: back to empty session */
+    ok = wb_undo_undo(u, &s);
+    CHECK(ok == 1, "undo #2 performed");
+    CHECK(s->track_count == 0, "undo restores empty session");
+    CHECK(wb_undo_depth(u) == 0, "undo stack drained");
+
+    /* nothing to undo */
+    ok = wb_undo_undo(u, &s);
+    CHECK(ok == 0, "no-op undo past bottom");
+
+    /* redo: forward to pitch-60 state, then pitch-72 state */
+    ok = wb_undo_redo(u, &s);
+    CHECK(ok == 1, "redo #1 performed");
+    CHECK(s->track_count == 1 && s->tracks[0].clips[0].notes[0].pitch == 60, "redo restores pitch 60");
+    ok = wb_undo_redo(u, &s);
+    CHECK(ok == 1, "redo #2 performed");
+    CHECK(s->tracks[0].clips[0].notes[0].pitch == 72, "redo restores pitch 72");
+
+    /* new edit clears redo */
+    wb_undo_checkpoint(u, s);
+    s->tracks[0].clips[0].notes[0].pitch = 64;
+    CHECK(wb_undo_redo_depth(u) == 0, "new checkpoint clears redo branch");
+
+    /* deep-copy independence: editing the copy leaves the original alone */
+    wb_session *s2 = wb_session_copy(s);
+    CHECK(s2 != NULL, "session deep copy created");
+    s2->tracks[0].clips[0].notes[0].pitch = 100;
+    CHECK(s->tracks[0].clips[0].notes[0].pitch == 64, "copy is independent of original");
+    wb_session_destroy(s2);
+
+    wb_undo_destroy(u);
     wb_session_destroy(s);
 }
 
@@ -462,6 +523,7 @@ int main(void) {
     test_instruments();
     test_automation();
     test_recorder();
+    test_undo();
     test_xrun();
 
     printf("\n%d checks, %d failures\n", checks, failures);

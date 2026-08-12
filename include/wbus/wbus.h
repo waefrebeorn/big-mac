@@ -109,8 +109,19 @@ typedef struct wb_session {
 wb_session *wb_session_create(void);       /* empty session */
 wb_session *wb_session_demo(void);         /* 2-track demo song */
 void        wb_session_destroy(wb_session *s);
+wb_session *wb_session_copy(const wb_session *s); /* deep independent copy */
 wb_track   *wb_session_add_track(wb_session *s, const char *name, int kind);
 int         wb_session_add_note(wb_track *tr, double start, double dur, int pitch, int vel);
+
+/* ---- undo/redo (session snapshots) -------------------------------------- */
+typedef struct wb_undo wb_undo;
+wb_undo *wb_undo_create(void);
+void     wb_undo_destroy(wb_undo *u);
+void     wb_undo_checkpoint(wb_undo *u, const wb_session *current);
+int      wb_undo_undo(wb_undo *u, wb_session **owner);
+int      wb_undo_redo(wb_undo *u, wb_session **owner);
+int      wb_undo_depth(const wb_undo *u);
+int      wb_undo_redo_depth(const wb_undo *u);
 
 /* ---- session file save/load (.wbus text format) ----------------------- */
 int  wb_session_save(const wb_session *s, const char *path);

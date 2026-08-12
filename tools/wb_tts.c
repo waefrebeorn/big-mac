@@ -991,8 +991,8 @@ static void esynth_render_phone(wb_tts_t *T, double t0, double dur,
     int has_closure = is_stop && !ph->voiced;
     int closure = 0, release = 0;
     if (has_closure) {
-        closure = (s1 - s0) * 55 / 100;
-        release = closure + (int)(0.007 * SR);
+        closure = (s1 - s0) * 35 / 100;   /* shorter closure so the burst is audible */
+        release = closure + (int)(0.010 * SR);
         if (release > s1 - s0) release = s1 - s0;
     }
     if (ph->fric_fc > 0) wb_biquad_bandpass(&T->fric_filt, ph->fric_fc, ph->fric_bw, SR);
@@ -1016,7 +1016,7 @@ static void esynth_render_phone(wb_tts_t *T, double t0, double dur,
     if (is_nasal) {
         wb_esynth_phone_t sp;
         sp.f0 = f0_start;
-        sp.amplitude = 0.10 * energy;
+        sp.amplitude = 0.25 * energy;   /* R015: nasals audible enough to carve words */
         sp.npeaks = 3;
         sp.peaks[0] = (wb_esynth_peak_t){f1, a1, b1, b1};
         sp.peaks[1] = (wb_esynth_peak_t){f2, a2, b2, b2};
@@ -1040,16 +1040,16 @@ static void esynth_render_phone(wb_tts_t *T, double t0, double dur,
             double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
             double src = nz;
             if (ph->voiced) src = 0.5 * sin(2 * M_PI * f0_start * j / SR) + 0.5 * nz;
-            out = wb_biquad_run(&T->fric_filt, src) * 0.45;
+            out = wb_biquad_run(&T->fric_filt, src) * 1.4;   /* R015: fricatives loud enough to carve words */
         } else if (has_closure) {
             if (jj < closure) { out = 0.0; }
             else if (jj < release) {
                 double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
                 double decay = 1.0 - (double)(jj - closure) / (double)(release - closure);
-                out = wb_biquad_run(&T->fric_filt, nz * 0.8 * decay);
+                out = wb_biquad_run(&T->fric_filt, nz * 2.2 * decay);   /* loud place-specific burst */
             } else {
                 double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
-                out = wb_biquad_run(&T->fric_filt, nz * 0.35 * exp(-(t - (double)release / (s1 - s0)) / 0.030));
+                out = wb_biquad_run(&T->fric_filt, nz * 0.9 * exp(-(t - (double)release / (s1 - s0)) / 0.030));
             }
         }
         int n_env = (int)(0.012 * SR);

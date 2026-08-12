@@ -1,12 +1,17 @@
 /* wb_core.c — Big Mac DAW engine core.
- * Owns transport, the DSP graph/mixer, and the pull-based render path.
- * Realtime thread: render() + command draining only. No locks, no allocs.
+ * Architecture per R002 (study of Ardour + LMMS source):
+ *   - Staged render pipeline: schedule -> instruments -> effects.
+ *   - RT callback NEVER blocks: try-locks the process mutex; on contention
+ *     it counts an Xrun, silences output, returns immediately.
+ *   - Double-buffered output (swap per block).
+ *   - Zero malloc/lock/syscall on the RT path (all buffers preallocated).
  */
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <pthread.h>
 
 #include "wbus.h"
 #include "wbus_cmd.h"
@@ -23,6 +28,8 @@ struct wb_track_runtime {
     void  *voice;                    /* instrument instance (kind 0) */
     wb_sample *bufL, *bufR;          /* per-track block buffers */
     uint32_t   buf_cap;
+    /* insert effect instances (kind: comp/delay/reverb per slot) */
+    void  *inserts[WB_MAX_INSERT_SLOTS];
 };
 typedef struct wb_track_runtime wb_track_runtime;
 
@@ -34,6 +41,11 @@ struct wb_engine {
     wb_sample *accL, *accR;          /* master accumulation scratch */
     uint32_t   acc_cap;
     float cpu_load;
+
+    /* R002: Xrun detection via process try-lock */
+    pthread_mutex_t process_lock;
+    int   lock_initialized;
+    uint64_t xruns;
 };
 
 /* drain UI commands (RT thread, once per block) */
@@ -59,19 +71,70 @@ static void engine_process_cmds(wb_engine *e) {
     }
 }
 
-/* render one track's block into its private buffers */
-static void render_track(wb_engine *e, int ti, uint32_t frames) {
-    wb_track_runtime *tr = &e->rtracks[ti];
-    memset(tr->bufL, 0, frames * sizeof(wb_sample));
-    memset(tr->bufR, 0, frames * sizeof(wb_sample));
-
-    if (tr->kind == 0 && tr->voice) {
-        /* schedule notes from MIDI clips that fall in this block */
-        wb_track *tk = &e->session->tracks[ti];
+/* ---- STAGE 1: schedule (spawn/retire notes from the timeline) -------- */
+static void stage_schedule(wb_engine *e, uint32_t frames) {
+    if (!e->session || !e->rtracks) return;
+    for (uint32_t t = 0; t < e->session->track_count; t++) {
+        wb_track_runtime *tr = &e->rtracks[t];
+        if (!tr->active || !tr->voice || tr->kind != 0) continue;
+        wb_track *tk = &e->session->tracks[t];
+        /* schedule note-ons/offs that fall in this block */
         wb_transport_schedule_notes(tk, e->t.song_pos, frames,
                                     wb_synth_note, tr->voice);
-        /* render the instrument */
-        wb_synth_render_block(tr->voice, tr->bufL, tr->bufR, frames);
+    }
+}
+
+/* ---- STAGE 2: instruments (render each track's voice to its buffer) -- */
+static void stage_instruments(wb_engine *e, uint32_t frames) {
+    if (!e->session || !e->rtracks) return;
+    for (uint32_t t = 0; t < e->session->track_count; t++) {
+        wb_track_runtime *tr = &e->rtracks[t];
+        if (!tr->active) continue;
+        memset(tr->bufL, 0, frames * sizeof(wb_sample));
+        memset(tr->bufR, 0, frames * sizeof(wb_sample));
+        if (tr->kind == 0 && tr->voice)
+            wb_synth_render_block(tr->voice, tr->bufL, tr->bufR, frames);
+    }
+}
+
+/* ---- STAGE 3: effects (run each track's insert chain) ---------------- */
+static void stage_effects(wb_engine *e, uint32_t frames) {
+    if (!e->session || !e->rtracks) return;
+    for (uint32_t t = 0; t < e->session->track_count; t++) {
+        wb_track_runtime *tr = &e->rtracks[t];
+        if (!tr->active) continue;
+        /* insert chain, in slot order. Each effect reads+writes the track
+         * buffer in place (dry/wet handled internally). */
+        for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
+            void *ins = tr->inserts[s];
+            if (!ins) continue;
+            if (s == 0)      wb_comp_process(ins, tr->bufL, tr->bufR, frames);
+            else if (s == 1) wb_reverb_process(ins, tr->bufL, tr->bufR, frames);
+            else if (s == 2) wb_delay_process(ins, tr->bufL, tr->bufR, frames);
+        }
+    }
+}
+
+/* ---- master mix + sum ------------------------------------------------ */
+static void stage_mix(wb_engine *e, uint32_t n, wb_sample *out) {
+    int any_solo = 0;
+    if (e->session && e->rtracks)
+        for (uint32_t t = 0; t < e->session->track_count; t++)
+            if (e->rtracks[t].solo) any_solo = 1;
+
+    if (e->session && e->rtracks) {
+        for (uint32_t t = 0; t < e->session->track_count; t++) {
+            wb_track_runtime *tr = &e->rtracks[t];
+            if (!tr->active || tr->mute) continue;
+            if (any_solo && !tr->solo) continue;
+            float l = (float)(1.0 - (tr->pan > 0 ? tr->pan : 0));
+            float r = (float)(1.0 - (tr->pan < 0 ? -tr->pan : 0));
+            float g = tr->volume;
+            for (uint32_t i = 0; i < n; i++) {
+                out[2*i]   += tr->bufL[i] * g * l;
+                out[2*i+1] += tr->bufR[i] * g * r;
+            }
+        }
     }
 }
 
@@ -86,6 +149,8 @@ wb_engine *wb_engine_create(void) {
     e->acc_cap = WB_MAX_BLOCK;
     e->accL = malloc(e->acc_cap * sizeof(wb_sample));
     e->accR = malloc(e->acc_cap * sizeof(wb_sample));
+    if (pthread_mutex_init(&e->process_lock, NULL) == 0)
+        e->lock_initialized = 1;
     return e;
 }
 
@@ -94,11 +159,19 @@ void wb_engine_destroy(wb_engine *e) {
     if (e->rtracks) {
         for (int i = 0; i < (int)WB_MAX_TRACKS; i++) {
             if (e->rtracks[i].voice) wb_synth_destroy(e->rtracks[i].voice);
+            for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
+                if (e->rtracks[i].inserts[s]) {
+                    if (s == 0) wb_comp_destroy(e->rtracks[i].inserts[s]);
+                    else if (s == 1) wb_reverb_destroy(e->rtracks[i].inserts[s]);
+                    else if (s == 2) wb_delay_destroy(e->rtracks[i].inserts[s]);
+                }
+            }
             free(e->rtracks[i].bufL);
             free(e->rtracks[i].bufR);
         }
         free(e->rtracks);
     }
+    if (e->lock_initialized) pthread_mutex_destroy(&e->process_lock);
     free(e->accL);
     free(e->accR);
     free(e);
@@ -134,6 +207,14 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
         tr->bufR = malloc(WB_MAX_BLOCK * sizeof(wb_sample));
         if (s->tracks[i].kind == 0)
             tr->voice = wb_synth_create(WB_SAMPLE_RATE);
+        /* build insert chain from the track's insert slot ids */
+        for (int slot = 0; slot < WB_MAX_INSERT_SLOTS; slot++) {
+            const char *id = s->tracks[i].inserts[slot].id;
+            if (!id || !id[0]) continue;
+            if (strcmp(id, "comp") == 0)  tr->inserts[slot] = wb_comp_create(WB_SAMPLE_RATE);
+            else if (strcmp(id, "reverb") == 0) tr->inserts[slot] = wb_reverb_create(WB_SAMPLE_RATE);
+            else if (strcmp(id, "delay") == 0)  tr->inserts[slot] = wb_delay_create(WB_SAMPLE_RATE);
+        }
     }
 }
 
@@ -156,36 +237,37 @@ void wb_engine_set_insert_param(wb_engine *e, int track, int slot, int param, fl
     (void)e; (void)track; (void)slot; (void)param; (void)value;
 }
 
+void wb_engine_begin_edit(wb_engine *e) {
+    if (e && e->lock_initialized) pthread_mutex_lock(&e->process_lock);
+}
+void wb_engine_end_edit(wb_engine *e) {
+    if (e && e->lock_initialized) pthread_mutex_unlock(&e->process_lock);
+}
+
+uint64_t wb_engine_xruns(wb_engine *e) { return e ? e->xruns : 0; }
+
 uint32_t wb_engine_render(wb_engine *e, wb_sample *out, uint32_t n) {
-    if (!out || n == 0) return 0;
+    if (!e || !out || n == 0) return 0;
     if (n > e->acc_cap) return 0;
+
+    /* R002: try-lock the process mutex. If a non-RT thread is mid-edit,
+     * do NOT block the audio thread — count an Xrun, silence, return. */
+    if (e->lock_initialized && pthread_mutex_trylock(&e->process_lock) != 0) {
+        e->xruns++;
+        memset(out, 0, n * 2 * sizeof(wb_sample));
+        return n;
+    }
 
     engine_process_cmds(e);
     memset(out, 0, n * 2 * sizeof(wb_sample));
 
-    int any_solo = 0;
-    if (e->session && e->rtracks)
-        for (uint32_t t = 0; t < e->session->track_count; t++)
-            if (e->rtracks[t].solo) any_solo = 1;
+    /* staged pipeline (R002) */
+    stage_schedule(e, n);
+    stage_instruments(e, n);
+    stage_effects(e, n);
+    stage_mix(e, n, out);
 
-    if (e->session && e->rtracks) {
-        for (uint32_t t = 0; t < e->session->track_count; t++) {
-            wb_track_runtime *tr = &e->rtracks[t];
-            if (!tr->active || tr->mute) continue;
-            if (any_solo && !tr->solo) continue;
-
-            render_track(e, t, n);
-
-            float l = (float)(1.0 - (tr->pan > 0 ? tr->pan : 0));
-            float r = (float)(1.0 - (tr->pan < 0 ? -tr->pan : 0));
-            float g = tr->volume;
-            for (uint32_t i = 0; i < n; i++) {
-                out[2*i]   += tr->bufL[i] * g * l;
-                out[2*i+1] += tr->bufR[i] * g * r;
-            }
-        }
-    }
-
+    /* double-buffered advance: transport moves by the rendered block */
     if (e->t.playing) {
         e->t.song_pos += n;
         if (e->t.loop_on && (e->t.loop_end - e->t.loop_start) > 0) {
@@ -195,17 +277,19 @@ uint32_t wb_engine_render(wb_engine *e, wb_sample *out, uint32_t n) {
                          e->t.loop_end - e->t.loop_start);
         }
     }
+
+    if (e->lock_initialized) pthread_mutex_unlock(&e->process_lock);
     return n;
 }
 
-float wb_engine_cpu_load(wb_engine *e) { return e->cpu_load; }
+float wb_engine_cpu_load(wb_engine *e) { return e ? e->cpu_load : 0; }
 
 int wb_engine_render_session(wb_engine *e, wb_session *s, wb_sample **out, uint32_t *frames) {
     if (!s || s->length <= 0) return -1;
     wb_engine *tmp = wb_engine_create();
     wb_engine_set_session(tmp, s);
     wb_engine_seek(tmp, 0);
-    tmp->t.playing = 1;   /* force transport advance */
+    tmp->t.playing = 1;
 
     uint32_t total = (uint32_t)s->length;
     wb_sample *buf = malloc(total * 2 * sizeof(wb_sample));

@@ -193,6 +193,30 @@ static void test_render_file(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test 7: Xrun detection (try-lock drops a block, counts underrun) - */
+static void test_xrun(void) {
+    printf("test_xrun\n");
+    wb_session *s = wb_session_demo();
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+
+    /* hold the process lock, then render -> should Xrun, not block */
+    wb_engine_begin_edit(e);
+    wb_sample buf[512*2];
+    wb_engine_render(e, buf, 512);
+    wb_engine_end_edit(e);
+
+    CHECK(wb_engine_xruns(e) >= 1, "Xrun counted when process lock held");
+
+    /* normal render does not increment xruns */
+    uint64_t before = wb_engine_xruns(e);
+    wb_engine_render(e, buf, 512);
+    CHECK(wb_engine_xruns(e) == before, "no Xrun on normal render");
+
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
+
 int main(void) {
     printf("=== Big Mac DAW self-test gate ===\n");
     test_transport();
@@ -201,6 +225,7 @@ int main(void) {
     test_units();
     test_tuner();
     test_render_file();
+    test_xrun();
 
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

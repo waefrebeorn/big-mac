@@ -84,6 +84,9 @@ wb_session *wb_session_demo(void) {
     lead->kind = 0;
     lead->volume = 0.8f;
     lead->pan = 0.0f;
+    /* insert chain: comp (slot0) then reverb (slot1) */
+    snprintf(lead->inserts[0].id, sizeof(lead->inserts[0].id), "comp");
+    snprintf(lead->inserts[1].id, sizeof(lead->inserts[1].id), "reverb");
     lead->clip_count = 1;
     lead->clips = calloc(1, sizeof(wb_clip));
     lead->clips[0] = *make_midi_clip(0, 44100.0 * 8.0);

@@ -21,7 +21,7 @@ CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c \
              src/wb_dsp.c src/wb_osc.c src/wb_env.c src/wb_filter.c \
              src/wb_comp.c src/wb_reverb.c src/wb_delay.c src/wb_synth.c \
              src/wb_sampler.c src/wb_wav.c src/wb_backend.c \
-             src/wb_tuner.c src/wb_midi.c
+             src/wb_tuner.c src/wb_ui_font.c src/wb_midi.c
 CORE_OBJS := $(CORE_SRCS:%.c=build/%.o)
 
 # ---- targets -------------------------------------------------------------

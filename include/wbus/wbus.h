@@ -118,6 +118,17 @@ uint32_t wb_engine_render(wb_engine *e, wb_sample *out, uint32_t n);
 /* Get instantaneous CPU load estimate (0..1) of the last render. */
 float wb_engine_cpu_load(wb_engine *e);
 
+/* Number of Xruns (underruns) since engine start. An Xrun is counted when
+ * the render callback could not take the process lock (a non-RT thread was
+ * mid-edit) and had to drop a block rather than block the audio thread. */
+uint64_t wb_engine_xruns(wb_engine *e);
+
+/* Begin/end a non-RT edit (session structure change). render() try-locks
+ * this; if it's held at block time, render counts an Xrun and returns
+ * silence rather than blocking the audio thread. */
+void wb_engine_begin_edit(wb_engine *e);
+void wb_engine_end_edit(wb_engine *e);
+
 /* Convenience: render the whole session to an interleaved buffer (caller frees). */
 int wb_engine_render_session(wb_engine *e, wb_session *s, wb_sample **out, uint32_t *frames);
 

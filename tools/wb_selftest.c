@@ -199,9 +199,12 @@ static void test_session_io(void) {
     printf("test_session_io\n");
     wb_session *s = wb_session_demo();
     CHECK(s != NULL, "demo session created");
-    CHECK(s->track_count == 2, "demo has 2 tracks");
+    CHECK(s->track_count == 3, "demo has 3 tracks (lead, bass, pad)");
     CHECK(strcmp(s->tracks[0].inserts[1].id, "comp") == 0, "demo lead has comp insert");
     CHECK(strcmp(s->tracks[0].inserts[2].id, "reverb") == 0, "demo lead has reverb insert");
+    /* track 2 is the audio pad clip */
+    CHECK(s->tracks[2].kind == 1, "demo track 2 is audio");
+    CHECK(s->tracks[2].clips[0].audio_frames > 0, "audio clip has samples");
 
     /* save to a temp .wbus file */
     const char *path = "/tmp/test_save.wbus";
@@ -215,7 +218,7 @@ static void test_session_io(void) {
     wb_session *s2 = wb_session_load(path);
     CHECK(s2 != NULL, "load returned a session");
     if (s2) {
-        CHECK(s2->track_count == 2, "loaded session has 2 tracks");
+        CHECK(s2->track_count == 3, "loaded session has 3 tracks");
         CHECK(strcmp(s2->tracks[0].name, "Lead") == 0, "loaded lead track name");
         CHECK(strcmp(s2->tracks[0].inserts[0].id, "synth") == 0, "loaded synth instrument");
         CHECK(strcmp(s2->tracks[0].inserts[1].id, "comp") == 0, "loaded comp insert");
@@ -427,6 +430,39 @@ static void test_recorder(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: audio clip playback + waveform data path ---------------------- */
+static void test_audio_clip(void) {
+    printf("test_audio_clip\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Snare", 1);  /* audio track */
+    /* a simple 1s sine "click" at 440 Hz */
+    uint32_t nf = 44100;
+    wb_sample buf[44100];
+    for (uint32_t i = 0; i < nf; i++) {
+        double t = (double)i / 44100.0;
+        buf[i] = (float)(0.5 * sin(2*M_PI*440.0*t) * (1.0 - (double)i/(nf-1)));
+    }
+    wb_session_add_audio_clip(tr, 0, (double)nf, buf, nf, 1);
+    CHECK(tr->clip_count == 1 && tr->clips[0].type == 1, "audio clip added");
+    CHECK(tr->clips[0].audio_frames == nf, "audio frame count set");
+
+    /* render the engine over the clip; audio should appear in the output */
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    wb_engine_seek(e, 0.0);
+    wb_engine_play(e);
+    wb_sample out[4096*2];
+    wb_engine_render(e, out, 4096);
+    float peak = 0;
+    for (uint32_t i = 0; i < 4096*2; i++) { float v = out[i]<0?-out[i]:out[i]; if (v>peak) peak=v; }
+    CHECK(peak > 0.01f, "audio clip rendered into output (peak audible)");
+    printf("         audio clip peak=%.3f at 440Hz\n", peak);
+
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
+
 /* ---- test: undo/redo via session snapshots ------------------------------ */
 static void test_undo(void) {
     printf("test_undo\n");
@@ -548,6 +584,7 @@ int main(void) {
     test_instruments();
     test_automation();
     test_recorder();
+    test_audio_clip();
     test_undo();
     test_launchpad();
     test_xrun();

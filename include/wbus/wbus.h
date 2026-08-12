@@ -112,6 +112,9 @@ void        wb_session_destroy(wb_session *s);
 wb_session *wb_session_copy(const wb_session *s); /* deep independent copy */
 wb_track   *wb_session_add_track(wb_session *s, const char *name, int kind);
 int         wb_session_add_note(wb_track *tr, double start, double dur, int pitch, int vel);
+int         wb_session_add_audio_clip(wb_track *tr, double start, double length,
+                                      const wb_sample *data, uint32_t frames,
+                                      int channels);
 
 /* ---- undo/redo (session snapshots) -------------------------------------- */
 typedef struct wb_undo wb_undo;

@@ -107,7 +107,30 @@ static void stage_instruments(wb_engine *e, uint32_t frames) {
         if (!tr->active) continue;
         memset(tr->bufL, 0, frames * sizeof(wb_sample));
         memset(tr->bufR, 0, frames * sizeof(wb_sample));
-        if (tr->kind == 0 && tr->voice) {
+        if (tr->kind == 1) {
+            /* audio track: render the active audio clip region into the block */
+            wb_track *tk = &e->session->tracks[t];
+            double pos = e->t.song_pos;
+            for (uint32_t c = 0; c < tk->clip_count; c++) {
+                wb_clip *cl = &tk->clips[c];
+                if (!cl->audio_data || cl->audio_frames == 0) continue;
+                double cl_end = cl->start + cl->length;
+                /* skip clips that don't overlap this block */
+                if (cl_end <= pos || cl->start >= pos + frames) continue;
+                uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+                for (uint32_t i = 0; i < frames; i++) {
+                    double sp = pos + i;
+                    if (sp < cl->start || sp >= cl_end) continue;
+                    double f = sp - cl->start;
+                    uint32_t idx = (uint32_t)f;
+                    if (idx >= cl->audio_frames) continue;
+                    float vL = cl->audio_data[idx*ch];
+                    float vR = ch > 1 ? cl->audio_data[idx*ch+1] : vL;
+                    tr->bufL[i] += vL;
+                    tr->bufR[i] += vR;
+                }
+            }
+        } else if (tr->kind == 0 && tr->voice) {
             if (tr->voice_unit_id && strcmp(tr->voice_unit_id, "fm") == 0)
                 wb_fm_render(tr->voice, tr->bufL, tr->bufR, frames);
             else if (tr->voice_unit_id && strcmp(tr->voice_unit_id, "drum") == 0)

@@ -184,9 +184,47 @@ static void draw_arrangement(app *a) {
         char vol[12]; snprintf(vol,sizeof(vol),"%.0f%%",tr->volume*100);
         wb_ui_draw_text(a->ren, 6, y+18, vol, 1, C_TEXT_DIM);
 
-        /* clip note bars, pitched */
+        /* clip contents: notes (MIDI) or waveform (audio) */
         for (uint32_t c=0;c<tr->clip_count;c++) {
             wb_clip *cl = &tr->clips[c];
+            if (cl->type == 1 && cl->audio_data && cl->audio_frames > 0) {
+                /* audio clip: draw a peak-envelope waveform */
+                int wx = arr_x(cl->start);
+                int ww = (int)((cl->length/WB_SAMPLE_RATE)*PX_PER_SEC);
+                if (ww < 4) ww = 4;
+                SDL_Rect clipbox = { wx, y+4, ww, th-8 };
+                if (clipbox.x < GUTTER_W) { int over = GUTTER_W-clipbox.x; clipbox.w -= over; clipbox.x = GUTTER_W; }
+                if (clipbox.w <= 0) continue;
+                SDL_Rect bg = clipbox;
+                setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &bg);
+                /* down-sample the waveform into per-pixel columns */
+                setc(a->ren, C_NOTE2);
+                int cols = clipbox.w;
+                uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+                for (int px=0; px<cols; px++) {
+                    /* sample window for this pixel column */
+                    double f0 = (double)px / cols;
+                    double f1 = (double)(px+1) / cols;
+                    uint32_t s0 = (uint32_t)(f0 * cl->audio_frames);
+                    uint32_t s1 = (uint32_t)(f1 * cl->audio_frames);
+                    if (s1 <= s0) s1 = s0 + 1;
+                    if (s1 > cl->audio_frames) s1 = cl->audio_frames;
+                    float peak = 0;
+                    for (uint32_t sm = s0; sm < s1; sm++) {
+                        float v = cl->audio_data[sm*ch];
+                        if (v < 0) v = -v;
+                        if (v > peak) peak = v;
+                    }
+                    if (peak > 1.0f) peak = 1.0f;
+                    int amp = (int)(peak * (clipbox.h/2));
+                    int mid = clipbox.y + clipbox.h/2;
+                    SDL_RenderDrawLine(a->ren, clipbox.x+px, mid-amp, clipbox.x+px, mid+amp);
+                }
+                /* clip border */
+                setc(a->ren, C_GRID);
+                SDL_RenderDrawRect(a->ren, &clipbox);
+                continue;
+            }
             for (uint32_t k=0;k<cl->note_count;k++) {
                 wb_note *nt = &cl->notes[k];
                 double s = cl->start + nt->start;

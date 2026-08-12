@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 #include "wbus.h"
 
 /* ---- create ------------------------------------------------------------- */
@@ -158,6 +159,29 @@ int wb_session_add_note(wb_track *tr, double start, double dur, int pitch, int v
 /* ---- demo song --------------------------------------------------------- */
 /* Build a simple demo session: a synth lead line over a bass. This is what
  * the first render/playback exercise uses to prove the engine works. */
+
+/* Add an audio clip (type 1) to a track, taking ownership of `data`.
+ * The buffer is interleaved (frames * channels) floats. */
+int wb_session_add_audio_clip(wb_track *tr, double start, double length,
+                              const wb_sample *data, uint32_t frames,
+                              int channels) {
+    if (!tr || !data || frames == 0) return -1;
+    tr->clips = realloc(tr->clips, (tr->clip_count + 1) * sizeof(wb_clip));
+    if (!tr->clips) return -1;
+    wb_clip *cl = &tr->clips[tr->clip_count++];
+    memset(cl, 0, sizeof(*cl));
+    cl->type = 1;
+    cl->start = start;
+    cl->length = length;
+    cl->audio_channels = channels > 0 ? channels : 1;
+    cl->audio_frames = frames;
+    size_t bytes = (size_t)frames * cl->audio_channels * sizeof(wb_sample);
+    cl->audio_data = malloc(bytes);
+    if (!cl->audio_data) { tr->clip_count--; return -1; }
+    memcpy(cl->audio_data, data, bytes);
+    return 0;
+}
+
 static void add_note(wb_clip *clip, double start, double dur, int pitch, int vel) {
     clip->notes = realloc(clip->notes, (clip->note_count + 1) * sizeof(wb_note));
     wb_note *n = &clip->notes[clip->note_count++];
@@ -181,8 +205,8 @@ wb_session *wb_session_demo(void) {
     s->time_sig_num = 4;
     s->time_sig_den = 4;
     s->length = 44100.0 * 8.0;   /* 8 seconds */
-    s->track_count = 2;
-    s->tracks = calloc(2, sizeof(wb_track));
+    s->track_count = 3;
+    s->tracks = calloc(3, sizeof(wb_track));
 
     /* Track 0: lead synth (C major arpeggio) */
     wb_track *lead = &s->tracks[0];
@@ -221,6 +245,26 @@ wb_session *wb_session_demo(void) {
     double bar = 2.0; /* seconds per bar */
     for (int i = 0; i < 8; i++) {
         add_note(&bass->clips[0], i * bar * 44100.0, bar * 0.95 * 44100.0, roots[i], 90);
+    }
+
+    /* Track 2: audio clip (synthesized pad) so the waveform view has content */
+    wb_track *pad = &s->tracks[2];
+    snprintf(pad->name, sizeof(pad->name), "Pad (audio)");
+    pad->kind = 1;
+    pad->volume = 0.5f;
+    pad->pan = 0.0f;
+    {
+        uint32_t nf = 44100 * 4;
+        wb_sample *buf = malloc(nf * sizeof(wb_sample)); /* mono */
+        for (uint32_t i = 0; i < nf; i++) {
+            double t = (double)i / 44100.0;
+            double v = 0.25 * (sin(2*M_PI*220.0*t) * 0.5 +
+                               sin(2*M_PI*330.0*t) * 0.3 +
+                               sin(2*M_PI*440.0*t) * 0.2);
+            buf[i] = (float)(v * (1.0 - (double)i / nf));
+        }
+        wb_session_add_audio_clip(pad, 0, (double)nf, buf, nf, 1);
+        free(buf);
     }
 
     return s;

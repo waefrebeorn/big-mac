@@ -860,7 +860,7 @@ static void additive_render_phone(wb_tts_t *T, double t0, double dur,
      * loci). Without this, nasals like /m/ were completely SILENT (lookup_amps
      * returned 0). This is the missing consonant bulk. */
     if (!lookup_amps(ph->ph, &ca1,&ca2,&ca3,&cb1,&cb2,&cb3)) {
-        if (ph->velum >= 0.5)  { ca1=1.0; ca2=0.5; ca3=0.2; cb1=200; cb2=150; cb3=250; }
+        if (ph->velum >= 0.5)  { ca1=0.6; ca2=0.4; ca3=0.2; cb1=200; cb2=150; cb3=250; }
         else if (ph->voiced)   { ca1=0.7; ca2=0.7; ca3=0.3; cb1=120; cb2=120; cb3=200; }
         else                   { ca1=0.5; ca2=0.5; ca3=0.2; cb1=150; cb2=150; cb3=220; }
     }
@@ -888,9 +888,12 @@ static void additive_render_phone(wb_tts_t *T, double t0, double dur,
         int jj = j - s0;
         double f0 = f0_start + (f0_end - f0_start) * t;
         double carry = 0, anti = 0;
-        if (t < 0.30) carry = 1.0 - t / 0.30;
-        if (t > 0.70) anti = (t - 0.70) / 0.30;
-        double w = 1.0 - 0.6 * (carry + anti); if (w < 0.15) w = 0.15;
+        /* R014 BASIC: vowels must HOLD a steady target, not glide. Shorten the
+         * coarticulation transition to the first/last 10% and let the current
+         * phone dominate (w~1) through the body. */
+        if (t < 0.10) carry = 1.0 - t / 0.10;
+        if (t > 0.90) anti = (t - 0.90) / 0.10;
+        double w = 1.0 - 0.4 * (carry + anti); if (w < 0.6) w = 0.6;
         double F[3] = { pf1*carry + cf1*w + nf1*anti,
                         pf2*carry + cf2*w + nf2*anti,
                         pf3*carry + cf3*w + nf3*anti };

@@ -1,0 +1,159 @@
+/* wb_session_file.c — save/load sessions in the .wbus text format.
+ * Grammar (matches wb_session_save output):
+ *
+ *   wbus_session 1.0
+ *   bpm 120.000
+ *   time_sig 4 4
+ *   length 352800.0
+ *   track "Lead" kind 0 volume 0.80000 pan 0.00000
+ *     insert 0 "comp"
+ *     clip 0 start 0.000 length 352800.000
+ *       note 60 0.000 44100.000 96
+ *     end_clips
+ *   end_track
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "wbus.h"
+
+
+/* ---- token stream ------------------------------------------------------- */
+typedef struct { FILE *f; } tok_s;
+
+static char *next_tok(tok_s *ts) {
+    static char buf[512];
+    int c;
+    do { c = fgetc(ts->f); } while (c==' '||c=='\t'||c=='\n'||c=='\r');
+    if (c == EOF) return NULL;
+    if (c == '#') { while ((c=fgetc(ts->f))!='\n' && c!=EOF); return next_tok(ts); }
+    if (c == '"') {
+        int i = 0;
+        while ((c=fgetc(ts->f))!=EOF && c!='"' && i<511) buf[i++] = (char)c;
+        buf[i] = '\0';
+        return buf;
+    }
+    int i = 0;
+    buf[i++] = (char)c;
+    while (i < 511) {
+        c = fgetc(ts->f);
+        if (c==EOF || c==' '||c=='\t'||c=='\n'||c=='\r') break;
+        buf[i++] = (char)c;
+    }
+    buf[i] = '\0';
+    return buf;
+}
+
+/* ---- writer ------------------------------------------------------------- */
+int wb_session_save(const wb_session *s, const char *path) {
+    FILE *f = fopen(path, "w");
+    if (!f) return -1;
+    fprintf(f, "wbus_session 1.0\n");
+    fprintf(f, "bpm %.3f\n", s->bpm);
+    fprintf(f, "time_sig %d %d\n", s->time_sig_num, s->time_sig_den);
+    fprintf(f, "length %.3f\n", s->length);
+    for (uint32_t t = 0; t < s->track_count; t++) {
+        const wb_track *tk = &s->tracks[t];
+        fprintf(f, "track \"%s\" kind %d volume %.5f pan %.5f mute %d solo %d\n",
+                tk->name, tk->kind, tk->volume, tk->pan, tk->mute, tk->solo);
+        for (int i = 0; i < WB_MAX_INSERT_SLOTS; i++)
+            if (tk->inserts[i].id[0])
+                fprintf(f, "  insert %d \"%s\"\n", i, tk->inserts[i].id);
+        for (uint32_t c = 0; c < tk->clip_count; c++) {
+            const wb_clip *cl = &tk->clips[c];
+            fprintf(f, "  clip %u start %.3f length %.3f\n", c, cl->start, cl->length);
+            for (uint32_t n = 0; n < cl->note_count; n++)
+                fprintf(f, "    note %d %.3f %.3f %d\n",
+                        cl->notes[n].pitch, cl->notes[n].start, cl->notes[n].dur, cl->notes[n].vel);
+            fprintf(f, "  end_clips\n");
+        }
+        fprintf(f, "end_track\n");
+    }
+    fclose(f);
+    return 0;
+}
+
+/* ---- reader ------------------------------------------------------------- */
+wb_session *wb_session_load(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) return NULL;
+    tok_s ts = { .f = f };
+
+    wb_session *s = calloc(1, sizeof(*s));
+    if (!s) { fclose(f); return NULL; }
+    const char *base = strrchr(path, '/'); base = base ? base+1 : path;
+    snprintf(s->name, sizeof(s->name), "%s", base);
+    s->bpm = 120.0; s->time_sig_num = 4; s->time_sig_den = 4;
+    s->tracks = calloc(WB_MAX_TRACKS, sizeof(wb_track));
+    if (!s->tracks) { fclose(f); free(s); return NULL; }
+
+    char *tok;
+    while ((tok = next_tok(&ts)) != NULL) {
+        if (strcmp(tok,"wbus_session")==0) { next_tok(&ts); continue; }
+        if (strcmp(tok,"bpm")==0)          { tok=next_tok(&ts); if(tok) s->bpm=atof(tok); continue; }
+        if (strcmp(tok,"time_sig")==0)     { tok=next_tok(&ts); s->time_sig_num=tok?atoi(tok):4;
+                                             tok=next_tok(&ts); s->time_sig_den=tok?atoi(tok):4; continue; }
+        if (strcmp(tok,"length")==0)       { tok=next_tok(&ts); if(tok) s->length=atof(tok); continue; }
+
+        if (strcmp(tok,"track")==0) {;
+            if (s->track_count >= WB_MAX_TRACKS) { fclose(f); return s; }
+            wb_track *tk = &s->tracks[s->track_count];
+            memset(tk, 0, sizeof(*tk));
+            tk->volume = 1.0f;
+            tok = next_tok(&ts); /* name */
+            if (tok) strncpy(tk->name, tok, sizeof(tk->name)-1);
+
+            /* parse track attributes / inserts / clips until end_track */
+            while ((tok = next_tok(&ts)) != NULL) {
+                if (strcmp(tok,"end_track")==0) break;
+                else if (strcmp(tok,"kind")==0)    { tok=next_tok(&ts); if(tok) tk->kind=atoi(tok); }
+                else if (strcmp(tok,"volume")==0)  { tok=next_tok(&ts); if(tok) tk->volume=(float)atof(tok); }
+                else if (strcmp(tok,"pan")==0)     { tok=next_tok(&ts); if(tok) tk->pan=(float)atof(tok); }
+                else if (strcmp(tok,"mute")==0)    { tok=next_tok(&ts); if(tok) tk->mute=atoi(tok); }
+                else if (strcmp(tok,"solo")==0)    { tok=next_tok(&ts); if(tok) tk->solo=atoi(tok); }
+                else if (strcmp(tok,"insert")==0) {
+                    tok=next_tok(&ts); int slot = tok?atoi(tok):0;
+                    tok=next_tok(&ts); if (tok && slot>=0 && slot<WB_MAX_INSERT_SLOTS)
+                        strncpy(tk->inserts[slot].id, tok, 63);
+                }
+                else if (strcmp(tok,"clip")==0) {;
+                    next_tok(&ts); /* clip index */
+                    tok=next_tok(&ts); /* "start" */
+                    double start = 0, length = 0;
+                    if (tok && strcmp(tok,"start")==0) {
+                        tok=next_tok(&ts); start = tok?atof(tok):0;
+                        tok=next_tok(&ts); /* "length" */
+                        tok=next_tok(&ts); length = tok?atof(tok):0;
+                    } else if (tok) { length = atof(tok); }
+                    tk->clip_count++;
+                    tk->clips = realloc(tk->clips, tk->clip_count * sizeof(wb_clip));
+                    wb_clip *cl = &tk->clips[tk->clip_count-1];
+                    memset(cl, 0, sizeof(*cl));
+                    cl->type = 0; cl->start = start; cl->length = length;
+                    /* parse notes until end_clips */
+                    while ((tok = next_tok(&ts)) != NULL) {
+                        if (strcmp(tok,"end_clips")==0) break;
+                        if (strcmp(tok,"note")==0) {
+                            wb_note no = {0,0,0,100};
+                            tok=next_tok(&ts); no.pitch = tok?(uint8_t)atoi(tok):0;
+                            tok=next_tok(&ts); no.start = tok?atof(tok):0;
+                            tok=next_tok(&ts); no.dur  = tok?atof(tok):0;
+                            tok=next_tok(&ts); no.vel  = tok?(uint8_t)atoi(tok):0;;
+                            cl->note_count++;
+                            cl->notes = realloc(cl->notes, cl->note_count*sizeof(wb_note));
+                            cl->notes[cl->note_count-1] = no;
+                        }
+                    }
+                }
+                else { /* unknown/blank token — ignore one */ }
+            }
+            s->track_count++;
+            continue;
+        }
+        /* unknown top-level token: skip its value if it follows a key */
+    }
+    fclose(f);
+    return s;
+}

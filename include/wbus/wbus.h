@@ -89,6 +89,15 @@ typedef struct wb_session {
     wb_track *tracks;
 } wb_session;
 
+/* ---- session lifecycle -------------------------------------------------- */
+wb_session *wb_session_create(void);       /* empty session */
+wb_session *wb_session_demo(void);         /* 2-track demo song */
+void        wb_session_destroy(wb_session *s);
+
+/* ---- session file save/load (.wbus text format) ----------------------- */
+int  wb_session_save(const wb_session *s, const char *path);
+wb_session *wb_session_load(const char *path);
+
 /* ---- engine lifecycle ------------------------------------------------- */
 wb_engine *wb_engine_create(void);
 void       wb_engine_destroy(wb_engine *e);

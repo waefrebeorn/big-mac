@@ -193,7 +193,36 @@ static void test_render_file(void) {
     wb_session_destroy(s);
 }
 
-/* ---- test 7: Xrun detection (try-lock drops a block, counts underrun) - */
+/* ---- test 7: project save/load round-trip (.wbus) ---------------------- */
+static void test_session_io(void) {
+    printf("test_session_io\n");
+    wb_session *s = wb_session_demo();
+    CHECK(s != NULL, "demo session created");
+    CHECK(s->track_count == 2, "demo has 2 tracks");
+    CHECK(strcmp(s->tracks[0].inserts[1].id, "reverb") == 0, "lead has reverb insert");
+
+    /* save to a temp .wbus file */
+    const char *path = "/tmp/test_save.wbus";
+    int rc = wb_session_save(s, path);
+    CHECK(rc == 0, "save returns 0");
+    FILE *f = fopen(path, "r");
+    CHECK(f != NULL, "saved file exists");
+    if (f) fclose(f);
+
+    /* load it back and verify round-trip fidelity */
+    wb_session *s2 = wb_session_load(path);
+    CHECK(s2 != NULL, "load returned a session");
+    if (s2) {
+        CHECK(s2->track_count == 2, "loaded session has 2 tracks");
+        CHECK(strcmp(s2->tracks[0].name, "Lead") == 0, "loaded lead track name");
+        CHECK(strcmp(s2->tracks[0].inserts[1].id, "reverb") == 0, "loaded reverb insert");
+        CHECK(s2->tracks[0].clips[0].note_count > 0, "loaded clip has notes");
+    }
+    wb_session_destroy(s);
+    wb_session_destroy(s2);
+}
+
+/* ---- test 8: Xrun detection (try-lock drops a block, counts underrun) - */
 static void test_xrun(void) {
     printf("test_xrun\n");
     wb_session *s = wb_session_demo();
@@ -218,6 +247,7 @@ static void test_xrun(void) {
 }
 
 int main(void) {
+    setvbuf(stdout, NULL, _IONBF, 0); /* unbuffered so we see output on crash */
     printf("=== Big Mac DAW self-test gate ===\n");
     test_transport();
     test_synth_audio();
@@ -225,6 +255,7 @@ int main(void) {
     test_units();
     test_tuner();
     test_render_file();
+    test_session_io();
     test_xrun();
 
     printf("\n%d checks, %d failures\n", checks, failures);

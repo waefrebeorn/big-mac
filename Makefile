@@ -21,12 +21,13 @@ CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c \
              src/wb_dsp.c src/wb_osc.c src/wb_env.c src/wb_filter.c \
              src/wb_comp.c src/wb_reverb.c src/wb_delay.c src/wb_synth.c \
              src/wb_sampler.c src/wb_wav.c src/wb_backend.c \
-             src/wb_tuner.c src/wb_ui_font.c src/wb_midi_coremidi.c
+             src/wb_tuner.c src/wb_ui_font.c src/wb_midi_coremidi.c src/wb_clap.c \
+             src/wb_session_file.c
 CORE_OBJS := $(CORE_SRCS:%.c=build/%.o)
 
 # ---- targets -------------------------------------------------------------
 
-all: build/wb_daw build/wb_render build/wb_selftest
+all: build/wb_daw build/wb_render build/wb_selftest build/wb_test_clap
 
 build/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -41,6 +42,17 @@ build/wb_render: build/tools/wb_render.o $(CORE_OBJS)
 build/wb_selftest: build/tools/wb_selftest.o $(CORE_OBJS)
 	$(CC) $(CFLAGS) $(INC) -o $@ $^ $(LIBS)
 
+# ---- CLAP host + test plugin --------------------------------------------
+build/test-clap/bigmac-test.clap: tests/test_clap_plugin.c
+	@mkdir -p $(dir $@)
+	$(CC) -shared -fPIC -O1 -o $@ $<
+
+build/wb_test_clap: tools/test_clap.c $(CORE_OBJS)
+	$(CC) $(CFLAGS) $(INC) -o $@ $^ $(LIBS) -ldl
+
+test-clap: build/test-clap/bigmac-test.clap build/wb_test_clap
+	./build/wb_test_clap build/test-clap
+
 # ---- tests (the gate) ----------------------------------------------------
 
 test: build/wb_selftest
@@ -51,4 +63,4 @@ test: build/wb_selftest
 clean:
 	rm -rf build
 
-.PHONY: all clean test test_transport
+.PHONY: all clean test test_transport test-clap

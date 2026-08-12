@@ -14,7 +14,7 @@ extern "C" {
 /* wb_session.c */
 void wb_session_destroy(wb_session *s);
 wb_session *wb_session_demo(void);
-int wb_session_save(wb_session *s, const char *path);
+wb_session *wb_session_create(void);
 
 /* wb_transport.c */
 void wb_transport_schedule_notes(wb_track *track, double block_start, uint32_t n,

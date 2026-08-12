@@ -9,7 +9,16 @@
 #include <stdio.h>
 #include "wbus.h"
 
-/* ---- ownership helpers ------------------------------------------------ */
+/* ---- create ------------------------------------------------------------- */
+wb_session *wb_session_create(void) {
+    wb_session *s = calloc(1, sizeof(*s));
+    if (s) {
+        snprintf(s->name, sizeof(s->name), "Untitled");
+        s->bpm = 120.0; s->time_sig_num = 4; s->time_sig_den = 4;
+    }
+    return s;
+}
+
 void wb_session_destroy(wb_session *s) {
     if (!s) return;
     for (uint32_t t = 0; t < s->track_count; t++) {
@@ -23,30 +32,6 @@ void wb_session_destroy(wb_session *s) {
     }
     free(s->tracks);
     free(s);
-}
-
-/* ---- project save/load (text .wbus format) ---------------------------- */
-int wb_session_save(wb_session *s, const char *path) {
-    FILE *f = fopen(path, "w");
-    if (!f) return -1;
-    fprintf(f, "wbus 1\nname %s\nbpm %.2f\ntime %d %d\nlength %.0f\ntracks %u\n",
-            s->name, s->bpm, s->time_sig_num, s->time_sig_den, s->length, s->track_count);
-    for (uint32_t t = 0; t < s->track_count; t++) {
-        wb_track *tr = &s->tracks[t];
-        fprintf(f, "track %s kind %d vol %.2f pan %.2f mute %d solo %d clips %u\n",
-                tr->name, tr->kind, tr->volume, tr->pan, tr->mute, tr->solo, tr->clip_count);
-        for (uint32_t c = 0; c < tr->clip_count; c++) {
-            wb_clip *cl = &tr->clips[c];
-            fprintf(f, " clip type %d start %.0f len %.0f notes %u\n",
-                    cl->type, cl->start, cl->length, cl->note_count);
-            for (uint32_t k = 0; k < cl->note_count; k++)
-                fprintf(f, "  n %.0f %.0f %u %u\n",
-                        cl->notes[k].start, cl->notes[k].dur,
-                        cl->notes[k].pitch, cl->notes[k].vel);
-        }
-    }
-    fclose(f);
-    return 0;
 }
 
 /* ---- demo song --------------------------------------------------------- */

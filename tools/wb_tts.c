@@ -933,12 +933,20 @@ static void additive_render_phone(wb_tts_t *T, double t0, double dur,
         } else if (has_closure) {
             if (jj < closure) { out = 0.0; }
             else if (jj < release) {
+                /* R014 BULK: the stop BURST must be place-specific — shape it
+                 * through the bandpass at this stop's fric_fc (/p/ low ~500,
+                 * /t/ high ~4500, /k/ mid ~2000). Before this, /p t k/ all
+                 * bursted identical white noise (measured all 12457Hz), so
+                 * pat/tat/cat were indistinguishable. */
                 double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
                 double decay = 1.0 - (double)(jj - closure) / (double)(release - closure);
-                out = nz * 0.35 * decay;
+                double b = nz * 0.8 * decay;
+                out = wb_biquad_run(&T->fric_filt, b);
             } else {
+                /* VOT aspiration: also place-shaped, decaying (~40ms) */
                 double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
-                out = nz * 0.32 * exp(-(t - (double)release / (s1 - s0)) / 0.030);
+                double b = nz * 0.35 * exp(-(t - (double)release / (s1 - s0)) / 0.030);
+                out = wb_biquad_run(&T->fric_filt, b);
             }
         }
         int n_env = (int)(0.012 * SR);

@@ -26,4 +26,14 @@ void wb_esynth_free(wb_esynth_t *s);
 void wb_esynth_phone(wb_esynth_t *s, double *out, int nsamp,
                      const wb_esynth_phone_t *ph);
 
+/* R015 REMAKE: render a WHOLE PHRASE as one continuous formant trajectory.
+ * frames[i] is the peak target for phone i (0..n-1), frame_dur[i] its
+ * duration in seconds. The peaks are interpolated continuously between
+ * consecutive frames (espeak-ng AdvanceParameters), so formants GLIDE from
+ * phone to phone — the connectedness that makes it speech, not blips.
+ * Returns the total samples rendered into out (0 on error). */
+int wb_esynth_phrase(wb_esynth_t *s, double *out, int out_cap,
+                     const wb_esynth_phone_t *frames, const double *frame_dur,
+                     int n);
+
 #endif

@@ -104,16 +104,11 @@ void wb_esynth_phone(wb_esynth_t *s, double *out, int nsamp,
     double htab[64];
     int hmax = wb_peaks_to_harmspect(ph->peaks, ph->npeaks, ph->f0, sr, htab);
     if (hmax > 60) hmax = 60;
-    /* fundamental phase advances each sample; harmonics use h * waveph */
     double waveph = 0;
     for (int i = 0; i < nsamp; i++) {
         double total = 0;
         double theta = waveph;
-        for (int h = 1; h <= hmax; h++) {
-            total += sin(theta) * htab[h];
-            theta += waveph;
-        }
-        /* amplitude envelope: smooth on/off */
+        for (int h = 1; h <= hmax; h++) { total += sin(theta) * htab[h]; theta += waveph; }
         int nen = (int)(0.01 * sr);
         double env = 1.0;
         if (i < nen) env = (double)i / nen;
@@ -122,4 +117,60 @@ void wb_esynth_phone(wb_esynth_t *s, double *out, int nsamp,
         waveph += 2.0 * M_PI * ph->f0 / sr;
         if (waveph > 2.0 * M_PI) waveph -= 2.0 * M_PI;
     }
+}
+
+/* R015 REMAKE: continuous formant-trajectory phrase renderer. */
+int wb_esynth_phrase(wb_esynth_t *s, double *out, int out_cap,
+                     const wb_esynth_phone_t *frames, const double *frame_dur,
+                     int n) {
+    if (n < 1) return 0;
+    int sr = s->sr;
+    /* total samples across all phones */
+    int total = 0;
+    for (int i = 0; i < n; i++) total += (int)(frame_dur[i] * sr);
+    if (total > out_cap) total = out_cap;
+
+    double waveph = 0;            /* fundamental phase, continuous across phones */
+    double amp = frames[0].amplitude;
+    int written = 0;
+    int nen = (int)(0.015 * sr);  /* phrase attack/decay only */
+
+    for (int i = 0; i < n; i++) {
+        const wb_esynth_phone_t *cur = &frames[i];
+        const wb_esynth_phone_t *prev = (i > 0) ? &frames[i-1] : &frames[i];
+        int nsamp = (int)(frame_dur[i] * sr);
+        /* interpolate formant peaks from prev -> cur across this phone */
+        wb_esynth_peak_t pk[8];
+        double htab[64];
+        for (int j = 0; j < nsamp && written < total; j++, written++) {
+            double t = (nsamp > 1) ? (double)j / nsamp : 1.0;
+            double f0 = prev->f0 + (cur->f0 - prev->f0) * t;
+            for (int k = 0; k < cur->npeaks; k++) {
+                double pf = (i > 0 && k < prev->npeaks) ? prev->peaks[k].freq  : cur->peaks[k].freq;
+                double cf = cur->peaks[k].freq;
+                double ph = (i > 0 && k < prev->npeaks) ? prev->peaks[k].height : cur->peaks[k].height;
+                double ch = cur->peaks[k].height;
+                pk[k].freq   = pf + (cf - pf) * t;
+                pk[k].height = ph + (ch - ph) * t;
+                pk[k].left   = cur->peaks[k].left;
+                pk[k].right  = cur->peaks[k].right;
+            }
+            int hmax = wb_peaks_to_harmspect(pk, cur->npeaks, f0, sr, htab);
+            if (hmax > 60) hmax = 60;
+            /* amplitude glides toward the current phone's level */
+            amp += (cur->amplitude - amp) * 0.05;
+            /* phase-locked harmonic sum (continuous across phones) */
+            double totalw = 0;
+            double theta = waveph;
+            for (int h = 1; h <= hmax; h++) { totalw += sin(theta) * htab[h]; theta += waveph; }
+            /* gentle phrase attack/decay */
+            double env = 1.0;
+            if (written < nen) env = (double)written / nen;
+            if (total - written - 1 < nen) env = (double)(total - written - 1) / nen;
+            out[written] += totalw * amp * env;
+            waveph += 2.0 * M_PI * f0 / sr;
+            if (waveph > 2.0 * M_PI) waveph -= 2.0 * M_PI;
+        }
+    }
+    return total;
 }

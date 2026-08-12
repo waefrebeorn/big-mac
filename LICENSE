@@ -1,0 +1,5 @@
+# WaefreBeorn Umbrella License v3.0
+# SPDX-License-Identifier: WaefreBeorn-UMV3
+# Populace (individuals, non-profits, <100 FTE / <$1M) free.
+# Corporations ($100M+ revenue) must follow Corporate Obligations.
+# Self-modification must extend the firmware PCR bank (never silent).

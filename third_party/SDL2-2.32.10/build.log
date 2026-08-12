@@ -1,0 +1,365 @@
+/bin/sh ./build-scripts//updaterev.sh --vendor ""
+/bin/sh ./build-scripts//mkinstalldirs build
+umask 22
+mkdir build
+touch build/.created
+  CC     build/SDL.lo
+  CC     build/SDL_assert.lo
+  CC     build/SDL_error.lo
+  CC     build/SDL_dataqueue.lo
+  CC     build/SDL_guid.lo
+  CC     build/SDL_hints.lo
+  CC     build/SDL_list.lo
+  CC     build/SDL_log.lo
+  CC     build/SDL_utils.lo
+  CC     build/SDL_atomic.lo
+  CC     build/SDL_spinlock.lo
+  CC     build/SDL_audio.lo
+  CC     build/SDL_audiocvt.lo
+  CC     build/SDL_audiodev.lo
+  CC     build/SDL_audiotypecvt.lo
+  CC     build/SDL_mixer.lo
+  CC     build/SDL_wave.lo
+  CC     build/SDL_cpuinfo.lo
+  CC     build/SDL_dynapi.lo
+  CC     build/SDL_clipboardevents.lo
+  CC     build/SDL_displayevents.lo
+  CC     build/SDL_dropevents.lo
+  CC     build/SDL_events.lo
+  CC     build/SDL_gesture.lo
+  CC     build/SDL_keyboard.lo
+  CC     build/SDL_keysym_to_scancode.lo
+  CC     build/SDL_mouse.lo
+  CC     build/SDL_quit.lo
+  CC     build/SDL_scancode_tables.lo
+  CC     build/SDL_touch.lo
+  CC     build/SDL_windowevents.lo
+  CC     build/imKStoUCS.lo
+  CC     build/SDL_rwops.lo
+  CC     build/SDL_haptic.lo
+  CC     build/SDL_hidapi.lo
+  CC     build/SDL_gamecontroller.lo
+  CC     build/SDL_joystick.lo
+  CC     build/SDL_steam_virtual_gamepad.lo
+  CC     build/controller_type.lo
+  CC     build/e_atan2.lo
+  CC     build/e_exp.lo
+  CC     build/e_fmod.lo
+  CC     build/e_log.lo
+  CC     build/e_log10.lo
+  CC     build/e_pow.lo
+  CC     build/e_rem_pio2.lo
+  CC     build/e_sqrt.lo
+  CC     build/k_cos.lo
+  CC     build/k_rem_pio2.lo
+  CC     build/k_sin.lo
+  CC     build/k_tan.lo
+  CC     build/s_atan.lo
+  CC     build/s_copysign.lo
+  CC     build/s_cos.lo
+  CC     build/s_fabs.lo
+  CC     build/s_floor.lo
+  CC     build/s_scalbn.lo
+  CC     build/s_sin.lo
+  CC     build/s_tan.lo
+  CC     build/SDL_url.lo
+  CC     build/SDL_power.lo
+  CC     build/SDL_d3dmath.lo
+  CC     build/SDL_render.lo
+  CC     build/SDL_yuv_sw.lo
+  CC     build/SDL_render_d3d.lo
+  CC     build/SDL_shaders_d3d.lo
+  CC     build/SDL_render_d3d11.lo
+  CC     build/SDL_shaders_d3d11.lo
+  CC     build/SDL_render_d3d12.lo
+  CC     build/SDL_shaders_d3d12.lo
+  CC     build/SDL_render_gl.lo
+  CC     build/SDL_shaders_gl.lo
+  CC     build/SDL_render_gles.lo
+  CC     build/SDL_render_gles2.lo
+  CC     build/SDL_shaders_gles2.lo
+  CC     build/SDL_render_ps2.lo
+  CC     build/SDL_render_psp.lo
+  CC     build/SDL_blendfillrect.lo
+  CC     build/SDL_blendline.lo
+  CC     build/SDL_blendpoint.lo
+  CC     build/SDL_drawline.lo
+  CC     build/SDL_drawpoint.lo
+  CC     build/SDL_render_sw.lo
+  CC     build/SDL_rotate.lo
+  CC     build/SDL_triangle.lo
+  CC     build/SDL_render_vita_gxm.lo
+  CC     build/SDL_render_vita_gxm_memory.lo
+  CC     build/SDL_render_vita_gxm_tools.lo
+  CC     build/SDL_sensor.lo
+  CC     build/SDL_crc16.lo
+  CC     build/SDL_crc32.lo
+  CC     build/SDL_getenv.lo
+  CC     build/SDL_iconv.lo
+  CC     build/SDL_malloc.lo
+  CC     build/SDL_mslibc.lo
+  CC     build/SDL_qsort.lo
+  CC     build/SDL_stdlib.lo
+  CC     build/SDL_string.lo
+  CC     build/SDL_strtokr.lo
+  CC     build/SDL_thread.lo
+  CC     build/SDL_timer.lo
+  CC     build/SDL_RLEaccel.lo
+  CC     build/SDL_blit.lo
+  CC     build/SDL_blit_0.lo
+  CC     build/SDL_blit_1.lo
+  CC     build/SDL_blit_A.lo
+  CC     build/SDL_blit_N.lo
+  CC     build/SDL_blit_auto.lo
+  CC     build/SDL_blit_copy.lo
+  CC     build/SDL_blit_slow.lo
+  CC     build/SDL_bmp.lo
+  CC     build/SDL_clipboard.lo
+  CC     build/SDL_egl.lo
+  CC     build/SDL_fillrect.lo
+  CC     build/SDL_pixels.lo
+  CC     build/SDL_rect.lo
+  CC     build/SDL_shape.lo
+  CC     build/SDL_stretch.lo
+  CC     build/SDL_surface.lo
+  CC     build/SDL_video.lo
+  CC     build/SDL_vulkan_utils.lo
+  CC     build/SDL_yuv.lo
+  CC     build/yuv_rgb_lsx.lo
+  CC     build/yuv_rgb_sse.lo
+  CC     build/yuv_rgb_std.lo
+  CC     build/SDL_locale.lo
+  CC     build/SDL_nullevents.lo
+  CC     build/SDL_nullframebuffer.lo
+  CC     build/SDL_nullvideo.lo
+  CC     build/SDL_offscreenevents.lo
+  CC     build/SDL_offscreenframebuffer.lo
+  CC     build/SDL_offscreenopengles.lo
+  CC     build/SDL_offscreenvideo.lo
+  CC     build/SDL_offscreenwindow.lo
+  CC     build/SDL_diskaudio.lo
+  CC     build/SDL_dummyaudio.lo
+  CC     build/SDL_sysloadso.lo
+  CC     build/SDL_cocoaclipboard.lo
+  CC     build/SDL_cocoaevents.lo
+  CC     build/SDL_cocoakeyboard.lo
+  CC     build/SDL_cocoamessagebox.lo
+  CC     build/SDL_cocoametalview.lo
+  CC     build/SDL_cocoamodes.lo
+  CC     build/SDL_cocoamouse.lo
+  CC     build/SDL_cocoaopengl.lo
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/video/cocoa/SDL_cocoamodes.m:122:23: warning: 'CGDisplayModeCopyPixelEncoding' is deprecated: first deprecated in macOS 10.11 - No longer supported [-Wdeprecated-declarations]
+    CFStringRef fmt = CGDisplayModeCopyPixelEncoding(vidmode);
+                      ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGDirectDisplay.h:177:34: note: 'CGDisplayModeCopyPixelEncoding' has been explicitly marked deprecated here
+CG_EXTERN CFStringRef __nullable CGDisplayModeCopyPixelEncoding(
+                                 ^
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/video/cocoa/SDL_cocoamodes.m:284:32: warning: 'CGDisplayIOServicePort' is deprecated: first deprecated in macOS 10.9 - No longer supported [-Wdeprecated-declarations]
+    io_service_t servicePort = CGDisplayIOServicePort(displayID);
+                               ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGDisplayConfiguration.h:372:24: note: 'CGDisplayIOServicePort' has been explicitly marked deprecated here
+CG_EXTERN io_service_t CGDisplayIOServicePort(CGDirectDisplayID display)
+                       ^
+  CC     build/SDL_cocoaopengles.lo
+2 warnings generated.
+  CC     build/SDL_cocoashape.lo
+  CC     build/SDL_cocoavideo.lo
+  CC     build/SDL_cocoavulkan.lo
+  CC     build/SDL_cocoawindow.lo
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/video/cocoa/SDL_cocoashape.m:67:38: warning: 'graphicsContext' is deprecated: first deprecated in macOS 10.14 - Add instances of NSView to display content in a window. [-Wdeprecated-declarations]
+    data.context = [windata.nswindow graphicsContext];
+                                     ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSWindow.h:864:59: note: property 'graphicsContext' is declared deprecated here
+@property (nullable, readonly, strong) NSGraphicsContext *graphicsContext API_DEPRECATED("Add instances of NSView to display content in a window.", macos(10.0,10.14));
+                                                          ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSWindow.h:864:59: note: 'graphicsContext' has been explicitly marked deprecated here
+1 warning generated.
+  CC     build/SDL_render_metal.lo
+  CC     build/SDL_systhread.lo
+  CC     build/SDL_syssem.lo
+  CC     build/SDL_sysmutex.lo
+  CC     build/SDL_syscond.lo
+  CC     build/SDL_systls.lo
+  CC     build/SDL_hidapi_combined.lo
+  CC     build/SDL_hidapi_gamecube.lo
+  CC     build/SDL_hidapi_luna.lo
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/video/cocoa/SDL_cocoawindow.m:164:47: warning: 'NSFilenamesPboardType' is deprecated: first deprecated in macOS 10.14 - Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead [-Wdeprecated-declarations]
+    NSArray *types = [NSArray arrayWithObject:NSFilenamesPboardType];
+                                              ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSPasteboard.h:312:32: note: 'NSFilenamesPboardType' has been explicitly marked deprecated here
+APPKIT_EXTERN NSPasteboardType NSFilenamesPboardType API_DEPRECATED("Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead", macos(10.0,10.14));
+                               ^
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/video/cocoa/SDL_cocoawindow.m:182:45: warning: 'NSFilenamesPboardType' is deprecated: first deprecated in macOS 10.14 - Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead [-Wdeprecated-declarations]
+    SDL_assert([desiredType isEqualToString:NSFilenamesPboardType]);
+                                            ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSPasteboard.h:312:32: note: 'NSFilenamesPboardType' has been explicitly marked deprecated here
+APPKIT_EXTERN NSPasteboardType NSFilenamesPboardType API_DEPRECATED("Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead", macos(10.0,10.14));
+                               ^
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/video/cocoa/SDL_cocoawindow.m:534:11: warning: 'setAcceptsTouchEvents:' is deprecated: first deprecated in macOS 10.12.2 - Use allowedTouchTypes instead [-Wdeprecated-declarations]
+    [view setAcceptsTouchEvents:YES];
+          ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSView.h:227:16: note: property 'acceptsTouchEvents' is declared deprecated here
+@property BOOL acceptsTouchEvents API_DEPRECATED("Use allowedTouchTypes instead", macos(10.6,10.12.2));
+               ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSView.h:227:16: note: 'setAcceptsTouchEvents:' has been explicitly marked deprecated here
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/video/cocoa/SDL_cocoawindow.m:1758:15: warning: 'setOneShot:' is deprecated: first deprecated in macOS 10.14 - This property does not do anything and should not be used [-Wdeprecated-declarations]
+    [nswindow setOneShot:NO];
+              ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSWindow.h:866:35: note: property 'oneShot' is declared deprecated here
+@property (getter=isOneShot) BOOL oneShot API_DEPRECATED("This property does not do anything and should not be used", macos(10.0,10.14));
+                                  ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSWindow.h:866:35: note: 'setOneShot:' has been explicitly marked deprecated here
+  CC     build/SDL_hidapi_ps3.lo
+  CC     build/SDL_hidapi_ps4.lo
+  CC     build/SDL_hidapi_ps5.lo
+  CC     build/SDL_hidapi_rumble.lo
+  CC     build/SDL_hidapi_shield.lo
+4 warnings generated.
+  CC     build/SDL_hidapi_stadia.lo
+  CC     build/SDL_hidapi_steam.lo
+  CC     build/SDL_hidapi_steamdeck.lo
+  CC     build/SDL_hidapi_switch.lo
+  CC     build/SDL_hidapi_wii.lo
+  CC     build/SDL_hidapi_xbox360.lo
+  CC     build/SDL_hidapi_xbox360w.lo
+  CC     build/SDL_hidapi_xboxone.lo
+  CC     build/SDL_hidapijoystick.lo
+  CC     build/SDL_sysurl.lo
+  CC     build/SDL_syslocale.lo
+  CC     build/SDL_coreaudio.lo
+  CC     build/SDL_iokitjoystick.lo
+  CC     build/SDL_mfijoystick.lo
+  CC     build/SDL_syshaptic.lo
+  CC     build/SDL_syspower.lo
+  CC     build/SDL_sysfilesystem.lo
+  CC     build/SDL_systimer.lo
+  CC     build/SDL_rwopsbundlesupport.lo
+  CC     build/SDL_poll.lo
+  CC     build/SDL_virtualjoystick.lo
+  CC     build/SDL_dummysensor.lo
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/joystick/iphoneos/SDL_mfijoystick.m:498:27: warning: 'gamepad' is deprecated: first deprecated in macOS 10.12 [-Wdeprecated-declarations]
+    } else if (controller.gamepad) {
+                          ^~~~~~~
+                          extendedGamepad
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/GameController.framework/Headers/GCController.h:192:62: note: 'gamepad' has been explicitly marked deprecated here
+@property (nonatomic, strong, readonly, nullable) GCGamepad *gamepad API_DEPRECATED_WITH_REPLACEMENT("extendedGamepad", macos(10.9, 10.12), ios(7.0, 10.0), tvos(7.0, 10.0));
+                                                             ^
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/joystick/iphoneos/SDL_mfijoystick.m:628:27: warning: 'gamepad' is deprecated: first deprecated in macOS 10.12 [-Wdeprecated-declarations]
+    } else if (controller.gamepad) {
+                          ^~~~~~~
+                          extendedGamepad
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/GameController.framework/Headers/GCController.h:192:62: note: 'gamepad' has been explicitly marked deprecated here
+@property (nonatomic, strong, readonly, nullable) GCGamepad *gamepad API_DEPRECATED_WITH_REPLACEMENT("extendedGamepad", macos(10.9, 10.12), ios(7.0, 10.0), tvos(7.0, 10.0));
+                                                             ^
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/joystick/iphoneos/SDL_mfijoystick.m:794:24: warning: 'controllerPausedHandler' is deprecated: first deprecated in macOS 10.15 - controllerPausedHandler has been deprecated. Use the Menu button found on the controller's profile, if it exists. [-Wdeprecated-declarations]
+            controller.controllerPausedHandler = nil;
+                       ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/GameController.framework/Headers/GCController.h:114:46: note: 'controllerPausedHandler' has been explicitly marked deprecated here
+@property (nonatomic, copy, nullable) void (^controllerPausedHandler)(GCController *controller) API_DEPRECATED("controllerPausedHandler has been deprecated. Use the Menu button found on the controller's profile, if it exists.", macos(10.9, 10.15), ios(7.0, 13.0), tvos(9.0, 13.0));
+                                             ^
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/joystick/iphoneos/SDL_mfijoystick.m:1013:28: warning: 'controllerPausedHandler' is deprecated: first deprecated in macOS 10.15 - controllerPausedHandler has been deprecated. Use the Menu button found on the controller's profile, if it exists. [-Wdeprecated-declarations]
+                controller.controllerPausedHandler = ^(GCController *c) {
+                           ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/GameController.framework/Headers/GCController.h:114:46: note: 'controllerPausedHandler' has been explicitly marked deprecated here
+@property (nonatomic, copy, nullable) void (^controllerPausedHandler)(GCController *controller) API_DEPRECATED("controllerPausedHandler has been deprecated. Use the Menu button found on the controller's profile, if it exists.", macos(10.9, 10.15), ios(7.0, 13.0), tvos(9.0, 13.0));
+                                             ^
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/joystick/iphoneos/SDL_mfijoystick.m:1255:31: warning: 'gamepad' is deprecated: first deprecated in macOS 10.12 [-Wdeprecated-declarations]
+        } else if (controller.gamepad) {
+                              ^~~~~~~
+                              extendedGamepad
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/GameController.framework/Headers/GCController.h:192:62: note: 'gamepad' has been explicitly marked deprecated here
+@property (nonatomic, strong, readonly, nullable) GCGamepad *gamepad API_DEPRECATED_WITH_REPLACEMENT("extendedGamepad", macos(10.9, 10.12), ios(7.0, 10.0), tvos(7.0, 10.0));
+                                                             ^
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/joystick/iphoneos/SDL_mfijoystick.m:1257:13: warning: 'GCGamepad' is deprecated: first deprecated in macOS 10.12 [-Wdeprecated-declarations]
+            GCGamepad *gamepad = controller.gamepad;
+            ^~~~~~~~~
+            GCExtendedGamepad
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/GameController.framework/Headers/GCGamepad.h:32:12: note: 'GCGamepad' has been explicitly marked deprecated here
+@interface GCGamepad : GCPhysicalInputProfile
+           ^
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/joystick/iphoneos/SDL_mfijoystick.m:1257:45: warning: 'gamepad' is deprecated: first deprecated in macOS 10.12 [-Wdeprecated-declarations]
+            GCGamepad *gamepad = controller.gamepad;
+                                            ^~~~~~~
+                                            extendedGamepad
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/GameController.framework/Headers/GCController.h:192:62: note: 'gamepad' has been explicitly marked deprecated here
+@property (nonatomic, strong, readonly, nullable) GCGamepad *gamepad API_DEPRECATED_WITH_REPLACEMENT("extendedGamepad", macos(10.9, 10.12), ios(7.0, 10.0), tvos(7.0, 10.0));
+                                                             ^
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/joystick/iphoneos/SDL_mfijoystick.m:1797:24: warning: 'controllerPausedHandler' is deprecated: first deprecated in macOS 10.15 - controllerPausedHandler has been deprecated. Use the Menu button found on the controller's profile, if it exists. [-Wdeprecated-declarations]
+            controller.controllerPausedHandler = nil;
+                       ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/GameController.framework/Headers/GCController.h:114:46: note: 'controllerPausedHandler' has been explicitly marked deprecated here
+@property (nonatomic, copy, nullable) void (^controllerPausedHandler)(GCController *controller) API_DEPRECATED("controllerPausedHandler has been deprecated. Use the Menu button found on the controller's profile, if it exists.", macos(10.9, 10.15), ios(7.0, 13.0), tvos(9.0, 13.0));
+                                             ^
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/joystick/iphoneos/SDL_mfijoystick.m:2029:20: warning: 'gamepad' is deprecated: first deprecated in macOS 10.12 [-Wdeprecated-declarations]
+    if (controller.gamepad) {
+                   ^~~~~~~
+                   extendedGamepad
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/GameController.framework/Headers/GCController.h:192:62: note: 'gamepad' has been explicitly marked deprecated here
+@property (nonatomic, strong, readonly, nullable) GCGamepad *gamepad API_DEPRECATED_WITH_REPLACEMENT("extendedGamepad", macos(10.9, 10.12), ios(7.0, 10.0), tvos(7.0, 10.0));
+                                                             ^
+/Users/waefrebeorn/Documents/big-mac/third_party/SDL2-2.32.10/src/joystick/iphoneos/SDL_mfijoystick.m:2030:27: warning: 'gamepad' is deprecated: first deprecated in macOS 10.12 [-Wdeprecated-declarations]
+        return controller.gamepad.dpad;
+                          ^~~~~~~
+                          extendedGamepad
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/GameController.framework/Headers/GCController.h:192:62: note: 'gamepad' has been explicitly marked deprecated here
+@property (nonatomic, strong, readonly, nullable) GCGamepad *gamepad API_DEPRECATED_WITH_REPLACEMENT("extendedGamepad", macos(10.9, 10.12), ios(7.0, 10.0), tvos(7.0, 10.0));
+                                                             ^
+  CC     build/SDL_dummy_main.lo
+  CC     build/SDL_test_assert.lo
+  CC     build/SDL_test_common.lo
+  CC     build/SDL_test_compare.lo
+10 warnings generated.
+  CC     build/SDL_test_crc32.lo
+  CC     build/SDL_test_font.lo
+  CC     build/SDL_test_fuzzer.lo
+  CC     build/SDL_test_harness.lo
+  CC     build/SDL_test_imageBlit.lo
+  CC     build/SDL_test_imageBlitBlend.lo
+  CC     build/SDL_test_imageFace.lo
+  CC     build/SDL_test_imagePrimitives.lo
+  CC     build/SDL_test_imagePrimitivesBlend.lo
+  CC     build/SDL_test_log.lo
+  CC     build/SDL_test_md5.lo
+  CC     build/SDL_test_memory.lo
+  CC     build/SDL_test_random.lo
+  LTLINK build/libSDL2.la
+  LTLINK build/libSDL2main.la
+  LTLINK build/libSDL2_test.la
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_audiodev.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_keysym_to_scancode.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_scancode_tables.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(imKStoUCS.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_d3dmath.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_d3d.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_shaders_d3d.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_d3d11.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_shaders_d3d11.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_d3d12.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_shaders_d3d12.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_gles.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_ps2.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_psp.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_vita_gxm.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_vita_gxm_memory.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_vita_gxm_tools.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_mslibc.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(yuv_rgb_lsx.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_audiodev.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_keysym_to_scancode.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_scancode_tables.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(imKStoUCS.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_d3dmath.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_d3d.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_shaders_d3d.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_d3d11.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_shaders_d3d11.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_d3d12.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_shaders_d3d12.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_gles.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_ps2.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_psp.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_vita_gxm.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_vita_gxm_memory.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_render_vita_gxm_tools.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(SDL_mslibc.o) has no symbols
+/Library/Developer/CommandLineTools/usr/bin/ranlib: file: build/.libs/libSDL2.a(yuv_rgb_lsx.o) has no symbols

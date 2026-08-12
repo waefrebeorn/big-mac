@@ -850,6 +850,7 @@ int main(int argc, char **argv) {
     double g_vtl = 0.0;  /* override tract length (integer sections + fractional) */
     double g_rate = 1.0;  /* speaking-rate multiplier (<1 fast, >1 slow) */
     double g_breathiness = 0.0, g_rq = 0.0;
+    double g_tense = 0.0;   /* R013: glottal tenseness override (0 dark..1 bright) */
     {
         int w = 1;
         for (int a = 1; a < argc; a++) {
@@ -863,6 +864,7 @@ int main(int argc, char **argv) {
             if (!strcmp(argv[a], "-tone") && a + 1 < argc) { g_tone = atoi(argv[++a]); continue; }
             if (!strcmp(argv[a], "-vtl") && a + 1 < argc) { g_vtl = atof(argv[++a]); continue; }
             if (!strcmp(argv[a], "-rq") && a + 1 < argc) { g_rq = atof(argv[++a]); continue; }
+            if (!strcmp(argv[a], "-tense") && a + 1 < argc) { g_tense = atof(argv[++a]); continue; }
             if (!strcmp(argv[a], "-rate") && a + 1 < argc) { g_rate = atof(argv[++a]); if (g_rate < 0.3) g_rate = 0.3; if (g_rate > 3.0) g_rate = 3.0; continue; }
             argv[w++] = argv[a];
         }
@@ -1188,7 +1190,7 @@ int main(int argc, char **argv) {
     wb_tract_t *tract = wb_tract_new(vtl_n);
     if (vtl_frac > 0) wb_tract_set_length_frac(tract, vtl_frac);  /* R018 fractional-delay */
     wb_glottis_t *g = wb_glottis_new();
-    wb_glottis_set_tenseness(g, ch->tenseness * em->tenseness / 0.65);
+    wb_glottis_set_tenseness(g, (g_tense > 0 ? g_tense : ch->tenseness) * em->tenseness / 0.65);
     wb_glottis_set_jitter(g, ch->jitter + em->jitter);
     wb_glottis_set_shimmer(g, ch->shimmer + em->shimmer);
     wb_glottis_set_vibrato(g, ch->vib_depth + em->vib_depth, em->vib_rate);

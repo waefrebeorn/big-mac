@@ -25,7 +25,8 @@ try-lock, DAG worker model.
 | Recursive learn/fix feedback loop | `make test` (tuner converges) |
 | Staged render pipeline (schedule→instr→fx) | `make test` |
 | Xrun detection + counter (try-lock, never blocks) | `make test` |
-| Insert FX chain (comp/reverb/delay per track) | `make test` |
+|| Insert FX chain (comp/reverb/delay per track) | `make test` |
+|| Per-slot bypass toggle + wet/dry mix on every insert slot (track & bus) | `make test` (test_bypass_wet + test_compressor_sidechain verify per-slot state + parallel wet signals + key-input ducking) |
 | CoreMIDI input (enumerate + open by name) | launched, opened "Launchpad MK2" |
 | Text UI (5×7 bitmap font: labels/numbers) | `build/wb_daw` shows time/BPM/dB |
 

@@ -20,6 +20,7 @@
 #include "wbus_plugin.h"
 #include "wbus_dsp.h"
 #include "wb_internal.h"
+#include "wb_recorder.h"
 
 /* one per track at render time */
 struct wb_track_runtime {
@@ -51,6 +52,9 @@ struct wb_engine {
     pthread_mutex_t process_lock;
     int   lock_initialized;
     uint64_t xruns;
+
+    /* ---- MIDI recording (one recorder arm per track; -1 = disarmed) ---- */
+    wb_recorder *recorders[WB_MAX_TRACKS];
 };
 
 /* drain UI commands (RT thread, once per block) */
@@ -209,6 +213,8 @@ void wb_engine_destroy(wb_engine *e) {
         free(e->rtracks);
     }
     if (e->lock_initialized) pthread_mutex_destroy(&e->process_lock);
+    for (uint32_t t = 0; t < WB_MAX_TRACKS; t++)
+        if (e->recorders[t]) wb_recorder_destroy(e->recorders[t]);
     free(e->accL);
     free(e->accR);
     free(e);
@@ -297,11 +303,36 @@ void wb_engine_set_track_volume(wb_engine *e, int track, float vol) {
     wb_cmd_push(&e->queue, c);
 }
 void wb_engine_note(wb_engine *e, int track, uint8_t pitch, uint8_t vel) {
+    /* mirror into any armed recorder for this track (RT-safe) */
+    if (e && track >= 0 && track < (int)WB_MAX_TRACKS && e->recorders[track]) {
+        wb_recorder_midi_event(e->recorders[track], (int)pitch, (int)vel,
+                               e->t.song_pos);
+    }
     wb_cmd c = { .type = WB_CMD_NOTE, .i0 = track, .i1 = pitch, .f0 = vel };
     wb_cmd_push(&e->queue, c);
 }
+
+void wb_engine_record(wb_engine *e, int track, int clip_idx, int on, int overdub) {
+    if (!e || track < 0 || track >= (int)WB_MAX_TRACKS) return;
+    if (on) {
+        wb_track *tk = e->session && track < (int)e->session->track_count
+                       ? &e->session->tracks[track] : NULL;
+        if (!tk || clip_idx < 0 || clip_idx >= (int)tk->clip_count) return;
+        wb_recorder *r = wb_recorder_create(tk, clip_idx);
+        if (!r) return;
+        wb_recorder_set_overdub(r, overdub);
+        e->recorders[track] = r;
+    } else {
+        if (e->recorders[track]) {
+            wb_recorder_destroy(e->recorders[track]);
+            e->recorders[track] = NULL;
+        }
+    }
+}
+
 void wb_engine_set_insert_param(wb_engine *e, int track, int slot, int param, float value) {
     (void)e; (void)track; (void)slot; (void)param; (void)value;
+    /* TODO: route to the unit's set_param via the insert chain (data-driven). */
 }
 
 void wb_engine_begin_edit(wb_engine *e) {
@@ -315,6 +346,7 @@ uint64_t wb_engine_xruns(wb_engine *e) { return e ? e->xruns : 0; }
 
 /* ---- STAGE: evaluate automation lanes against the current song position -- */
 static void stage_automation(wb_engine *e, uint32_t n) {
+    (void)n;
     wb_session *s = e->session;
     if (!s || !s->automation_count) return;
     double pos = (double)e->t.song_pos;
@@ -356,6 +388,13 @@ uint32_t wb_engine_render(wb_engine *e, wb_sample *out, uint32_t n) {
     stage_automation(e, n);
     stage_instruments(e, n);
     stage_effects(e, n);
+    /* flush RT-captured MIDI into authored clips (non-RT realloc path).
+     * The block covers [song_pos, song_pos+n); held notes at block end are
+     * extended to song_pos+n until a note-off resolves them. */
+    double block_end = (double)(e->t.song_pos + n);
+    for (uint32_t t = 0; t < WB_MAX_TRACKS; t++)
+        if (e->recorders[t])
+            wb_recorder_flush(e->recorders[t], block_end);
     stage_mix(e, n, out);
 
     /* double-buffered advance: transport moves by the rendered block */

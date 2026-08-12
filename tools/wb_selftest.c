@@ -371,6 +371,60 @@ static void test_automation(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: MIDI recording into clips ----------------------------------- */
+static void test_recorder(void) {
+    printf("test_recorder\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0; s->tracks = calloc(1, sizeof(wb_track));
+    s->tracks[0].kind = 0; s->tracks[0].volume = 1.0f;
+    strcpy(s->tracks[0].inserts[0].id, "fm");
+    s->tracks[0].clip_count = 1;
+    s->tracks[0].clips = calloc(1, sizeof(wb_clip));
+    s->tracks[0].clips[0].start = 0; s->tracks[0].clips[0].length = 88200;
+    s->track_count = 1;
+
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    wb_engine_seek(e, 0.0);
+
+    /* arm recording on track 0, clip 0 */
+    wb_engine_record(e, 0, 0, 1, 0);
+
+    /* simulate a 1-second held note (C4) recorded over the first second */
+    wb_engine_note(e, 0, 60, 100);                 /* note-on at pos 0 */
+    wb_engine_render(e, calloc(1, 4096*2), 4096);  /* advance + flush */
+    wb_engine_note(e, 0, 60, 0);                   /* note-off at pos 4096 */
+    wb_engine_render(e, calloc(1, 4096*2), 4096);  /* advance + flush */
+
+    wb_engine_record(e, 0, 0, 0, 0);               /* disarm */
+    wb_track *tk = &s->tracks[0];
+    CHECK(tk->clips[0].note_count >= 1, "recorder captured a note");
+    if (tk->clips[0].note_count >= 1) {
+        wb_note n0 = tk->clips[0].notes[0];
+        printf("         rec note pitch=%d start=%.0f dur=%.0f vel=%d\n",
+               n0.pitch, n0.start, n0.dur, n0.vel);
+        CHECK(n0.pitch == 60, "recorded note pitch matches");
+        CHECK(n0.start == 0.0, "recorded note starts at 0");
+        CHECK(n0.dur > 0, "recorded note has a positive duration");
+        CHECK(n0.vel == 100, "recorded note velocity preserved");
+    }
+
+    /* reload: the authored clip must survive save/load */
+    CHECK(wb_session_save(s, "/tmp/wb_rec_test.wbus") == 0, "save recorded session");
+    wb_session *s2 = wb_session_load("/tmp/wb_rec_test.wbus");
+    CHECK(s2 && s2->track_count == 1, "loaded recorded session");
+    if (s2 && s2->track_count == 1) {
+        CHECK(s2->tracks[0].clips[0].note_count >= 1, "recorded notes survive .wbus round-trip");
+        if (s2->tracks[0].clips[0].note_count >= 1) {
+            wb_note n2 = s2->tracks[0].clips[0].notes[0];
+            CHECK(n2.pitch == 60 && n2.vel == 100, "note fields round-trip");
+        }
+    }
+    wb_session_destroy(s2);
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
+
 /* ---- test 8: Xrun detection (try-lock drops a block, counts underrun) - */
 static void test_xrun(void) {
     printf("test_xrun\n");
@@ -407,6 +461,7 @@ int main(void) {
     test_session_io();
     test_instruments();
     test_automation();
+    test_recorder();
     test_xrun();
 
     printf("\n%d checks, %d failures\n", checks, failures);

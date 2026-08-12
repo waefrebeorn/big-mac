@@ -147,6 +147,12 @@ void wb_engine_set_track_volume(wb_engine *e, int track, float vol);
 void wb_engine_note(wb_engine *e, int track, uint8_t pitch, uint8_t vel);
 void wb_engine_set_insert_param(wb_engine *e, int track, int slot, int param, float value);
 
+/* ---- MIDI recording into clips ----------------------------------------- */
+/* arm/disarm recording on a track's clip. When armed, wb_engine_note events
+ * are mirrored into the clip as authored notes (note-ons with the track's
+ * current song position; note-offs close matching note-ons for duration). */
+void wb_engine_record(wb_engine *e, int track, int clip_idx, int on, int overdub);
+
 /* ---- render ----------------------------------------------------------- */
 /* Render up to `n` frames into `out` (interleaved stereo, -1..1).
  * The engine advances transport and produces audio. Returns frames rendered. */

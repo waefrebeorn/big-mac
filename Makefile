@@ -28,7 +28,7 @@ CORE_OBJS := $(CORE_SRCS:%.c=build/%.o)
 
 # ---- targets -------------------------------------------------------------
 
-all: build/wb_daw build/wb_render build/wb_selftest build/wb_test_clap
+all: build/wb_daw build/wb_render build/wb_selftest build/wb_test_clap build/test-clap/bigmac-test.clap
 
 build/%.o: %.c
 	@mkdir -p $(dir $@)

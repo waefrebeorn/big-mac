@@ -14,14 +14,14 @@ LIBS     := third_party/SDL2-2.32.10/build/.libs/libSDL2.a \
             -Wl,-weak_framework,CoreHaptics -Wl,-weak_framework,GameController \
             -Wl,-framework,ForceFeedback -Wl,-framework,CoreVideo \
             -Wl,-framework,Cocoa -Wl,-framework,Carbon -Wl,-framework,IOKit \
-            -Wl,-weak_framework,QuartzCore -Wl,-weak_framework,Metal
+            -Wl,-weak_framework,QuartzCore -Wl,-weak_framework,Metal -Wl,-framework,CoreMIDI -Wl,-framework,CoreFoundation
 
 # Core engine objects
 CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c \
              src/wb_dsp.c src/wb_osc.c src/wb_env.c src/wb_filter.c \
              src/wb_comp.c src/wb_reverb.c src/wb_delay.c src/wb_synth.c \
              src/wb_sampler.c src/wb_wav.c src/wb_backend.c \
-             src/wb_tuner.c src/wb_ui_font.c src/wb_midi.c
+             src/wb_tuner.c src/wb_ui_font.c src/wb_midi_coremidi.c
 CORE_OBJS := $(CORE_SRCS:%.c=build/%.o)
 
 # ---- targets -------------------------------------------------------------

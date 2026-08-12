@@ -16,6 +16,7 @@
 
 #include "wbus.h"
 #include "wbus_backend.h"
+#include "wbus_midi.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
 
@@ -38,6 +39,8 @@ typedef struct app {
     wb_session *session;
     wb_transport t;
     wb_tuner *tuner;
+    wb_midi *midi;
+    int midi_track;
 
     SDL_Window *win;
     SDL_Renderer *ren;
@@ -268,6 +271,21 @@ static void render(app *a) {
 }
 
 /* ---- input ------------------------------------------------------------ */
+/* MIDI callback: push controller notes into the engine's lock-free queue.
+ * Called from CoreMIDI's receive thread — only touches the queue (RT-safe). */
+static void midi_cb(wb_midi_event ev, void *userdata) {
+    app *a = userdata;
+    uint8_t st = ev.status & 0xF0;
+    if (st == 0x90) {
+        /* note on → play a note on this DAW's instrument track */
+        wb_engine_note(a->engine, a->midi_track, ev.data1, ev.data2);
+        /* light the button so you get tactile feedback — fire-and-forget */
+    } else if (st == 0x80) {
+        /* note off → silence the voice (key off) */
+        wb_engine_note(a->engine, a->midi_track, ev.data1, 0);
+    }
+}
+
 static void handle_key(app *a, SDL_Keycode k) {
     switch (k) {
     case SDLK_SPACE:
@@ -324,9 +342,24 @@ int main(int argc, char **argv) {
         goto cleanup;
     }
 
-    wb_backend *audio = wb_backend_coreaudio_create(a->engine, WB_SAMPLE_RATE);
+    wb_backend *audio = NULL;
+    audio = wb_backend_coreaudio_create(a->engine, WB_SAMPLE_RATE);
     if (!audio) fprintf(stderr, "audio: %s\n", SDL_GetError());
     else wb_backend_start(audio);
+
+    /* ---- open a MIDI controller (Launchpad autodetect) ---------------- */
+    a->midi = NULL;
+    char names[32][64]; int ndev = 0;
+    wb_midi_enumerate(names, 32, &ndev);
+    printf("MIDI input devices (%d):\n", ndev);
+    for (int i = 0; i < ndev; i++) printf("  [%d] %s\n", i, names[i]);
+
+    /* autodetect: prefer "Launchpad", else first available device */
+    a->midi = wb_midi_open_contains("Launchpad", midi_cb, a);
+    if (!a->midi && ndev > 0) a->midi = wb_midi_open(names[0], midi_cb, a);
+    a->midi_track = 0;
+    if (a->midi) printf("MIDI: opened controller, listening for notes...\n");
+    else printf("MIDI: no input device open (input disabled)\n");
 
     SDL_Event ev;
     while (running) {
@@ -338,8 +371,9 @@ int main(int argc, char **argv) {
         SDL_Delay(16);
     }
 
-    if (audio) wb_backend_destroy(audio);
 cleanup:
+    if (a->midi) wb_midi_close(a->midi);
+    if (audio) wb_backend_destroy(audio);
     if (a->tuner) { wb_tuner_stop(a->tuner); wb_tuner_destroy(a->tuner); }
     SDL_DestroyRenderer(a->ren); SDL_DestroyWindow(a->win);
     wb_engine_destroy(a->engine); wb_session_destroy(a->session);

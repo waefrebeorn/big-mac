@@ -5,6 +5,12 @@
   library. **The only third-party; everything else is ours.** Chosen for
   portable windowing + portable audio across macOS/Linux/Windows.
 
+## Reference sources studied (R002)
+- `~/ref/ardour/` — Ardour (`libs/ardour/audioengine.cc`, `graph.cc`)
+- `~/ref/lmms/` — LMMS (`src/core/AudioEngine.cpp`, `midi/MidiApple.cpp`)
+Lessons applied: staged render (schedule→instruments→effects), Xrun
+try-lock, DAG worker model.
+
 ## Wired (verified by `make test`)
 | Capability | Verify |
 |---|---|
@@ -17,18 +23,20 @@
 | WAV write (16-bit PCM + 32-bit float) | `make test` |
 | Offline render (oracle parity with live) | `make test` |
 | Recursive learn/fix feedback loop | `make test` (tuner converges) |
-| SDL2 realtime audio backend | `make all && ./build/wb_daw` |
-| SDL2 window + transport + arrangement + mixer | `build/wb_daw` |
+| Staged render pipeline (schedule→instr→fx) | `make test` |
+| Xrun detection + counter (try-lock, never blocks) | `make test` |
+| Insert FX chain (comp/reverb/delay per track) | `make test` |
+| CoreMIDI input (enumerate + open by name) | launched, opened "Launchpad MK2" |
+| Text UI (5×7 bitmap font: labels/numbers) | `build/wb_daw` shows time/BPM/dB |
 
 ## Open (next)
 | Capability |
 |---|
-| MIDI input from hardware controller |
-| Plugin scan + third-party plugin hosting |
+| Plugin scan + third-party plugin hosting (.clap) |
 | Project save/load (.wbus file format) |
 | Automation envelopes (per-parameter curves) |
 | Waveform display (audio clips on arrangement) |
-| Font-based text rendering (UI labels/numbers) |
 | Recording (audio/MIDI capture) |
 | Additional synth/FX units |
 | Undo/redo |
+| Launchpad LED feedback |

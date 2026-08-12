@@ -130,6 +130,7 @@ wb_track *wb_session_add_track(wb_session *s, const char *name, int kind) {
     tr->pan = 0.0f;
     tr->mute = 0;
     tr->solo = 0;
+    tr->route = -1;   /* default: route to master, not a bus */
     return tr;
 }
 
@@ -212,6 +213,7 @@ wb_session *wb_session_demo(void) {
     wb_track *lead = &s->tracks[0];
     snprintf(lead->name, sizeof(lead->name), "Lead");
     lead->kind = 0;
+    lead->route = -1;
     lead->volume = 0.8f;
     lead->pan = 0.0f;
     /* slot 0 = instrument id ("synth"), slots 1.. = insert FX chain */
@@ -235,6 +237,7 @@ wb_session *wb_session_demo(void) {
     wb_track *bass = &s->tracks[1];
     snprintf(bass->name, sizeof(bass->name), "Bass");
     bass->kind = 0;
+    bass->route = -1;
     bass->volume = 0.6f;
     bass->pan = 0.0f;
     bass->clip_count = 1;
@@ -251,6 +254,7 @@ wb_session *wb_session_demo(void) {
     wb_track *pad = &s->tracks[2];
     snprintf(pad->name, sizeof(pad->name), "Pad (audio)");
     pad->kind = 1;
+    pad->route = -1;
     pad->volume = 0.5f;
     pad->pan = 0.0f;
     {

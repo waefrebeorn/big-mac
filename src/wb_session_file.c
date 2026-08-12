@@ -56,8 +56,8 @@ int wb_session_save(const wb_session *s, const char *path) {
     fprintf(f, "length %.3f\n", s->length);
     for (uint32_t t = 0; t < s->track_count; t++) {
         const wb_track *tk = &s->tracks[t];
-        fprintf(f, "track \"%s\" kind %d volume %.5f pan %.5f mute %d solo %d\n",
-                tk->name, tk->kind, tk->volume, tk->pan, tk->mute, tk->solo);
+        fprintf(f, "track \"%s\" kind %d volume %.5f pan %.5f mute %d solo %d route %d\n",
+                tk->name, tk->kind, tk->volume, tk->pan, tk->mute, tk->solo, tk->route);
         for (int i = 0; i < WB_MAX_INSERT_SLOTS; i++)
             if (tk->inserts[i].id[0])
                 fprintf(f, "  insert %d \"%s\"\n", i, tk->inserts[i].id);
@@ -116,6 +116,7 @@ wb_session *wb_session_load(const char *path) {
             wb_track *tk = &s->tracks[s->track_count];
             memset(tk, 0, sizeof(*tk));
             tk->volume = 1.0f;
+            tk->route = -1;   /* default: route to master, not a bus */
             tok = next_tok(&ts); /* name */
             if (tok) strncpy(tk->name, tok, sizeof(tk->name)-1);
 
@@ -127,6 +128,7 @@ wb_session *wb_session_load(const char *path) {
                 else if (strcmp(tok,"pan")==0)     { tok=next_tok(&ts); if(tok) tk->pan=(float)atof(tok); }
                 else if (strcmp(tok,"mute")==0)    { tok=next_tok(&ts); if(tok) tk->mute=atoi(tok); }
                 else if (strcmp(tok,"solo")==0)    { tok=next_tok(&ts); if(tok) tk->solo=atoi(tok); }
+                else if (strcmp(tok,"route")==0)   { tok=next_tok(&ts); if(tok) tk->route=atoi(tok); }
                 else if (strcmp(tok,"insert")==0) {
                     tok=next_tok(&ts); int slot = tok?atoi(tok):0;
                     tok=next_tok(&ts); if (tok && slot>=0 && slot<WB_MAX_INSERT_SLOTS)

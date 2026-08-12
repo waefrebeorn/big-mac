@@ -28,6 +28,7 @@ struct wb_track_runtime {
     float  volume, pan;
     int    mute, solo;
     int    kind;
+    int    route;                     /* -1 = master, else bus track index */
     void  *voice;                    /* instrument instance (kind 0) */
     const char *voice_unit_id;       /* "synth"|"fm"|"drum"|NULL (legacy synth) */
     wb_sample *bufL, *bufR;          /* per-track block buffers */
@@ -144,12 +145,54 @@ static void stage_instruments(wb_engine *e, uint32_t frames) {
     }
 }
 
+/* ---- STAGE 2.5: bus routing (sum routed tracks into their group bus) -- */
+/* Runs AFTER stage_effects so each source's insert chain is already applied.
+ * Each track routed to a bus (route >= 0) has its post-FX buffer added into
+ * the bus's buffer, then the bus's own insert chain runs on the accumulated
+ * signal. The bus is summed to master in stage_mix. */
+static void stage_bus(wb_engine *e, uint32_t frames) {
+    if (!e->session || !e->rtracks) return;
+    for (uint32_t t = 0; t < e->session->track_count; t++) {
+        wb_track_runtime *tr = &e->rtracks[t];
+        if (!tr->active || tr->mute || tr->kind == 2) continue; /* skip buses */
+        int r = tr->route;
+        if (r < 0 || (uint32_t)r >= e->session->track_count) continue;
+        wb_track_runtime *bus = &e->rtracks[r];
+        if (bus->kind != 2 || !bus->active) continue;
+        /* add this track's post-FX buffer into the bus */
+        for (uint32_t i = 0; i < frames; i++) {
+            bus->bufL[i] += tr->bufL[i];
+            bus->bufR[i] += tr->bufR[i];
+        }
+    }
+    /* run each bus's insert chain on its accumulated buffer */
+    for (uint32_t t = 0; t < e->session->track_count; t++) {
+        wb_track_runtime *tr = &e->rtracks[t];
+        if (!tr->active || tr->kind != 2) continue;
+        for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
+            void *ins = tr->inserts[s];
+            if (!ins) continue;
+            const char *id = tr->insert_ids[s];
+            const wb_unit *u = id ? wb_unit_find(id) : NULL;
+            if (u && u->vt->process)
+                u->vt->process(ins, tr->bufL, tr->bufR, frames);
+            else if (id && strncmp(id,"clap:",5)==0) {
+                const wb_unit *cu = wb_unit_find("clap");
+                if (cu && cu->vt->process) cu->vt->process(ins, tr->bufL, tr->bufR, frames);
+            }
+            else if (id && strcmp(id,"comp")==0)   wb_comp_process(ins, tr->bufL, tr->bufR, frames);
+            else if (id && strcmp(id,"reverb")==0) wb_reverb_process(ins, tr->bufL, tr->bufR, frames);
+            else if (id && strcmp(id,"delay")==0)  wb_delay_process(ins, tr->bufL, tr->bufR, frames);
+        }
+    }
+}
+
 /* ---- STAGE 3: effects (run each track's insert chain) ---------------- */
 static void stage_effects(wb_engine *e, uint32_t frames) {
     if (!e->session || !e->rtracks) return;
     for (uint32_t t = 0; t < e->session->track_count; t++) {
         wb_track_runtime *tr = &e->rtracks[t];
-        if (!tr->active) continue;
+        if (!tr->active || tr->kind == 2) continue;  /* buses handled in stage_bus */
         /* insert chain, in slot order. Each effect reads+writes the track
          * buffer in place (dry/wet handled internally). */
         for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
@@ -185,6 +228,9 @@ static void stage_mix(wb_engine *e, uint32_t n, wb_sample *out) {
             wb_track_runtime *tr = &e->rtracks[t];
             if (!tr->active || tr->mute) continue;
             if (any_solo && !tr->solo) continue;
+            /* a track routed to a bus is summed into that bus already (its
+             * signal reaches the master only through the bus); skip it here. */
+            if (tr->kind != 2 && tr->route >= 0) continue;
             float l = (float)(1.0 - (tr->pan > 0 ? tr->pan : 0));
             float r = (float)(1.0 - (tr->pan < 0 ? -tr->pan : 0));
             float g = tr->volume;
@@ -287,6 +333,7 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
         wb_track_runtime *tr = &e->rtracks[i];
         tr->active = 1;
         tr->kind = s->tracks[i].kind;
+        tr->route = s->tracks[i].route;
         tr->volume = s->tracks[i].volume;
         tr->pan = s->tracks[i].pan;
         tr->mute = s->tracks[i].mute;
@@ -427,6 +474,7 @@ uint32_t wb_engine_render(wb_engine *e, wb_sample *out, uint32_t n) {
     stage_automation(e, n);
     stage_instruments(e, n);
     stage_effects(e, n);
+    stage_bus(e, n);
     /* flush RT-captured MIDI into authored clips (non-RT realloc path).
      * The block covers [song_pos, song_pos+n); held notes at block end are
      * extended to song_pos+n until a note-off resolves them. */

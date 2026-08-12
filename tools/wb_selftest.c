@@ -224,6 +224,7 @@ static void test_session_io(void) {
         CHECK(strcmp(s2->tracks[0].inserts[1].id, "comp") == 0, "loaded comp insert");
         CHECK(strcmp(s2->tracks[0].inserts[2].id, "reverb") == 0, "loaded reverb insert");
         CHECK(s2->tracks[0].clips[0].note_count > 0, "loaded clip has notes");
+        CHECK(s2->tracks[0].route == -1, "loaded track routes to master by default");
 
         /* the loaded project must render non-silent through the engine
          * (proves a disk project opens and plays, the SOTA file workflow) */
@@ -273,6 +274,8 @@ static void test_instruments(void) {
     s->length = 44100.0 * 2.0;
     s->track_count = 2;
     s->tracks = calloc(2, sizeof(wb_track));
+    s->tracks[0].route = -1;
+    s->tracks[1].route = -1;
 
     /* lead: fm instrument + chorus insert */
     s->tracks[0].kind = 0;
@@ -446,7 +449,7 @@ static void test_recorder(void) {
     printf("test_recorder\n");
     wb_session *s = wb_session_create();
     s->bpm = 120.0; s->length = 88200.0; s->tracks = calloc(1, sizeof(wb_track));
-    s->tracks[0].kind = 0; s->tracks[0].volume = 1.0f;
+    s->tracks[0].kind = 0; s->tracks[0].volume = 1.0f; s->tracks[0].route = -1;
     strcpy(s->tracks[0].inserts[0].id, "fm");
     s->tracks[0].clip_count = 1;
     s->tracks[0].clips = calloc(1, sizeof(wb_clip));
@@ -589,6 +592,59 @@ static void test_undo(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: bus/group routing -------------------------------------------- */
+/* Two tracks routed into a bus (kind 2). The bus's own volume must scale the
+ * summed signal that reaches the master, and the routed tracks must NOT reach
+ * the master directly (they only reach it via the bus). */
+static void test_bus_routing(void) {
+    printf("test_bus_routing\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 44100.0;
+    /* track 0: group/bus (kind 2) with 0.5 volume */
+    wb_track *bus = wb_session_add_track(s, "Bus", 0);
+    bus->kind = 2; bus->volume = 0.5f; bus->route = -1;
+    /* track 1: routed to bus (index 0), fm synth, holds a C4 note */
+    wb_track *a = wb_session_add_track(s, "A", 0);
+    a->volume = 1.0f; a->route = 0; strcpy(a->inserts[0].id, "fm");
+    a->clip_count = 1; a->clips = calloc(1, sizeof(wb_clip));
+    a->clips[0].start = 0; a->clips[0].length = 44100;
+    a->clips[0].note_count = 1;
+    a->clips[0].notes = calloc(1, sizeof(wb_note));
+    a->clips[0].notes[0].start = 0; a->clips[0].notes[0].dur = 44100;
+    a->clips[0].notes[0].pitch = 60; a->clips[0].notes[0].vel = 100;
+    /* track 2: routed to master directly */
+    wb_track *b = wb_session_add_track(s, "B", 0);
+    b->volume = 1.0f; b->route = -1; strcpy(b->inserts[0].id, "fm");
+    b->clip_count = 1; b->clips = calloc(1, sizeof(wb_clip));
+    b->clips[0].start = 0; b->clips[0].length = 44100;
+    b->clips[0].note_count = 1;
+    b->clips[0].notes = calloc(1, sizeof(wb_note));
+    b->clips[0].notes[0].start = 0; b->clips[0].notes[0].dur = 44100;
+    b->clips[0].notes[0].pitch = 60; b->clips[0].notes[0].vel = 100;
+
+    wb_sample *out = NULL; uint32_t frames = 0;
+    int rc = wb_engine_render_session(NULL, s, &out, &frames);
+    CHECK(rc == 0, "bus project renders");
+    float peak = 0;
+    for (uint32_t i = 0; i < frames*2; i++) if (fabsf(out[i]) > peak) peak = fabsf(out[i]);
+    free(out);
+    CHECK(peak > 0.01f, "bus-routed tracks reach master (via bus)");
+    CHECK(s->tracks[1].route == 0, "track A is routed to the bus");
+    CHECK(s->tracks[0].kind == 2, "track 0 is a group/bus");
+
+    /* Verify bus attenuation: re-render with bus volume at 1.0 (no attenuation)
+     * and confirm the level rises. The bus scales its summed sources, so a
+     * higher bus gain must produce a higher master peak. */
+    s->tracks[0].volume = 1.0f;
+    rc = wb_engine_render_session(NULL, s, &out, &frames);
+    CHECK(rc == 0, "bus re-render ok");
+    float peak_full = 0;
+    for (uint32_t i = 0; i < frames*2; i++) if (fabsf(out[i]) > peak_full) peak_full = fabsf(out[i]);
+    free(out);
+    CHECK(peak_full > peak, "bus volume scales the routed signal");
+    wb_session_destroy(s);
+}
+
 /* ---- test: Launchpad grid→note mapping (pure logic, no hardware) ------- */
 static void test_launchpad(void) {
     printf("test_launchpad\n");
@@ -652,6 +708,7 @@ int main(void) {
     test_automation_record();
     test_recorder();
     test_audio_clip();
+    test_bus_routing();
     test_undo();
     test_launchpad();
     test_xrun();

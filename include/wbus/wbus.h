@@ -68,11 +68,12 @@ typedef struct wb_plugin_slot {
 /* ---- track ------------------------------------------------------------ */
 typedef struct wb_track {
     char       name[64];
-    int        kind;          /* 0 = instrument (has synth on first insert), 1 = audio */
+    int        kind;          /* 0 = instrument, 1 = audio, 2 = bus/group */
     float      volume;        /* linear gain */
     float      pan;           /* -1..1 */
     int        mute;
     int        solo;
+    int        route;         /* -1 = master, else index of bus track (kind 2) */
     uint32_t   clip_count;
     wb_clip   *clips;
     wb_plugin_slot inserts[WB_MAX_INSERT_SLOTS];

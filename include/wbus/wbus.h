@@ -124,7 +124,14 @@ void     wb_undo_checkpoint(wb_undo *u, const wb_session *current);
 int      wb_undo_undo(wb_undo *u, wb_session **owner);
 int      wb_undo_redo(wb_undo *u, wb_session **owner);
 int      wb_undo_depth(const wb_undo *u);
-int      wb_undo_redo_depth(const wb_undo *u);
+int  wb_undo_redo_depth(const wb_undo *u);
+
+/* ---- CLAP plugin bridge ------------------------------------------------ */
+/* Attach a CLAP host to the engine so that insert ids of the form
+ * "clap:<plugin_descriptor_id>" are instantiated and run inside the realtime
+ * graph. Call before wb_engine_set_session(). Pass NULL to detach. */
+struct wb_clap_host;
+void wb_engine_set_clap_host(wb_engine *e, struct wb_clap_host *h);
 
 /* ---- session file save/load (.wbus text format) ----------------------- */
 int  wb_session_save(const wb_session *s, const char *path);

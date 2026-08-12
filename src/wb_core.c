@@ -55,6 +55,9 @@ struct wb_engine {
 
     /* ---- MIDI recording (one recorder arm per track; -1 = disarmed) ---- */
     wb_recorder *recorders[WB_MAX_TRACKS];
+
+    /* ---- CLAP plugin bridge (optional; NULL if no host) ------------------ */
+    struct wb_clap_host *clap_host;
 };
 
 /* drain UI commands (RT thread, once per block) */
@@ -158,7 +161,12 @@ static void stage_effects(wb_engine *e, uint32_t frames) {
             const wb_unit *u = id ? wb_unit_find(id) : NULL;
             if (u && u->vt->process)
                 u->vt->process(ins, tr->bufL, tr->bufR, frames);
-            else if (id && strcmp(id, "comp") == 0)      wb_comp_process(ins, tr->bufL, tr->bufR, frames);
+            else if (id && strncmp(id,"clap:",5)==0) {
+                /* CLAP plugins resolve through the shared "clap" unit vtable */
+                const wb_unit *cu = wb_unit_find("clap");
+                if (cu && cu->vt->process) cu->vt->process(ins, tr->bufL, tr->bufR, frames);
+            }
+            else if (id && strcmp(id,"comp")==0)      wb_comp_process(ins, tr->bufL, tr->bufR, frames);
             else if (id && strcmp(id, "reverb") == 0)   wb_reverb_process(ins, tr->bufL, tr->bufR, frames);
             else if (id && strcmp(id, "delay") == 0)     wb_delay_process(ins, tr->bufL, tr->bufR, frames);
         }
@@ -305,11 +313,18 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
             const char *id = s->tracks[i].inserts[slot].id;
             if (!id || !id[0]) continue;
             tr->insert_ids[slot] = id;
+            /* CLAP plugin slots use "clap:<descriptor_id>"; instantiate via
+             * the bound host (falls back to the generic unit registry). */
+            if (e->clap_host && strncmp(id, "clap:", 5) == 0) {
+                tr->inserts[slot] = wb_unit_clap_create(e->clap_host, id, WB_SAMPLE_RATE);
+                if (!tr->inserts[slot]) continue;
+                continue;
+            }
             const wb_unit *u = wb_unit_find(id);
             if (u) tr->inserts[slot] = u->vt->create(WB_SAMPLE_RATE);
-            else if (strcmp(id,"comp")==0)   tr->inserts[slot] = wb_comp_create(WB_SAMPLE_RATE);
-            else if (strcmp(id,"reverb")==0) tr->inserts[slot] = wb_reverb_create(WB_SAMPLE_RATE);
-            else if (strcmp(id,"delay")==0)  tr->inserts[slot] = wb_delay_create(WB_SAMPLE_RATE);
+            else if (strcmp(id,"comp") == 0)   tr->inserts[slot] = wb_comp_create(WB_SAMPLE_RATE);
+            else if (strcmp(id,"reverb") == 0) tr->inserts[slot] = wb_reverb_create(WB_SAMPLE_RATE);
+            else if (strcmp(id,"delay") == 0)  tr->inserts[slot] = wb_delay_create(WB_SAMPLE_RATE);
         }
     }
 }
@@ -320,6 +335,7 @@ void wb_engine_play(wb_engine *e) { wb_cmd c = { .type = WB_CMD_PLAY }; wb_cmd_p
 void wb_engine_stop(wb_engine *e) { wb_cmd c = { .type = WB_CMD_STOP }; wb_cmd_push(&e->queue, c); }
 void wb_engine_seek(wb_engine *e, double p) { wb_cmd c = { .type = WB_CMD_SEEK, .f0 = p }; wb_cmd_push(&e->queue, c); }
 void wb_engine_set_bpm(wb_engine *e, double bpm) { wb_cmd c = { .type = WB_CMD_SET_BPM, .f0 = bpm }; wb_cmd_push(&e->queue, c); }
+void wb_engine_set_clap_host(wb_engine *e, struct wb_clap_host *h) { if (e) e->clap_host = h; }
 void wb_engine_get_transport(wb_engine *e, wb_transport *out) { if (out) *out = e->t; }
 void wb_engine_set_track_volume(wb_engine *e, int track, float vol) {
     wb_cmd c = { .type = WB_CMD_SET_TRACK_VOL, .i0 = track, .f0 = vol };

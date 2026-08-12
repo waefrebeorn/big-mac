@@ -89,6 +89,14 @@ void      wb_tuner_stop(wb_tuner *t);
 void      wb_tuner_destroy(wb_tuner *t);
 double    wb_tuner_last_loss(const wb_tuner *t);
 
+/* wb_unit.c */
+void wb_unit_ensure_all(void);
+
+/* wb_unit_clap.c — CLAP plugin bridge */
+struct wb_clap_host;
+void wb_unit_clap_ensure(void);
+void *wb_unit_clap_create(struct wb_clap_host *h, const char *id, uint32_t sr);
+
 #ifdef __cplusplus
 }
 #endif

@@ -32,11 +32,8 @@ try-lock, DAG worker model.
 ## Open (next)
 | Capability |
 |---|
-| Plugin scan + third-party plugin hosting (.clap) |
-| Project save/load (.wbus file format) |
-| Automation envelopes (per-parameter curves) |
-| Waveform display (audio clips on arrangement) |
-| Recording (audio/MIDI capture) |
-| Additional synth/FX units |
-| Undo/redo |
-| Launchpad LED feedback |
+| Sends/returns/aux (pre/post-fader sends from any track to any bus; parallel FX return tracks; sidechain-capable compressor key input) |
+| Per-insert wet/dry mix + per-slot bypass toggles (bus + track) |
+| Per-insert on/off bypass (track + bus insert slots) |
+
+Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done — next is the mixing topology above, not more RT-pattern work.

@@ -59,16 +59,19 @@ int wb_wav_write_f32(const char *path, const wb_sample *data, uint32_t frames,
 void *wb_comp_create(uint32_t sr);
 void  wb_comp_destroy(void *inst);
 void  wb_comp_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void  wb_comp_inplace_wet(void *inst, wb_sample *L, wb_sample *R, uint32_t n, float w);
 
 /* wb_delay.c */
 void *wb_delay_create(uint32_t sr);
 void  wb_delay_destroy(void *inst);
 void  wb_delay_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void  wb_delay_inplace_wet(void *inst, wb_sample *L, wb_sample *R, uint32_t n, float w);
 
 /* wb_reverb.c */
 void *wb_reverb_create(uint32_t sr);
 void  wb_reverb_destroy(void *inst);
 void  wb_reverb_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void  wb_reverb_inplace_wet(void *inst, wb_sample *L, wb_sample *R, uint32_t n, float w);
 
 /* wb_sampler.c */
 void *wb_sampler_create(uint32_t sr);

@@ -3,6 +3,7 @@
  */
 
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include "wbus.h"
 
@@ -81,5 +82,19 @@ void wb_comp_set(void *inst, int param, float v) {
     case 1: c->ratio = v; break;
     case 2: c->makeup_db = v; break;
     default: break;
+    }
+}
+
+/* external per-slot wet mix: save dry, run full compressor, blend.
+ * w=1.0 -> fully compressed; w=0.0 -> fully dry (no-op save). */
+void wb_comp_inplace_wet(void *inst, wb_sample *L, wb_sample *R, uint32_t n, float w) {
+    if (w >= 1.0f) { wb_comp_process(inst, L, R, n); return; }
+    wb_sample tmpL[4096], tmpR[4096];
+    memcpy(tmpL, L, n * sizeof(wb_sample));
+    memcpy(tmpR, R, n * sizeof(wb_sample));
+    wb_comp_process(inst, L, R, n);
+    for (uint32_t i = 0; i < n; i++) {
+        L[i] = tmpL[i] * (1.0f - w) + L[i] * w;
+        R[i] = tmpR[i] * (1.0f - w) + R[i] * w;
     }
 }

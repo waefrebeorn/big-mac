@@ -26,6 +26,8 @@ typedef enum {
     WB_CMD_SET_TRACK_VOL,
     WB_CMD_NOTE,
     WB_CMD_SET_INSERT_PARAM,
+    WB_CMD_SET_INSERT_BYPASS,
+    WB_CMD_SET_INSERT_WET,
 } wb_cmd_type;
 
 typedef struct wb_cmd {

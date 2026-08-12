@@ -56,3 +56,15 @@ void wb_delay_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n) {
         R[i] = R[i] * (1.0f - d->mix) + wetR * d->mix;
     }
 }
+/* external per-slot wet mix for delay: save dry, run full process, blend. */
+void wb_delay_inplace_wet(void *inst, wb_sample *L, wb_sample *R, uint32_t n, float w) {
+    if (w >= 1.0f) { wb_delay_process(inst, L, R, n); return; }
+    wb_sample tmpL[4096], tmpR[4096];
+    memcpy(tmpL, L, n * sizeof(wb_sample));
+    memcpy(tmpR, R, n * sizeof(wb_sample));
+    wb_delay_process(inst, L, R, n);
+    for (uint32_t i = 0; i < n; i++) {
+        L[i] = tmpL[i] * (1.0f - w) + L[i] * w;
+        R[i] = tmpR[i] * (1.0f - w) + R[i] * w;
+    }
+}

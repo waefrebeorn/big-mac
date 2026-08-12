@@ -36,6 +36,10 @@ struct wb_track_runtime {
     /* insert effect instances + their unit id (data-driven, any order) */
     void  *inserts[WB_MAX_INSERT_SLOTS];
     const char *insert_ids[WB_MAX_INSERT_SLOTS];
+    /* per-slot state: bypass toggle + wet mix (1.0 = fully wet, 0.0 = dry).
+     * default: bypassed=0, wet=1.0 (process through fully). */
+    int    bypass[WB_MAX_INSERT_SLOTS];
+    float  wet[WB_MAX_INSERT_SLOTS];
 };
 typedef struct wb_track_runtime wb_track_runtime;
 
@@ -73,6 +77,16 @@ static void engine_process_cmds(wb_engine *e) {
         case WB_CMD_SET_TRACK_VOL:
             if (e->rtracks && c.i0 >= 0 && c.i0 < (int64_t)WB_MAX_TRACKS)
                 e->rtracks[c.i0].volume = (float)c.f0;
+            break;
+        case WB_CMD_SET_INSERT_BYPASS:
+            if (e->rtracks && c.i0 >= 0 && c.i0 < (int64_t)WB_MAX_TRACKS
+                && c.i1 >= 0 && c.i1 < WB_MAX_INSERT_SLOTS)
+                e->rtracks[c.i0].bypass[c.i1] = (int)c.f0;
+            break;
+        case WB_CMD_SET_INSERT_WET:
+            if (e->rtracks && c.i0 >= 0 && c.i0 < (int64_t)WB_MAX_TRACKS
+                && c.i1 >= 0 && c.i1 < WB_MAX_INSERT_SLOTS)
+                e->rtracks[c.i0].wet[c.i1] = (float)c.f1;
             break;
         case WB_CMD_NOTE:
             if (e->rtracks && c.i0 >= 0 && c.i0 < (int64_t)WB_MAX_TRACKS)
@@ -194,24 +208,48 @@ static void stage_effects(wb_engine *e, uint32_t frames) {
         wb_track_runtime *tr = &e->rtracks[t];
         if (!tr->active || tr->kind == 2) continue;  /* buses handled in stage_bus */
         /* insert chain, in slot order. Each effect reads+writes the track
-         * buffer in place (dry/wet handled internally). */
+         * buffer in place. per-slot bypass/wet: if bypassed, skip; otherwise
+         * apply the wet mix (0.0 = fully dry, 1.0 = fully processed). */
         for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
+            if (tr->bypass[s]) continue;
+            float w = tr->wet[s];
+            if (w <= 0.0f) continue; /* fully dry: no-op, keep buf untouched */
             void *ins = tr->inserts[s];
             if (!ins) continue;
-            /* data-driven: any registered unit can own this slot. the engine
-             * falls back to the legacy direct API if the unit id is unknown. */
             const char *id = tr->insert_ids[s];
             const wb_unit *u = id ? wb_unit_find(id) : NULL;
-            if (u && u->vt->process)
+            if (u && u->vt->process) {
+                wb_sample dryL[WB_MAX_BLOCK], dryR[WB_MAX_BLOCK];
+                if (w < 1.0f) {
+                    memcpy(dryL, tr->bufL, frames * sizeof(wb_sample));
+                    memcpy(dryR, tr->bufR, frames * sizeof(wb_sample));
+                }
                 u->vt->process(ins, tr->bufL, tr->bufR, frames);
-            else if (id && strncmp(id,"clap:",5)==0) {
-                /* CLAP plugins resolve through the shared "clap" unit vtable */
+                if (w < 1.0f) {
+                    for (uint32_t i = 0; i < frames; i++) {
+                        tr->bufL[i] = dryL[i] * (1.0f - w) + tr->bufL[i] * w;
+                        tr->bufR[i] = dryR[i] * (1.0f - w) + tr->bufR[i] * w;
+                    }
+                }
+            } else if (id && strncmp(id,"clap:",5)==0) {
                 const wb_unit *cu = wb_unit_find("clap");
-                if (cu && cu->vt->process) cu->vt->process(ins, tr->bufL, tr->bufR, frames);
-            }
-            else if (id && strcmp(id,"comp")==0)      wb_comp_process(ins, tr->bufL, tr->bufR, frames);
-            else if (id && strcmp(id, "reverb") == 0)   wb_reverb_process(ins, tr->bufL, tr->bufR, frames);
-            else if (id && strcmp(id, "delay") == 0)     wb_delay_process(ins, tr->bufL, tr->bufR, frames);
+                if (cu && cu->vt->process) {
+                    wb_sample dryL[WB_MAX_BLOCK], dryR[WB_MAX_BLOCK];
+                    if (w < 1.0f) {
+                        memcpy(dryL, tr->bufL, frames * sizeof(wb_sample));
+                        memcpy(dryR, tr->bufR, frames * sizeof(wb_sample));
+                    }
+                    cu->vt->process(ins, tr->bufL, tr->bufR, frames);
+                    if (w < 1.0f) {
+                        for (uint32_t i = 0; i < frames; i++) {
+                            tr->bufL[i] = dryL[i] * (1.0f - w) + tr->bufL[i] * w;
+                            tr->bufR[i] = dryR[i] * (1.0f - w) + tr->bufR[i] * w;
+                        }
+                    }
+                }
+            } else if (id && strcmp(id,"comp")==0)      wb_comp_inplace_wet(ins, tr->bufL, tr->bufR, frames, w);
+            else if (id && strcmp(id,"reverb")==0)       wb_reverb_inplace_wet(ins, tr->bufL, tr->bufR, frames, w);
+            else if (id && strcmp(id,"delay")==0)        wb_delay_inplace_wet(ins, tr->bufL, tr->bufR, frames, w);
         }
     }
 }
@@ -360,6 +398,7 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
             const char *id = s->tracks[i].inserts[slot].id;
             if (!id || !id[0]) continue;
             tr->insert_ids[slot] = id;
+            tr->wet[slot] = 1.0f;  /* newly-created non-empty FX slots run fully wet by default */
             /* CLAP plugin slots use "clap:<descriptor_id>"; instantiate via
              * the bound host (falls back to the generic unit registry). */
             if (e->clap_host && strncmp(id, "clap:", 5) == 0) {

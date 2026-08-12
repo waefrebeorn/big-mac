@@ -224,6 +224,18 @@ static void test_session_io(void) {
         CHECK(strcmp(s2->tracks[0].inserts[1].id, "comp") == 0, "loaded comp insert");
         CHECK(strcmp(s2->tracks[0].inserts[2].id, "reverb") == 0, "loaded reverb insert");
         CHECK(s2->tracks[0].clips[0].note_count > 0, "loaded clip has notes");
+
+        /* the loaded project must render non-silent through the engine
+         * (proves a disk project opens and plays, the SOTA file workflow) */
+        wb_engine *re = wb_engine_create();
+        wb_engine_set_session(re, s2);
+        wb_engine_seek(re, 0.0); wb_engine_play(re);
+        wb_sample ob[4096*2];
+        wb_engine_render(re, ob, 4096);
+        float pk = 0;
+        for (int i = 0; i < 4096*2; i++) { float v = ob[i]<0?-ob[i]:ob[i]; if (v>pk) pk=v; }
+        CHECK(pk > 0.001f, "loaded project renders audio (non-silent)");
+        wb_engine_destroy(re);
     }
     wb_session_destroy(s);
     wb_session_destroy(s2);

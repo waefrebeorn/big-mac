@@ -20,8 +20,13 @@ int main(int argc, char **argv) {
         s = wb_session_demo();
         printf("Rendering demo session (%d tracks, %.1fs)\n",
                (int)s->track_count, s->length / WB_SAMPLE_RATE);
+    } else if (argc > 2 && strcmp(argv[2], "--file") == 0 && argc > 3) {
+        s = wb_session_load(argv[3]);
+        if (!s) { fprintf(stderr, "render: failed to load %s\n", argv[3]); return 1; }
+        printf("Rendering project %s (%d tracks, %.1fs)\n",
+               argv[3], (int)s->track_count, s->length / WB_SAMPLE_RATE);
     } else {
-        fprintf(stderr, "usage: wb_render out.wav --demo\n");
+        fprintf(stderr, "usage: wb_render out.wav --demo | --file project.wbus\n");
         return 2;
     }
 

@@ -50,6 +50,8 @@ typedef struct app {
     int dragging_clip;       /* -1 = none, else clip index on selected_track */
     int drag_start_x;        /* mouse x where drag began */
     double clip_drag_origin; /* timeline pos where drag began */
+
+    char project_path[512];  /* current .wbus file, "" = unsaved */
 } app;
 
 static int running = 1;
@@ -130,7 +132,22 @@ static void draw_transport(app *a) {
 
     /* loop toggle hint */
     wb_ui_draw_text(a->ren, 260, 12, "SPACE play/stop", 1, C_TEXT_DIM);
-    wb_ui_draw_text(a->ren, 260, 32, "L/R seek  B/N bpm  ESC quit", 1, C_TEXT_DIM);
+    wb_ui_draw_text(a->ren, 260, 32, "L/R seek  B/N bpm  ^O open  ^S save  ^N new", 1, C_TEXT_DIM);
+
+    /* project file name (SOTA: show what's open) */
+    {
+        char pname[96];
+        if (a->project_path[0]) {
+            /* basename */
+            const char *base = a->project_path;
+            const char *slash = strrchr(a->project_path, '/');
+            if (slash) base = slash + 1;
+            snprintf(pname, sizeof(pname), "%s  ^S to save", base);
+        } else {
+            snprintf(pname, sizeof(pname), "untitled  ^S to save");
+        }
+        wb_ui_draw_text(a->ren, 460, 12, pname, 1, C_ACCENT);
+    }
 
     /* loss metric */
     double loss = a->tuner ? wb_tuner_last_loss(a->tuner) : 0;
@@ -346,6 +363,43 @@ static void midi_cb(wb_midi_event ev, void *userdata) {
     }
 }
 
+/* ---- project open/save (SOTA .wbus workflow) --------------------------- */
+/* Replace the current session with one loaded from `path`. Returns 0 ok,
+ * -1 if the load failed (current session is preserved). */
+static int load_project(app *a, const char *path) {
+    wb_session *s = wb_session_load(path);
+    if (!s) {
+        fprintf(stderr, "project: failed to load %s\n", path);
+        return -1;
+    }
+    /* swap the session, rebuild the engine runtime, reset selection */
+    wb_session *old = a->session;
+    a->session = s;
+    wb_engine_set_session(a->engine, a->session);
+    a->selected_track = -1;
+    a->dragging_clip = -1;
+    snprintf(a->project_path, sizeof(a->project_path), "%s", path);
+    wb_session_destroy(old);
+    printf("project: loaded %s (%u tracks)\n", path, s->track_count);
+    return 0;
+}
+
+/* Save the current session to `path` (defaults to the current project path). */
+static int save_project(app *a, const char *path) {
+    const char *dst = (path && path[0]) ? path : a->project_path;
+    if (!dst || !dst[0]) {
+        fprintf(stderr, "project: no save path (use Ctrl+S <file> or --file)\n");
+        return -1;
+    }
+    if (wb_session_save(a->session, dst) != 0) {
+        fprintf(stderr, "project: failed to save %s\n", dst);
+        return -1;
+    }
+    if (!a->project_path[0]) snprintf(a->project_path, sizeof(a->project_path), "%s", dst);
+    printf("project: saved %s (%u tracks)\n", dst, a->session->track_count);
+    return 0;
+}
+
 /* ---- arrangement interaction ------------------------------------------- */
 /* Convert a screen x in the arrangement to a sample position (clamped to 0). */
 static double x_to_sample(int x) {
@@ -388,6 +442,8 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
 }
 
 static void handle_key(app *a, SDL_Keycode k) {
+    Uint32 mod = SDL_GetModState();
+    int ctrl = (mod & KMOD_CTRL) != 0;
     switch (k) {
     case SDLK_SPACE:
         if (a->t.playing) wb_engine_stop(a->engine); else wb_engine_play(a->engine);
@@ -395,19 +451,39 @@ static void handle_key(app *a, SDL_Keycode k) {
     case SDLK_RIGHT: wb_engine_seek(a->engine, a->t.song_pos + WB_SAMPLE_RATE/4); break;
     case SDLK_LEFT:  wb_engine_seek(a->engine, a->t.song_pos - WB_SAMPLE_RATE/4); break;
     case SDLK_b:     wb_engine_set_bpm(a->engine, a->t.bpm - 1.0); break;
-    case SDLK_n:     wb_engine_set_bpm(a->engine, a->t.bpm + 1.0); break;
+    case SDLK_n:
+        if (ctrl) {  /* Ctrl+N: new (empty) project */
+            wb_session *s = wb_session_create();
+            wb_session *old = a->session;
+            a->session = s;
+            wb_engine_set_session(a->engine, a->session);
+            a->selected_track = -1;
+            a->project_path[0] = 0;
+            wb_session_destroy(old);
+            printf("project: new empty session\n");
+        } else {
+            wb_engine_set_bpm(a->engine, a->t.bpm + 1.0);
+        }
+        break;
+    case SDLK_s:
+        if (ctrl) save_project(a, NULL);  /* Ctrl+S: save current project */
+        break;
+    case SDLK_o:
+        if (ctrl) load_project(a, "/tmp/bigmac_proj.wbus"); /* Ctrl+O: open demo project */
+        break;
     case SDLK_ESCAPE: case SDLK_q: running = 0; break;
     default: break;
     }
 }
 
 int main(int argc, char **argv) {
-    (void)argc; (void)argv;
     int shot = 0;
     wb_backend *audio = NULL;
     const char *shot_path = NULL;
+    const char *file_path = NULL;
     for (int i=1;i<argc;i++) {
         if (strcmp(argv[i],"--screenshot")==0) { shot=1; shot_path = (i+1<argc)?argv[i+1]:"/tmp/wbdaw.ppm"; }
+        else if (strcmp(argv[i],"--file")==0 && i+1<argc) { file_path = argv[i+1]; }
     }
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); return 1;
@@ -416,7 +492,16 @@ int main(int argc, char **argv) {
     a->selected_track = -1;
     a->dragging_clip = -1;
     a->engine = wb_engine_create();
-    a->session = wb_session_demo();
+    if (file_path) {
+        /* open a project from disk instead of the demo */
+        a->session = wb_session_load(file_path);
+        if (!a->session) { fprintf(stderr, "open: failed to load %s\n", file_path); return 1; }
+        snprintf(a->project_path, sizeof(a->project_path), "%s", file_path);
+        printf("open: loaded %s (%u tracks)\n", file_path, a->session->track_count);
+    } else {
+        a->session = wb_session_demo();
+        a->project_path[0] = 0;
+    }
     wb_engine_set_session(a->engine, a->session);
     wb_engine_play(a->engine);   /* show the playhead + playing state */
 

@@ -3,7 +3,7 @@ CC      = cc
 CFLAGS  = -std=c11 -O2 -Wall -Wextra -Wno-missing-field-initializers -Iinclude
 LDLIBS  = -lm
 
-SRC     = src/wb_tract.c src/wb_glottis.c src/wb_wav.c src/wb_dsp.c src/wb_reader.c src/wb_measure.c src/wb_print.c src/wb_aiff.c src/wb_midi.c src/wb_retrieve.c src/wb_learn.c src/wb_resample.c src/wb_mlp.c src/wb_psola.c src/wb_fdelay.c \
+SRC     = src/wb_tract.c src/wb_glottis.c src/wb_wav.c src/wb_dsp.c src/wb_reader.c src/wb_measure.c src/wb_print.c src/wb_aiff.c src/wb_midi.c src/wb_retrieve.c src/wb_learn.c src/wb_resample.c src/wb_mlp.c src/wb_psola.c src/wb_fdelay.c src/wb_esynth.c \
           src/wuburvc/wubu_master.c src/wuburvc/wubu_consonant.c src/wuburvc/wubu_breath.c src/wuburvc/wubu_harmony.c src/wuburvc/wubu_fft.c src/wuburvc/wubu_stft.c
 OBJ     = $(SRC:.c=.o)
 

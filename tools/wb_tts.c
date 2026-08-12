@@ -20,6 +20,7 @@
  */
 #include "wb_tract.h"
 #include "wb_glottis.h"
+#include "wb_esynth.h"
 #include "wb_wav.h"
 #include "wb_aiff.h"
 #include "wb_measure.h"
@@ -280,6 +281,7 @@ typedef struct {
 typedef struct {
     wb_tract_t *tract;
     wb_glottis_t *glottis;
+    wb_esynth_t *esynth;   /* R015: faithful espeak-ng additive-formant engine */
     const wb_char_t *ch;
     double *out;
     int nsamp;
@@ -960,6 +962,104 @@ static void additive_render_phone(wb_tts_t *T, double t0, double dur,
     }
 }
 
+/* ---------------- R015: esynth render (faithful espeak-ng engine) --------
+ * Drives the ported wb_esynth additive-formant engine. VOWELS get their
+ * formant peaks (F1-F3 + per-vowel heights/bandwidths) and are rendered with
+ * STEADY formants — the "back to basics" a vowel should be. Nasals use the
+ * same engine with low murmur peaks + antiformant notch. Fricatives/stops
+ * use the noise paths (bandpass / closure+burst+VOT). */
+static void esynth_render_phone(wb_tts_t *T, double t0, double dur,
+                                const wb_phone_t *ph, int stress,
+                                const wb_phone_t *prev, const wb_phone_t *next,
+                                double f0_start, double f0_end, double energy) {
+    (void)stress; (void)prev; (void)next;
+    int s0 = (int)(t0 * SR), s1 = (int)((t0 + dur) * SR);
+    if (s1 > T->nsamp) s1 = T->nsamp;
+    if (s1 <= s0) return;
+    double f1,f2,f3;
+    phone_formants(ph, prev, next, &f1,&f2,&f3);
+    double a1,a2,a3,b1,b2,b3;
+    if (!lookup_amps(ph->ph, &a1,&a2,&a3,&b1,&b2,&b3)) {
+        if (ph->velum >= 0.5)      { a1=0.7; a2=0.4; a3=0.2; b1=200; b2=150; b3=250; }
+        else if (ph->voiced)       { a1=0.6; a2=0.6; a3=0.3; b1=120; b2=120; b3=200; }
+        else                       { a1=0.4; a2=0.4; a3=0.2; b1=150; b2=150; b3=220; }
+    }
+    int is_vowel = ph->voiced && ph->turb < 0.05 && ph->velum < 0.05;
+    int is_nasal = ph->velum >= 0.5;
+    int is_fric  = ph->turb >= 0.05 && !is_nasal;
+    int is_stop  = ph->td < 0.3 && ph->turb < 0.05 && ph->velum < 0.05;
+    int has_closure = is_stop && !ph->voiced;
+    int closure = 0, release = 0;
+    if (has_closure) {
+        closure = (s1 - s0) * 55 / 100;
+        release = closure + (int)(0.007 * SR);
+        if (release > s1 - s0) release = s1 - s0;
+    }
+    if (ph->fric_fc > 0) wb_biquad_bandpass(&T->fric_filt, ph->fric_fc, ph->fric_bw, SR);
+    else { T->fric_filt.a1 = T->fric_filt.a2 = T->fric_filt.z1 = T->fric_filt.z2 = 0; }
+    double nf_fc = nasal_antiformant_fc(ph);
+    if (nf_fc > 0) wb_biquad_notch(&T->nasal_notch, nf_fc, 400.0, SR);
+
+    if (is_vowel) {
+        /* build the formant peaks and render the whole vowel steady */
+        wb_esynth_phone_t sp;
+        sp.f0 = f0_start;
+        sp.amplitude = 0.12 * energy;
+        sp.npeaks = 4;
+        sp.peaks[0] = (wb_esynth_peak_t){f1, a1, b1, b1};
+        sp.peaks[1] = (wb_esynth_peak_t){f2, a2, b2, b2};
+        sp.peaks[2] = (wb_esynth_peak_t){f3, a3, b3, b3};
+        sp.peaks[3] = (wb_esynth_peak_t){f3*1.35, 0.3, 300, 300};
+        wb_esynth_phone(T->esynth, T->out + s0, s1 - s0, &sp);
+        return;
+    }
+    if (is_nasal) {
+        wb_esynth_phone_t sp;
+        sp.f0 = f0_start;
+        sp.amplitude = 0.10 * energy;
+        sp.npeaks = 3;
+        sp.peaks[0] = (wb_esynth_peak_t){f1, a1, b1, b1};
+        sp.peaks[1] = (wb_esynth_peak_t){f2, a2, b2, b2};
+        sp.peaks[2] = (wb_esynth_peak_t){f3, a3, b3, b3};
+        /* render nasal murmur, then apply the antiformant notch */
+        double *tmp = calloc(s1 - s0, sizeof(double));
+        if (tmp) {
+            wb_esynth_phone(T->esynth, tmp, s1 - s0, &sp);
+            for (int j = s0; j < s1; j++) tmp[j - s0] = wb_biquad_run(&T->nasal_notch, tmp[j - s0]);
+            for (int j = s0; j < s1; j++) T->out[j] += tmp[j - s0];
+            free(tmp);
+        }
+        return;
+    }
+    /* fricative / stop: per-sample noise paths */
+    for (int j = s0; j < s1; j++) {
+        double t = (double)(j - s0) / (double)(s1 - s0);
+        int jj = j - s0;
+        double out = 0.0;
+        if (is_fric) {
+            double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
+            double src = nz;
+            if (ph->voiced) src = 0.5 * sin(2 * M_PI * f0_start * j / SR) + 0.5 * nz;
+            out = wb_biquad_run(&T->fric_filt, src) * 0.45;
+        } else if (has_closure) {
+            if (jj < closure) { out = 0.0; }
+            else if (jj < release) {
+                double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
+                double decay = 1.0 - (double)(jj - closure) / (double)(release - closure);
+                out = wb_biquad_run(&T->fric_filt, nz * 0.8 * decay);
+            } else {
+                double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
+                out = wb_biquad_run(&T->fric_filt, nz * 0.35 * exp(-(t - (double)release / (s1 - s0)) / 0.030));
+            }
+        }
+        int n_env = (int)(0.012 * SR);
+        double env = 1.0;
+        if (jj < n_env) env = (double)jj / n_env;
+        if (s1 - j - 1 < n_env) env = (double)(s1 - j - 1) / n_env;
+        T->out[j] += out * env * energy;
+    }
+}
+
 /* ---------------- Klatt-style duration rules (gap B) ----------------
  * Base durations in seconds per phone class, then context modifiers:
  * stress (stressed ~1.3x), phrase-final lengthening, prepausal, consonant
@@ -1048,6 +1148,7 @@ int main(int argc, char **argv) {
     int g_pitch_accent = 0, g_sine_mode = 0, g_phone_mode = 0, g_whisper = 0, g_fry = 0;
     int g_klatt_mode = 0;
     int g_wg_mode = 0;   /* R014: force the old KL-waveguide renderer */
+    int g_add_mode = 0;  /* R015: force the old additive renderer */
     int g_tone = 0;   /* 1-4 Mandarin lexical tone applied per word */
     double g_vtl = 0.0;  /* override tract length (integer sections + fractional) */
     double g_rate = 1.0;  /* speaking-rate multiplier (<1 fast, >1 slow) */
@@ -1060,6 +1161,7 @@ int main(int argc, char **argv) {
             if (!strcmp(argv[a], "-sine")) { g_sine_mode = 1; continue; }
             if (!strcmp(argv[a], "-klatt")) { g_klatt_mode = 1; continue; }
             if (!strcmp(argv[a], "-wg")) { g_wg_mode = 1; continue; }
+            if (!strcmp(argv[a], "-add")) { g_add_mode = 1; continue; }
             if (!strcmp(argv[a], "-p")) { g_phone_mode = 1; continue; }
             if (!strcmp(argv[a], "-whisper")) { g_whisper = 1; continue; }
             if (!strcmp(argv[a], "-fry")) { g_fry = 1; continue; }
@@ -1414,11 +1516,12 @@ int main(int argc, char **argv) {
      * we apply it as a gentle global loudness from the planner's average.
      * (Kept simple: em->intensity already carries the emotion loudness.) */
 
-    wb_tts_t T = { tract, g, ch, out, nsamp, base_f0, base_f0 };
+    wb_tts_t T = { tract, g, NULL, ch, out, nsamp, base_f0, base_f0 };
+    T.esynth = wb_esynth_new(SR);   /* R015: faithful espeak-ng engine */
     T.tract_n = vtl_n;   /* R017: effective VTL (used for noise-source scaling) */
     T.sine_mode = g_sine_mode;
     T.klatt_mode = g_klatt_mode;
-    T.add_mode = !(g_sine_mode || g_klatt_mode || g_wg_mode);  /* additive is default */
+    T.add_mode = g_add_mode;   /* 0 = esynth (default) unless -add/-wg/-klatt/-sine */
     T.pitch_accent = g_pitch_accent;
 
     double t0 = 0.15;
@@ -1436,9 +1539,12 @@ int main(int argc, char **argv) {
         else if (g_wg_mode)
             tts_render(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress, prev, next,
                        ev[i].f0_start, ev[i].f0_end, ev[i].energy);
-        else
+        else if (g_add_mode)
             additive_render_phone(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress, prev, next,
                                   ev[i].f0_start, ev[i].f0_end, ev[i].energy);
+        else
+            esynth_render_phone(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress, prev, next,
+                                ev[i].f0_start, ev[i].f0_end, ev[i].energy);
         t0 += ev[i].dur;
     }
 

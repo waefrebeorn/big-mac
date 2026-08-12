@@ -18,6 +18,13 @@
 
 #include "wbus.h"
 #include "wbus_midi.h"
+#include "wb_internal.h"
+#include <math.h>
+
+/* ---- shared MIDI tuning helper (used by all instruments) --------------- */
+double wb_midi_note_to_freq(int note) {
+    return 440.0 * pow(2.0, (note - 69) / 12.0);
+}
 
 struct wb_midi {
     MIDIClientRef client;

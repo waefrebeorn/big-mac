@@ -27,6 +27,28 @@ void  wb_synth_note(void *inst, int note, int vel);
 void  wb_synth_render_block(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 void  wb_synth_ensure_registered(void);
 
+/* wb_fm.c */
+void *wb_fm_create(uint32_t sr);
+void  wb_fm_destroy(void *inst);
+void  wb_fm_note(void *inst, int note, int vel);
+void  wb_fm_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+
+/* wb_drums.c */
+void *wb_drum_create(uint32_t sr);
+void  wb_drum_destroy(void *inst);
+void  wb_drum_note(void *inst, int note, int vel);
+void  wb_drum_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+
+/* wb_chorus.c */
+void *wb_chorus_create(uint32_t sr);
+void  wb_chorus_destroy(void *inst);
+void  wb_chorus_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+
+/* wb_eq.c */
+void *wb_eq_create(uint32_t sr);
+void  wb_eq_destroy(void *inst);
+void  wb_eq_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+
 /* wb_wav.c */
 int wb_wav_write_pcm16(const char *path, const wb_sample *data, uint32_t frames,
                        uint8_t channels, uint32_t sample_rate);

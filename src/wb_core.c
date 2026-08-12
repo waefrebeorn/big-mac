@@ -13,6 +13,8 @@
 #include <math.h>
 #include <pthread.h>
 
+#include "wb_unit.h"
+
 #include "wbus.h"
 #include "wbus_cmd.h"
 #include "wbus_plugin.h"
@@ -26,10 +28,12 @@ struct wb_track_runtime {
     int    mute, solo;
     int    kind;
     void  *voice;                    /* instrument instance (kind 0) */
+    const char *voice_unit_id;       /* "synth"|"fm"|"drum"|NULL (legacy synth) */
     wb_sample *bufL, *bufR;          /* per-track block buffers */
     uint32_t   buf_cap;
-    /* insert effect instances (kind: comp/delay/reverb per slot) */
+    /* insert effect instances + their unit id (data-driven, any order) */
     void  *inserts[WB_MAX_INSERT_SLOTS];
+    const char *insert_ids[WB_MAX_INSERT_SLOTS];
 };
 typedef struct wb_track_runtime wb_track_runtime;
 
@@ -78,9 +82,15 @@ static void stage_schedule(wb_engine *e, uint32_t frames) {
         wb_track_runtime *tr = &e->rtracks[t];
         if (!tr->active || !tr->voice || tr->kind != 0) continue;
         wb_track *tk = &e->session->tracks[t];
-        /* schedule note-ons/offs that fall in this block */
-        wb_transport_schedule_notes(tk, e->t.song_pos, frames,
-                                    wb_synth_note, tr->voice);
+        if (tr->voice_unit_id && strcmp(tr->voice_unit_id, "fm") == 0)
+            wb_transport_schedule_notes(tk, e->t.song_pos, frames,
+                                        wb_fm_note, tr->voice);
+        else if (tr->voice_unit_id && strcmp(tr->voice_unit_id, "drum") == 0)
+            wb_transport_schedule_notes(tk, e->t.song_pos, frames,
+                                        wb_drum_note, tr->voice);
+        else
+            wb_transport_schedule_notes(tk, e->t.song_pos, frames,
+                                        wb_synth_note, tr->voice);
     }
 }
 
@@ -92,8 +102,14 @@ static void stage_instruments(wb_engine *e, uint32_t frames) {
         if (!tr->active) continue;
         memset(tr->bufL, 0, frames * sizeof(wb_sample));
         memset(tr->bufR, 0, frames * sizeof(wb_sample));
-        if (tr->kind == 0 && tr->voice)
-            wb_synth_render_block(tr->voice, tr->bufL, tr->bufR, frames);
+        if (tr->kind == 0 && tr->voice) {
+            if (tr->voice_unit_id && strcmp(tr->voice_unit_id, "fm") == 0)
+                wb_fm_render(tr->voice, tr->bufL, tr->bufR, frames);
+            else if (tr->voice_unit_id && strcmp(tr->voice_unit_id, "drum") == 0)
+                wb_drum_render(tr->voice, tr->bufL, tr->bufR, frames);
+            else
+                wb_synth_render_block(tr->voice, tr->bufL, tr->bufR, frames);
+        }
     }
 }
 
@@ -108,9 +124,15 @@ static void stage_effects(wb_engine *e, uint32_t frames) {
         for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
             void *ins = tr->inserts[s];
             if (!ins) continue;
-            if (s == 0)      wb_comp_process(ins, tr->bufL, tr->bufR, frames);
-            else if (s == 1) wb_reverb_process(ins, tr->bufL, tr->bufR, frames);
-            else if (s == 2) wb_delay_process(ins, tr->bufL, tr->bufR, frames);
+            /* data-driven: any registered unit can own this slot. the engine
+             * falls back to the legacy direct API if the unit id is unknown. */
+            const char *id = tr->insert_ids[s];
+            const wb_unit *u = id ? wb_unit_find(id) : NULL;
+            if (u && u->vt->process)
+                u->vt->process(ins, tr->bufL, tr->bufR, frames);
+            else if (id && strcmp(id, "comp") == 0)      wb_comp_process(ins, tr->bufL, tr->bufR, frames);
+            else if (id && strcmp(id, "reverb") == 0)   wb_reverb_process(ins, tr->bufL, tr->bufR, frames);
+            else if (id && strcmp(id, "delay") == 0)     wb_delay_process(ins, tr->bufL, tr->bufR, frames);
         }
     }
 }
@@ -151,6 +173,7 @@ wb_engine *wb_engine_create(void) {
     e->accR = malloc(e->acc_cap * sizeof(wb_sample));
     if (pthread_mutex_init(&e->process_lock, NULL) == 0)
         e->lock_initialized = 1;
+    wb_unit_ensure_all();   /* register built-in FX + instruments */
     return e;
 }
 
@@ -161,9 +184,13 @@ void wb_engine_destroy(wb_engine *e) {
             if (e->rtracks[i].voice) wb_synth_destroy(e->rtracks[i].voice);
             for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
                 if (e->rtracks[i].inserts[s]) {
-                    if (s == 0) wb_comp_destroy(e->rtracks[i].inserts[s]);
-                    else if (s == 1) wb_reverb_destroy(e->rtracks[i].inserts[s]);
-                    else if (s == 2) wb_delay_destroy(e->rtracks[i].inserts[s]);
+                    const char *id = e->rtracks[i].insert_ids[s];
+                    const wb_unit *u = id ? wb_unit_find(id) : NULL;
+                    if (u) u->vt->destroy(e->rtracks[i].inserts[s]);
+                    else if (id && strcmp(id,"comp")==0)   wb_comp_destroy(e->rtracks[i].inserts[s]);
+                    else if (id && strcmp(id,"reverb")==0) wb_reverb_destroy(e->rtracks[i].inserts[s]);
+                    else if (id && strcmp(id,"delay")==0)   wb_delay_destroy(e->rtracks[i].inserts[s]);
+                    else free(e->rtracks[i].inserts[s]); /* unknown: best-effort */
                 }
             }
             free(e->rtracks[i].bufL);
@@ -186,8 +213,23 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
     }
     if (e->rtracks) {
         for (int i = 0; i < (int)WB_MAX_TRACKS; i++) {
-            if (e->rtracks[i].voice) wb_synth_destroy(e->rtracks[i].voice);
-            free(e->rtracks[i].bufL); free(e->rtracks[i].bufR);
+            wb_track_runtime *tr = &e->rtracks[i];
+            if (tr->voice) {
+                if (tr->voice_unit_id && strcmp(tr->voice_unit_id,"fm")==0) wb_fm_destroy(tr->voice);
+                else if (tr->voice_unit_id && strcmp(tr->voice_unit_id,"drum")==0) wb_drum_destroy(tr->voice);
+                else wb_synth_destroy(tr->voice);
+            }
+            for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
+                if (tr->inserts[s]) {
+                    const wb_unit *u = tr->insert_ids[s] ? wb_unit_find(tr->insert_ids[s]) : NULL;
+                    if (u) u->vt->destroy(tr->inserts[s]);
+                    else if (tr->insert_ids[s] && strcmp(tr->insert_ids[s],"comp")==0)   wb_comp_destroy(tr->inserts[s]);
+                    else if (tr->insert_ids[s] && strcmp(tr->insert_ids[s],"reverb")==0) wb_reverb_destroy(tr->inserts[s]);
+                    else if (tr->insert_ids[s] && strcmp(tr->insert_ids[s],"delay")==0)   wb_delay_destroy(tr->inserts[s]);
+                }
+            }
+            free(tr->bufL); free(tr->bufR);
+            memset(tr, 0, sizeof(*tr));
         }
         free(e->rtracks);
         e->rtracks = NULL;
@@ -205,15 +247,27 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
         tr->buf_cap = WB_MAX_BLOCK;
         tr->bufL = malloc(WB_MAX_BLOCK * sizeof(wb_sample));
         tr->bufR = malloc(WB_MAX_BLOCK * sizeof(wb_sample));
-        if (s->tracks[i].kind == 0)
-            tr->voice = wb_synth_create(WB_SAMPLE_RATE);
-        /* build insert chain from the track's insert slot ids */
+        if (s->tracks[i].kind == 0) {
+            /* first insert slot determines the instrument (default: synth) */
+            const char *vuid = s->tracks[i].inserts[0].id;
+            tr->voice_unit_id = vuid && vuid[0] ? vuid : "synth";
+            if (tr->voice_unit_id && strcmp(tr->voice_unit_id,"fm")==0)
+                tr->voice = wb_fm_create(WB_SAMPLE_RATE);
+            else if (tr->voice_unit_id && strcmp(tr->voice_unit_id,"drum")==0)
+                tr->voice = wb_drum_create(WB_SAMPLE_RATE);
+            else
+                tr->voice = wb_synth_create(WB_SAMPLE_RATE);
+        }
+        /* build insert chain: slot 0 is the instrument id, slots 1..N are FX */
         for (int slot = 0; slot < WB_MAX_INSERT_SLOTS; slot++) {
             const char *id = s->tracks[i].inserts[slot].id;
             if (!id || !id[0]) continue;
-            if (strcmp(id, "comp") == 0)  tr->inserts[slot] = wb_comp_create(WB_SAMPLE_RATE);
-            else if (strcmp(id, "reverb") == 0) tr->inserts[slot] = wb_reverb_create(WB_SAMPLE_RATE);
-            else if (strcmp(id, "delay") == 0)  tr->inserts[slot] = wb_delay_create(WB_SAMPLE_RATE);
+            tr->insert_ids[slot] = id;
+            const wb_unit *u = wb_unit_find(id);
+            if (u) tr->inserts[slot] = u->vt->create(WB_SAMPLE_RATE);
+            else if (strcmp(id,"comp")==0)   tr->inserts[slot] = wb_comp_create(WB_SAMPLE_RATE);
+            else if (strcmp(id,"reverb")==0) tr->inserts[slot] = wb_reverb_create(WB_SAMPLE_RATE);
+            else if (strcmp(id,"delay")==0)  tr->inserts[slot] = wb_delay_create(WB_SAMPLE_RATE);
         }
     }
 }

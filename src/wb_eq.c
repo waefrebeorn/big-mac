@@ -65,13 +65,13 @@ static void eq_update_band(eq_inst *e, int i) {
         a0=      (A+1) - (A-1)*c + 2*A*sqrtf(A)*s;
         a1=   -2*((A-1) + (A+1)*c);
         a2=      (A+1) - (A-1)*c - 2*A*sqrtf(A)*s;
-    } else { /* peaking */
-        b0=  1.0f + alpha*g;
-        b1=  2.0f*(-(1.0f-cos(w0)));
-        b2=  1.0f - alpha*g;
-        a0=  1.0f + alpha/g;
-        a1=  2.0f*(-(1.0f-cos(w0)));
-        a2=  1.0f - alpha/g;
+    } else if (fabsf(g) < 1e-6f) { /* peaking, zero gain => identity */
+        b0=1.0f; b1=0.0f; b2=0.0f; a0=1.0f; a1=0.0f; a2=0.0f;
+    } else { /* peaking — RBJ cookbook with gain in dB */
+        float A = sqrtf(powf(10.0f, g/20.0f));
+        alpha = sin(w0)/(2.0f*q);
+        b0=  1.0f + alpha*A;     b1=  2.0f*(-(1.0f-cos(w0))); b2=  1.0f - alpha*A;
+        a0=  1.0f + alpha/A;     a1=  2.0f*(-(1.0f-cos(w0))); a2=  1.0f - alpha/A;
     }
     float inv = 1.0f/a0;
     biquad_init(&e->bq[i], b0*inv, b1*inv, b2*inv, a1*inv, a2*inv);

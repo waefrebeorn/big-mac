@@ -199,7 +199,8 @@ static void test_session_io(void) {
     wb_session *s = wb_session_demo();
     CHECK(s != NULL, "demo session created");
     CHECK(s->track_count == 2, "demo has 2 tracks");
-    CHECK(strcmp(s->tracks[0].inserts[1].id, "reverb") == 0, "lead has reverb insert");
+    CHECK(strcmp(s->tracks[0].inserts[1].id, "comp") == 0, "demo lead has comp insert");
+    CHECK(strcmp(s->tracks[0].inserts[2].id, "reverb") == 0, "demo lead has reverb insert");
 
     /* save to a temp .wbus file */
     const char *path = "/tmp/test_save.wbus";
@@ -215,11 +216,104 @@ static void test_session_io(void) {
     if (s2) {
         CHECK(s2->track_count == 2, "loaded session has 2 tracks");
         CHECK(strcmp(s2->tracks[0].name, "Lead") == 0, "loaded lead track name");
-        CHECK(strcmp(s2->tracks[0].inserts[1].id, "reverb") == 0, "loaded reverb insert");
+        CHECK(strcmp(s2->tracks[0].inserts[0].id, "synth") == 0, "loaded synth instrument");
+        CHECK(strcmp(s2->tracks[0].inserts[1].id, "comp") == 0, "loaded comp insert");
+        CHECK(strcmp(s2->tracks[0].inserts[2].id, "reverb") == 0, "loaded reverb insert");
         CHECK(s2->tracks[0].clips[0].note_count > 0, "loaded clip has notes");
     }
     wb_session_destroy(s);
     wb_session_destroy(s2);
+}
+
+/* ---- test 8: instruments (fm synth + drum machine + chorus + EQ) ------- */
+static void test_instruments(void) {
+    printf("test_instruments\n");
+    wb_engine *e = wb_engine_create();
+    CHECK(e != NULL, "engine created for instrument test");
+    /* direct FM smoke: fire a note and render one block */
+    void *fm = wb_fm_create(WB_SAMPLE_RATE);
+    wb_fm_note(fm, 60, 100);
+    float L[512], R[512];
+    memset(L,0,sizeof(L)); memset(R,0,sizeof(R));
+    wb_fm_render(fm, L, R, 512);
+    float pm=0; for(int i=0;i<512;i++){ if(fabsf(L[i])>pm) pm=fabsf(L[i]); }
+    CHECK(pm > 0.01f, "fm direct render produces audio");
+    printf("         fm peak=%.4f\n", pm);
+    wb_fm_destroy(fm);
+
+    /* direct EQ smoke: should not produce NaN on silence */
+    void *eq = wb_eq_create(WB_SAMPLE_RATE);
+    float eL[512], eR[512];
+    for(int i=0;i<512;i++){ eL[i]=0.0f; eR[i]=0.0f; }
+    wb_eq_process(eq, eL, eR, 512);
+    float nanmax=0; int nans=0;
+    for(int i=0;i<512;i++){ if(isnan(eL[i])) nans++; if(!isnan(eL[i]) && fabsf(eL[i])>nanmax) nanmax=fabsf(eL[i]); }
+    CHECK(nans==0, "eq produces no NaN on silence input");
+    if(nans) printf("   EQ had %d NaN samples\n", nans);
+    wb_eq_destroy(eq);
+
+    wb_session *s = wb_session_create();
+    s->bpm = 140.0;
+    s->length = 44100.0 * 2.0;
+    s->track_count = 2;
+    s->tracks = calloc(2, sizeof(wb_track));
+
+    /* lead: fm instrument + chorus insert */
+    s->tracks[0].kind = 0;
+    s->tracks[0].volume = 1.0f;
+    strncpy(s->tracks[0].name, "Lead", 64);
+    strcpy(s->tracks[0].inserts[0].id, "fm");
+    strcpy(s->tracks[0].inserts[1].id, "chorus");
+    s->tracks[0].clip_count = 1;
+    s->tracks[0].clips = calloc(1, sizeof(wb_clip));
+    s->tracks[0].clips[0].start = 0;
+    s->tracks[0].clips[0].length = 88200;
+    s->tracks[0].clips[0].note_count = 1;
+    s->tracks[0].clips[0].notes = calloc(1, sizeof(wb_note));
+    s->tracks[0].clips[0].notes[0].start = 0.0;
+    s->tracks[0].clips[0].notes[0].dur = 44100.0;
+    s->tracks[0].clips[0].notes[0].pitch = 60;
+    s->tracks[0].clips[0].notes[0].vel = 100;
+
+    /* drums: drum instrument + eq insert */
+    s->tracks[1].kind = 0;
+    s->tracks[1].volume = 1.0f;
+    strncpy(s->tracks[1].name, "Drums", 64);
+    strcpy(s->tracks[1].inserts[0].id, "drum");
+    strcpy(s->tracks[1].inserts[1].id, "");  /* disable eq for isolation */
+    s->tracks[1].clip_count = 1;
+    s->tracks[1].clips = calloc(1, sizeof(wb_clip));
+    s->tracks[1].clips[0].start = 0;
+    s->tracks[1].clips[0].length = 88200;
+    int k[] = {36, 37, 38, 42};
+    double st[] = {0, 11025, 22050, 33075};
+    s->tracks[1].clips[0].note_count = 4;
+    s->tracks[1].clips[0].notes = calloc(4, sizeof(wb_note));
+    for (int i = 0; i < 4; i++) {
+        s->tracks[1].clips[0].notes[i].start = st[i];
+        s->tracks[1].clips[0].notes[i].dur = 11025.0;
+        s->tracks[1].clips[0].notes[i].pitch = (uint8_t)k[i];
+        s->tracks[1].clips[0].notes[i].vel = 100;
+    }
+
+    wb_sample *out = NULL;
+    uint32_t frames = 0;
+    int rc = wb_engine_render_session(NULL, s, &out, &frames);
+    CHECK(rc == 0, "render session with fm+drum+effects");
+
+    int nonzero = 0;
+    float peak = 0;
+    for (uint32_t i = 0; i < frames * 2; i++) {
+        if (out[i] != 0) nonzero++;
+        if (fabsf(out[i]) > peak) peak = fabsf(out[i]);
+    }
+    free(out);
+    CHECK(nonzero > 0, "fm+drum render has audio content");
+    CHECK(peak > 0.01f, "fm+drum render has audible level");
+    printf("         peak=%.4f nonzero=%d\n", peak, nonzero);
+
+    wb_session_destroy(s);
+    wb_engine_destroy(e);
 }
 
 /* ---- test 8: Xrun detection (try-lock drops a block, counts underrun) - */
@@ -256,6 +350,7 @@ int main(void) {
     test_tuner();
     test_render_file();
     test_session_io();
+    test_instruments();
     test_xrun();
 
     printf("\n%d checks, %d failures\n", checks, failures);

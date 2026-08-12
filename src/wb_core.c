@@ -258,8 +258,10 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
             else
                 tr->voice = wb_synth_create(WB_SAMPLE_RATE);
         }
-        /* build insert chain: slot 0 is the instrument id, slots 1..N are FX */
-        for (int slot = 0; slot < WB_MAX_INSERT_SLOTS; slot++) {
+        /* build insert chain: slot 0 is the instrument id, slots 1..N are FX.
+         * The instrument is rendered separately in stage_instruments, so we
+         * only create FX instances for slots >= 1. */
+        for (int slot = 1; slot < WB_MAX_INSERT_SLOTS; slot++) {
             const char *id = s->tracks[i].inserts[slot].id;
             if (!id || !id[0]) continue;
             tr->insert_ids[slot] = id;
@@ -339,6 +341,7 @@ uint32_t wb_engine_render(wb_engine *e, wb_sample *out, uint32_t n) {
 float wb_engine_cpu_load(wb_engine *e) { return e ? e->cpu_load : 0; }
 
 int wb_engine_render_session(wb_engine *e, wb_session *s, wb_sample **out, uint32_t *frames) {
+    (void)e; /* we render into a private engine; keep the signature for API compat */
     if (!s || s->length <= 0) return -1;
     wb_engine *tmp = wb_engine_create();
     wb_engine_set_session(tmp, s);

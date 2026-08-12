@@ -28,7 +28,7 @@ static char *next_tok(tok_s *ts) {
     int c;
     do { c = fgetc(ts->f); } while (c==' '||c=='\t'||c=='\n'||c=='\r');
     if (c == EOF) return NULL;
-    if (c == '#') { while ((c=fgetc(ts->f))!='\n' && c!=EOF); return next_tok(ts); }
+    if (c == '#') { while ((c=fgetc(ts->f))!='\n' && c!=EOF) { /* skip comment */ } return next_tok(ts); }
     if (c == '"') {
         int i = 0;
         while ((c=fgetc(ts->f))!=EOF && c!='"' && i<511) buf[i++] = (char)c;

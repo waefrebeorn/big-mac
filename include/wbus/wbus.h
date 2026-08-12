@@ -93,6 +93,8 @@ typedef struct wb_session {
 wb_session *wb_session_create(void);       /* empty session */
 wb_session *wb_session_demo(void);         /* 2-track demo song */
 void        wb_session_destroy(wb_session *s);
+wb_track   *wb_session_add_track(wb_session *s, const char *name, int kind);
+int         wb_session_add_note(wb_track *tr, double start, double dur, int pitch, int vel);
 
 /* ---- session file save/load (.wbus text format) ----------------------- */
 int  wb_session_save(const wb_session *s, const char *path);

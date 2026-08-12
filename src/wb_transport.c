@@ -6,6 +6,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include "wbus.h"
 
 /* Schedule notes that fall within [block_start, block_start+n) for a track's

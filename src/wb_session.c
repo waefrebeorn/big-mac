@@ -34,6 +34,49 @@ void wb_session_destroy(wb_session *s) {
     free(s);
 }
 
+/* ---- track/note helpers ------------------------------------------------- */
+/* Add a new track with SOTA defaults (full volume, center pan, unmuted). */
+wb_track *wb_session_add_track(wb_session *s, const char *name, int kind) {
+    if (!s) return NULL;
+    if (s->track_count >= WB_MAX_TRACKS) return NULL;
+    if (!s->tracks) {
+        s->tracks = calloc(WB_MAX_TRACKS, sizeof(wb_track));
+        if (!s->tracks) return NULL;
+    }
+    wb_track *tr = &s->tracks[s->track_count++];
+    if (name) snprintf(tr->name, sizeof(tr->name), "%s", name);
+    else      snprintf(tr->name, sizeof(tr->name), "Track %u", s->track_count);
+    tr->kind = kind;
+    tr->volume = 1.0f;
+    tr->pan = 0.0f;
+    tr->mute = 0;
+    tr->solo = 0;
+    return tr;
+}
+
+/* Append a MIDI note to a track's first clip (creating one if needed). */
+int wb_session_add_note(wb_track *tr, double start, double dur, int pitch, int vel) {
+    if (!tr) return -1;
+    wb_clip *cl;
+    if (tr->clip_count == 0) {
+        tr->clips = calloc(1, sizeof(wb_clip));
+        if (!tr->clips) return -1;
+        tr->clip_count = 1;
+        cl = &tr->clips[0];
+        cl->type = 0;
+        cl->start = 0;
+    } else {
+        cl = &tr->clips[tr->clip_count - 1];
+    }
+    wb_note *n = realloc(cl->notes, (cl->note_count + 1) * sizeof(wb_note));
+    if (!n) return -1;
+    cl->notes = n;
+    wb_note *nn = &cl->notes[cl->note_count++];
+    nn->start = start; nn->dur = dur;
+    nn->pitch = (uint8_t)pitch; nn->vel = (uint8_t)vel;
+    return 0;
+}
+
 /* ---- demo song --------------------------------------------------------- */
 /* Build a simple demo session: a synth lead line over a bass. This is what
  * the first render/playback exercise uses to prove the engine works. */
@@ -69,9 +112,10 @@ wb_session *wb_session_demo(void) {
     lead->kind = 0;
     lead->volume = 0.8f;
     lead->pan = 0.0f;
-    /* insert chain: comp (slot0) then reverb (slot1) */
-    snprintf(lead->inserts[0].id, sizeof(lead->inserts[0].id), "comp");
-    snprintf(lead->inserts[1].id, sizeof(lead->inserts[1].id), "reverb");
+    /* slot 0 = instrument id ("synth"), slots 1.. = insert FX chain */
+    snprintf(lead->inserts[0].id, sizeof(lead->inserts[0].id), "synth");
+    snprintf(lead->inserts[1].id, sizeof(lead->inserts[1].id), "comp");
+    snprintf(lead->inserts[2].id, sizeof(lead->inserts[2].id), "reverb");
     lead->clip_count = 1;
     lead->clips = calloc(1, sizeof(wb_clip));
     lead->clips[0] = *make_midi_clip(0, 44100.0 * 8.0);

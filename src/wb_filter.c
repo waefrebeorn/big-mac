@@ -12,8 +12,8 @@ void wb_biquad_init(wb_biquad *f, float sr) {
 }
 
 void wb_biquad_set(wb_biquad *f, int type, float freq, float q, float gain_db) {
+    (void)gain_db; /* reserved for shelf/peaking types */
     float sr = f->sr;
-    float A = (float)pow(10.0, gain_db / 40.0);
     float w0 = (float)(2.0 * M_PI * freq / sr);
     float cw = cosf(w0), sw = sinf(w0);
     float alpha = sw / (2.0f * q);

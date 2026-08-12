@@ -73,12 +73,14 @@ static int arr_x(double sample_pos) {
     return GUTTER_W + (int)((sample_pos / WB_SAMPLE_RATE) * PX_PER_SEC);
 }
 
+#if 0  /* note_name: reserved for the note/arrangement display feature */
 static const char *note_name(int pitch) {
     static const char *names[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
     static char buf[8];
     snprintf(buf, sizeof(buf), "%s%d", names[pitch % 12], pitch / 12 - 1);
     return buf;
 }
+#endif
 
 /* ---- transport bar ---------------------------------------------------- */
 static void draw_transport(app *a) {
@@ -303,6 +305,7 @@ static void handle_key(app *a, SDL_Keycode k) {
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
     int shot = 0;
+    wb_backend *audio = NULL;
     const char *shot_path = NULL;
     for (int i=1;i<argc;i++) {
         if (strcmp(argv[i],"--screenshot")==0) { shot=1; shot_path = (i+1<argc)?argv[i+1]:"/tmp/wbdaw.ppm"; }
@@ -342,7 +345,6 @@ int main(int argc, char **argv) {
         goto cleanup;
     }
 
-    wb_backend *audio = NULL;
     audio = wb_backend_coreaudio_create(a->engine, WB_SAMPLE_RATE);
     if (!audio) fprintf(stderr, "audio: %s\n", SDL_GetError());
     else wb_backend_start(audio);

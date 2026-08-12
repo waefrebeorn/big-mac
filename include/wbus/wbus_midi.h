@@ -44,6 +44,25 @@ wb_midi *wb_midi_open_contains(const char *substr,
 
 void wb_midi_close(wb_midi *m);
 
+/* Open the first MIDI output destination whose name CONTAINS `substr`
+ * (case-insensitive). Uses the same client as the input. Returns 0 ok, -1
+ * if no matching destination is found. Call before wb_midi_send. */
+int wb_midi_open_output(wb_midi *m, const char *substr);
+
+/* ---- MIDI output (controller LED / feedback / sysex) ------------------- */
+/* Send a short (3-byte) MIDI message on the given output destination.
+ * `status` is the raw status byte (e.g. 0x90 note-on), data1/data2 follow.
+ * Returns 0 on success, -1 on error. Not RT-safe (CoreMIDI send). */
+int wb_midi_send(wb_midi *m, uint8_t status, uint8_t data1, uint8_t data2);
+
+/* ---- Launchpad LED feedback (via MIDI output) ------------------------- */
+/* A Launchpad shows its 8x8 grid as MIDI notes; sending a note-on sets the
+ * LED color (velocity = color on the classic Launchpad). These helpers map
+ * grid (row,col) to note and send the color. row/col are 0..7. */
+int wb_launchpad_led(wb_midi *m, int row, int col, uint8_t color);
+int wb_launchpad_note(int row, int col);      /* pure grid→note mapping */
+int wb_launchpad_clear(wb_midi *m);   /* turn all grid LEDs off */
+
 #ifdef __cplusplus
 }
 #endif

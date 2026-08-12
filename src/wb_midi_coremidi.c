@@ -32,6 +32,10 @@ struct wb_midi {
     MIDIEndpointRef source;      /* the source endpoint we opened */
     void (*on_event)(wb_midi_event, void *);
     void *userdata;
+
+    /* output (Launchpad / controller feedback) */
+    MIDIPortRef   out_port;
+    MIDIEndpointRef dest;        /* the destination endpoint we opened */
 };
 
 /* ---- device name helpers ---------------------------------------------- */
@@ -154,7 +158,67 @@ wb_midi *wb_midi_open_contains(const char *substr,
 
 void wb_midi_close(wb_midi *m) {
     if (!m) return;
+    if (m->out_port) { MIDIPortDispose(m->out_port); m->out_port = 0; }
     if (m->in_port) { MIDIPortDispose(m->in_port); m->in_port = 0; }
     if (m->client)  { MIDIClientDispose(m->client); m->client = 0; }
     free(m);
+}
+
+/* ---- MIDI output -------------------------------------------------------- */
+/* Open the first MIDI destination whose name contains `substr`. Creates an
+ * output port on the shared client. Returns 0 ok, -1 if none found. */
+int wb_midi_open_output(wb_midi *m, const char *substr) {
+    if (!m || !m->client) return -1;
+    ItemCount ndest = MIDIGetNumberOfDestinations();
+    MIDIEndpointRef found = 0;
+    char devname[64];
+    for (ItemCount i = 0; i < ndest; i++) {
+        MIDIEndpointRef dst = MIDIGetDestination(i);
+        get_device_name(dst, devname, sizeof(devname));
+        if (substr && substr[0] && !strcasestr(devname, substr)) continue;
+        found = dst;
+        break;
+    }
+    if (!found) return -1;
+    OSStatus err = MIDIOutputPortCreate(m->client, CFSTR("wbus out"), &m->out_port);
+    if (err != noErr) return -1;
+    m->dest = found;
+    return 0;
+}
+
+int wb_midi_send(wb_midi *m, uint8_t status, uint8_t data1, uint8_t data2) {
+    if (!m || !m->out_port || !m->dest) return -1;
+    Byte packet_data[3] = { status, data1, data2 };
+    MIDIPacketList pktlist;
+    MIDIPacket *pkt = MIDIPacketListInit(&pktlist);
+    pkt = MIDIPacketListAdd(&pktlist, sizeof(pktlist), pkt, 0, 3, packet_data);
+    if (!pkt) return -1;
+    OSStatus err = MIDISend(m->out_port, m->dest, &pktlist);
+    return (err == noErr) ? 0 : -1;
+}
+
+/* ---- Launchpad LED feedback -------------------------------------------- */
+/* Classic Launchpad / Launchpad S / Launchpad Mini (1st gen) grid mapping:
+ * note = row*16 + col, velocity = color (3=green,5=amber,7=red,1=red low,
+ * 4=red/green, etc.). MK2 differs, but this covers the common controller. */
+
+/* Pure grid→note mapping (exported for tests). */
+int wb_launchpad_note(int row, int col) {
+    if (row < 0 || row > 7 || col < 0 || col > 7) return -1;
+    return row * 16 + col;
+}
+
+int wb_launchpad_led(wb_midi *m, int row, int col, uint8_t color) {
+    int note = wb_launchpad_note(row, col);
+    if (note < 0) return -1;
+    return wb_midi_send(m, 0x90, (uint8_t)note, color);
+}
+
+int wb_launchpad_clear(wb_midi *m) {
+    if (!m) return -1;
+    /* note-on with velocity 0 turns the LED off on the classic Launchpad */
+    for (int r = 0; r < 8; r++)
+        for (int c = 0; c < 8; c++)
+            wb_launchpad_led(m, r, c, 0);
+    return 0;
 }

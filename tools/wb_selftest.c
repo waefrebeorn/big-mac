@@ -10,6 +10,7 @@
 #include <time.h>
 
 #include "wbus.h"
+#include "wbus_midi.h"
 #include "wb_internal.h"
 
 static int failures = 0;
@@ -486,6 +487,30 @@ static void test_undo(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: Launchpad grid→note mapping (pure logic, no hardware) ------- */
+static void test_launchpad(void) {
+    printf("test_launchpad\n");
+    /* grid corners */
+    CHECK(wb_launchpad_note(0,0) == 0,    "grid (0,0) -> note 0");
+    CHECK(wb_launchpad_note(0,7) == 7,    "grid (0,7) -> note 7");
+    CHECK(wb_launchpad_note(1,0) == 16,   "grid (1,0) -> note 16");
+    CHECK(wb_launchpad_note(7,7) == 119,  "grid (7,7) -> note 119");
+    /* out of range is rejected */
+    CHECK(wb_launchpad_note(-1,0) == -1,  "negative row rejected");
+    CHECK(wb_launchpad_note(8,0)  == -1,  "row>7 rejected");
+    CHECK(wb_launchpad_note(0,8)  == -1,  "col>7 rejected");
+    /* full 8x8 grid covers exactly 0..119 in 16-steps */
+    int seen[120] = {0}; int ok = 1;
+    for (int r = 0; r < 8; r++)
+        for (int c = 0; c < 8; c++) {
+            int n = wb_launchpad_note(r, c);
+            if (n < 0 || n > 119 || seen[n]) ok = 0;
+            seen[n] = 1;
+        }
+    CHECK(ok, "8x8 grid maps to 64 unique notes in 0..119");
+    printf("         grid maps 64 cells -> notes 0..119 (classic Launchpad)\n");
+}
+
 /* ---- test 8: Xrun detection (try-lock drops a block, counts underrun) - */
 static void test_xrun(void) {
     printf("test_xrun\n");
@@ -524,6 +549,7 @@ int main(void) {
     test_automation();
     test_recorder();
     test_undo();
+    test_launchpad();
     test_xrun();
 
     printf("\n%d checks, %d failures\n", checks, failures);

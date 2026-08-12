@@ -281,10 +281,22 @@ static void midi_cb(wb_midi_event ev, void *userdata) {
     if (st == 0x90) {
         /* note on → play a note on this DAW's instrument track */
         wb_engine_note(a->engine, a->midi_track, ev.data1, ev.data2);
-        /* light the button so you get tactile feedback — fire-and-forget */
+        /* light the pad so you get tactile feedback — fire-and-forget.
+         * If the incoming note is a Launchpad grid note (0-127), reflect it
+         * back as an LED with a green-on, dim-on-release color. */
+        if (a->midi) {
+            int row = ev.data1 / 16, col = ev.data1 % 16;
+            if (row <= 7 && col <= 7)
+                wb_launchpad_led(a->midi, row, col, 3);  /* green */
+        }
     } else if (st == 0x80) {
-        /* note off → silence the voice (key off) */
+        /* note off → silence the voice (key off) + dim the LED */
         wb_engine_note(a->engine, a->midi_track, ev.data1, 0);
+        if (a->midi) {
+            int row = ev.data1 / 16, col = ev.data1 % 16;
+            if (row <= 7 && col <= 7)
+                wb_launchpad_led(a->midi, row, col, 0);  /* off */
+        }
     }
 }
 
@@ -360,7 +372,15 @@ int main(int argc, char **argv) {
     a->midi = wb_midi_open_contains("Launchpad", midi_cb, a);
     if (!a->midi && ndev > 0) a->midi = wb_midi_open(names[0], midi_cb, a);
     a->midi_track = 0;
-    if (a->midi) printf("MIDI: opened controller, listening for notes...\n");
+    if (a->midi) {
+        printf("MIDI: opened controller, listening for notes...\n");
+        /* open the matching output destination for LED feedback */
+        if (wb_midi_open_output(a->midi, "Launchpad") == 0)
+            printf("MIDI: Launchpad LED feedback armed\n");
+        else if (wb_midi_open_output(a->midi, NULL) == 0)
+            printf("MIDI: controller output armed (generic)\n");
+        wb_launchpad_clear(a->midi); /* reset all LEDs */
+    }
     else printf("MIDI: no input device open (input disabled)\n");
 
     SDL_Event ev;

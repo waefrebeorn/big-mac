@@ -855,6 +855,16 @@ static void additive_render_phone(wb_tts_t *T, double t0, double dur,
     lookup_amps(ph->ph, &ca1,&ca2,&ca3,&cb1,&cb2,&cb3);
     lookup_amps(next ? next->ph : ph->ph, &na1,&na2,&na3,&nb1,&nb2,&nb3);
 
+    /* R014 BULK: consonants aren't in the vowel amplitude table, so give them
+     * class-appropriate formants (nasal murmur = low, liquids/glides = their
+     * loci). Without this, nasals like /m/ were completely SILENT (lookup_amps
+     * returned 0). This is the missing consonant bulk. */
+    if (!lookup_amps(ph->ph, &ca1,&ca2,&ca3,&cb1,&cb2,&cb3)) {
+        if (ph->velum >= 0.5)  { ca1=1.0; ca2=0.5; ca3=0.2; cb1=200; cb2=150; cb3=250; }
+        else if (ph->voiced)   { ca1=0.7; ca2=0.7; ca3=0.3; cb1=120; cb2=120; cb3=200; }
+        else                   { ca1=0.5; ca2=0.5; ca3=0.2; cb1=150; cb2=150; cb3=220; }
+    }
+
     int is_vowel = ph->voiced && ph->turb < 0.05 && ph->velum < 0.05;
     int is_nasal = ph->velum >= 0.5;
     int is_fric  = ph->turb >= 0.05 && !is_nasal;

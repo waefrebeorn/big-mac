@@ -299,6 +299,9 @@ typedef struct {
      * centroid 6505Hz vs real speech ~1665Hz). */
     double k_tilt;             /* one-pole low-pass state */
     double k_tilt_fc;          /* tilt corner frequency Hz */
+    /* R014 additive renderer: per-harmonic phase accumulators + flag */
+    double add_phase[64];      /* running phase per harmonic (smooth) */
+    int add_mode;              /* 1 = additive-harmonic render (default) */
 } wb_tts_t;
 
 /* Vowel formant targets (Peterson & Barney) for the sine-track mode. */
@@ -309,6 +312,38 @@ static const struct { const char *ph; double f1, f2, f3; } WB_FORMANTS[] = {
     { "IH", 390, 1990, 2550 }, { "IY", 270, 2290, 3010 }, { "OW", 570,  840, 2410 },
     { "OY", 470, 1050, 2500 }, { "UH", 440, 1020, 2240 }, { "UW", 300,  870, 2240 },
 };
+
+/* R014 additive renderer: per-vowel formant AMPLITUDES + bandwidths, tuned so
+ * the synthesized spectrum matches real vowel spectra (verified in a numpy
+ * prototype against espeak-ng: /i/ ~2600, /ae/ ~1680, /a/ ~1360, /u/ ~1030Hz
+ * centroid). Front/high vowels have strong F2/F3; back/low vowels have strong
+ * F1/F2 and weak F3. This per-vowel control is what the pure cascade lacked. */
+static const struct { const char *ph; double a1,a2,a3, bw1,bw2,bw3; } WB_AMPS[] = {
+    { "AA", 1.0, 0.90, 0.18, 130, 110, 220 },
+    { "AE", 1.0, 0.90, 0.20, 150, 130, 250 },
+    { "AH", 1.0, 0.90, 0.20, 140, 120, 230 },
+    { "AO", 1.0, 0.80, 0.15, 140, 100, 240 },
+    { "AW", 1.0, 0.80, 0.15, 140, 100, 240 },
+    { "AY", 0.8, 1.00, 0.30, 130, 130, 220 },
+    { "EH", 0.9, 1.00, 0.30, 140, 130, 230 },
+    { "ER", 0.8, 0.80, 0.30, 150, 150, 200 },
+    { "EY", 0.8, 1.00, 0.30, 130, 130, 230 },
+    { "IH", 0.6, 1.00, 0.50, 110, 130, 210 },
+    { "IY", 0.5, 1.00, 0.80,  90, 120, 180 },
+    { "OW", 1.0, 0.80, 0.15, 140, 100, 240 },
+    { "OY", 0.9, 0.90, 0.20, 130, 110, 230 },
+    { "UH", 0.8, 0.90, 0.10, 120, 100, 220 },
+    { "UW", 0.9, 1.00, 0.05, 110,  90, 220 },
+};
+static int lookup_amps(const char *ph, double *a1,double *a2,double *a3,
+                       double *b1,double *b2,double *b3) {
+    for (size_t k = 0; k < sizeof(WB_AMPS)/sizeof(WB_AMPS[0]); k++)
+        if (!strcmp(WB_AMPS[k].ph, ph)) {
+            *a1=WB_AMPS[k].a1; *a2=WB_AMPS[k].a2; *a3=WB_AMPS[k].a3;
+            *b1=WB_AMPS[k].bw1; *b2=WB_AMPS[k].bw2; *b3=WB_AMPS[k].bw3; return 1;
+        }
+    return 0;
+}
 
 /* Formant track for a phone: vowels get their Peterson-Barney targets.
  * Consonants have an F2 "locus" (Delattre & Liberman 1952 — the F2 frequency
@@ -783,6 +818,127 @@ static void klatt_render_phone(wb_tts_t *T, double t0, double dur,
     }
 }
 
+/* ---------------- R014: additive-harmonic render (espeak-ng style) --------
+ * The ground-up redesign's renderer. For vowels: sum harmonics weighted by a
+ * formant-peak envelope (per-vowel formant amplitudes — this is what makes
+ * /a/ F3 weak and /i/ F2/F3 strong, which the pure cascade cannot). Fricatives
+ * are noise through a bandpass; stops closure+burst+VOT; nasals additive
+ * through an antiformant notch. Explicit per-harmonic phase gives smooth
+ * formant transitions (no filter transients / clicks). */
+static double wb_formant_env(double fh, const double F[3], const double A[3],
+                             const double BW[3], double tilt_fc) {
+    double env = 0.0;
+    for (int k = 0; k < 3; k++) {
+        double Q = F[k] / (BW[k] > 1 ? BW[k] : 1);
+        double t1 = fh / F[k];
+        double pk = 1.0 / sqrt(pow(1.0 - t1 * t1, 2) + pow(t1 / Q, 2));
+        env += A[k] * pk;
+    }
+    env /= sqrt(1.0 + pow(fh / tilt_fc, 2));   /* spectral tilt above F3 */
+    return env;
+}
+
+static void additive_render_phone(wb_tts_t *T, double t0, double dur,
+                                  const wb_phone_t *ph, int stress,
+                                  const wb_phone_t *prev, const wb_phone_t *next,
+                                  double f0_start, double f0_end, double energy) {
+    (void)stress;
+    int s0 = (int)(t0 * SR), s1 = (int)((t0 + dur) * SR);
+    if (s1 > T->nsamp) s1 = T->nsamp;
+    if (s1 <= s0) return;
+    double pf1,pf2,pf3, cf1,cf2,cf3, nf1,nf2,nf3;
+    phone_formants(prev ? prev : ph, prev, ph, &pf1,&pf2,&pf3);
+    phone_formants(ph, prev, next, &cf1,&cf2,&cf3);
+    phone_formants(next ? next : ph, ph, next, &nf1,&nf2,&nf3);
+    double pa1,pa2,pa3,pb1,pb2,pb3, ca1,ca2,ca3,cb1,cb2,cb3, na1,na2,na3,nb1,nb2,nb3;
+    lookup_amps(prev ? prev->ph : ph->ph, &pa1,&pa2,&pa3,&pb1,&pb2,&pb3);
+    lookup_amps(ph->ph, &ca1,&ca2,&ca3,&cb1,&cb2,&cb3);
+    lookup_amps(next ? next->ph : ph->ph, &na1,&na2,&na3,&nb1,&nb2,&nb3);
+
+    int is_vowel = ph->voiced && ph->turb < 0.05 && ph->velum < 0.05;
+    int is_nasal = ph->velum >= 0.5;
+    int is_fric  = ph->turb >= 0.05 && !is_nasal;
+    int is_stop  = ph->td < 0.3 && ph->turb < 0.05 && ph->velum < 0.05;
+    int has_closure = is_stop && !ph->voiced;
+    int closure = 0, release = 0;
+    if (has_closure) {
+        closure = (s1 - s0) * 55 / 100;
+        release = closure + (int)(0.007 * SR);
+        if (release > s1 - s0) release = s1 - s0;
+    }
+    if (ph->fric_fc > 0) wb_biquad_bandpass(&T->fric_filt, ph->fric_fc, ph->fric_bw, SR);
+    else { T->fric_filt.a1 = T->fric_filt.a2 = T->fric_filt.z1 = T->fric_filt.z2 = 0; }
+    double nf_fc = nasal_antiformant_fc(ph);
+    if (nf_fc > 0) wb_biquad_notch(&T->nasal_notch, nf_fc, 400.0, SR);
+
+    double tilt_fc = cf3 * 1.25;   /* tilt rolls off above this vowel's F3 */
+
+    for (int j = s0; j < s1; j++) {
+        double t = (double)(j - s0) / (double)(s1 - s0);
+        int jj = j - s0;
+        double f0 = f0_start + (f0_end - f0_start) * t;
+        double carry = 0, anti = 0;
+        if (t < 0.30) carry = 1.0 - t / 0.30;
+        if (t > 0.70) anti = (t - 0.70) / 0.30;
+        double w = 1.0 - 0.6 * (carry + anti); if (w < 0.15) w = 0.15;
+        double F[3] = { pf1*carry + cf1*w + nf1*anti,
+                        pf2*carry + cf2*w + nf2*anti,
+                        pf3*carry + cf3*w + nf3*anti };
+        double A[3] = { pa1*carry + ca1*w + na1*anti,
+                        pa2*carry + ca2*w + na2*anti,
+                        pa3*carry + ca3*w + na3*anti };
+        double BW[3] = { pb1*carry + cb1*w + nb1*anti,
+                         pb2*carry + cb2*w + nb2*anti,
+                         pb3*carry + cb3*w + nb3*anti };
+        double out = 0.0;
+
+        if (is_vowel) {
+            /* additive harmonic synthesis */
+            int H = (int)(8000.0 / f0);
+            if (H > 64) H = 64;
+            for (int h = 1; h <= H; h++) {
+                double fh = h * f0;
+                double env = wb_formant_env(fh, F, A, BW, tilt_fc);
+                if (env < 1e-4) continue;
+                T->add_phase[h-1] += 2.0 * M_PI * fh / SR;
+                out += env * sin(T->add_phase[h-1]);
+            }
+            out *= 0.08;   /* overall level (normalized later) */
+        } else if (is_nasal) {
+            int H = (int)(3000.0 / f0); if (H > 64) H = 64;
+            for (int h = 1; h <= H; h++) {
+                double fh = h * f0;
+                double env = wb_formant_env(fh, F, A, BW, tilt_fc);
+                if (env < 1e-4) continue;
+                T->add_phase[h-1] += 2.0 * M_PI * fh / SR;
+                out += env * sin(T->add_phase[h-1]);
+            }
+            out *= 0.08;
+            out = wb_biquad_run(&T->nasal_notch, out);
+        } else if (is_fric) {
+            double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
+            double src = nz;
+            if (ph->voiced) src = 0.5 * sin(2 * M_PI * f0 * j / SR) + 0.5 * nz;
+            out = wb_biquad_run(&T->fric_filt, src) * 0.45;
+        } else if (has_closure) {
+            if (jj < closure) { out = 0.0; }
+            else if (jj < release) {
+                double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
+                double decay = 1.0 - (double)(jj - closure) / (double)(release - closure);
+                out = nz * 0.35 * decay;
+            } else {
+                double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
+                out = nz * 0.32 * exp(-(t - (double)release / (s1 - s0)) / 0.030);
+            }
+        }
+        int n_env = (int)(0.012 * SR);
+        double env = 1.0;
+        if (jj < n_env) env = (double)jj / n_env;
+        if (s1 - j - 1 < n_env) env = (double)(s1 - j - 1) / n_env;
+        T->out[j] += out * env * energy;
+    }
+}
+
 /* ---------------- Klatt-style duration rules (gap B) ----------------
  * Base durations in seconds per phone class, then context modifiers:
  * stress (stressed ~1.3x), phrase-final lengthening, prepausal, consonant
@@ -870,6 +1026,7 @@ int main(int argc, char **argv) {
      * Filter both out so the positional parsing below is unchanged. */
     int g_pitch_accent = 0, g_sine_mode = 0, g_phone_mode = 0, g_whisper = 0, g_fry = 0;
     int g_klatt_mode = 0;
+    int g_wg_mode = 0;   /* R014: force the old KL-waveguide renderer */
     int g_tone = 0;   /* 1-4 Mandarin lexical tone applied per word */
     double g_vtl = 0.0;  /* override tract length (integer sections + fractional) */
     double g_rate = 1.0;  /* speaking-rate multiplier (<1 fast, >1 slow) */
@@ -881,6 +1038,7 @@ int main(int argc, char **argv) {
             if (!strcmp(argv[a], "-pa")) { g_pitch_accent = 1; continue; }
             if (!strcmp(argv[a], "-sine")) { g_sine_mode = 1; continue; }
             if (!strcmp(argv[a], "-klatt")) { g_klatt_mode = 1; continue; }
+            if (!strcmp(argv[a], "-wg")) { g_wg_mode = 1; continue; }
             if (!strcmp(argv[a], "-p")) { g_phone_mode = 1; continue; }
             if (!strcmp(argv[a], "-whisper")) { g_whisper = 1; continue; }
             if (!strcmp(argv[a], "-fry")) { g_fry = 1; continue; }
@@ -1239,6 +1397,7 @@ int main(int argc, char **argv) {
     T.tract_n = vtl_n;   /* R017: effective VTL (used for noise-source scaling) */
     T.sine_mode = g_sine_mode;
     T.klatt_mode = g_klatt_mode;
+    T.add_mode = !(g_sine_mode || g_klatt_mode || g_wg_mode);  /* additive is default */
     T.pitch_accent = g_pitch_accent;
 
     double t0 = 0.15;
@@ -1253,9 +1412,12 @@ int main(int argc, char **argv) {
         else if (g_klatt_mode)
             klatt_render_phone(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress, prev, next,
                                ev[i].f0_start, ev[i].f0_end, ev[i].energy);
-        else
+        else if (g_wg_mode)
             tts_render(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress, prev, next,
                        ev[i].f0_start, ev[i].f0_end, ev[i].energy);
+        else
+            additive_render_phone(&T, t0, ev[i].dur, ev[i].ph, ev[i].stress, prev, next,
+                                  ev[i].f0_start, ev[i].f0_end, ev[i].energy);
         t0 += ev[i].dur;
     }
 

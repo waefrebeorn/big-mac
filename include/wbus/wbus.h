@@ -136,6 +136,19 @@ void  wb_automation_lane_destroy(wb_automation_lane *l);
 int   wb_automation_add_point(wb_automation_lane *l, double time, double value, int curve);
 int   wb_automation_clear(wb_automation_lane *l);
 double wb_automation_value_at(const wb_automation_lane *l, double pos, double fallback);
+
+/* ---- automation recording (capture live fader/param moves) ------------- */
+typedef struct wb_automation_recorder wb_automation_recorder;
+wb_automation_recorder *wb_automation_recorder_create(wb_automation_lane *lane,
+                                                      double deadband);
+void wb_automation_recorder_destroy(wb_automation_recorder *r);
+void wb_automation_recorder_arm(wb_automation_recorder *r, double init_value);
+void wb_automation_recorder_disarm(wb_automation_recorder *r);
+int  wb_automation_recorder_armed(const wb_automation_recorder *r);
+int  wb_automation_recorder_count(const wb_automation_recorder *r);
+void wb_automation_recorder_capture(wb_automation_recorder *r, double pos,
+                                    double value);
+int  wb_automation_recorder_commit(wb_automation_recorder *r);
 /* session-level lane ownership */
 wb_automation_lane *wb_session_add_automation(wb_session *s, const char *param, int target);
 void  wb_session_free_automation(wb_session *s);

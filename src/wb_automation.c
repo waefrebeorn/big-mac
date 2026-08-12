@@ -13,6 +13,107 @@
 
 #include "wbus.h"
 
+/* ---- automation recording (capture live fader/param moves) ------------ */
+/* A recorder accumulates (time,value) samples while the user drags a
+ * fader/param during playback. It applies a dead-band so tiny/quantized
+ * jitter doesn't create thousands of points; on commit the points are
+ * copied into the target lane (replacing its prior contents in range). */
+#define WB_AUTO_REC_MAX 8192
+
+struct wb_automation_recorder {
+    wb_automation_lane *lane;   /* target lane (owned by caller) */
+    double *times;
+    double *vals;
+    uint32_t count;
+    uint32_t cap;
+    double  deadband;           /* min |dv| to record a new point */
+    double  last_value;         /* last value written */
+    int     armed;              /* recording in progress */
+};
+
+wb_automation_recorder *wb_automation_recorder_create(wb_automation_lane *lane,
+                                                       double deadband) {
+    wb_automation_recorder *r = calloc(1, sizeof(*r));
+    if (!r) return NULL;
+    r->lane = lane;
+    r->cap = 256;
+    r->deadband = deadband > 0 ? deadband : 0.005;
+    r->times = malloc(r->cap * sizeof(double));
+    r->vals = malloc(r->cap * sizeof(double));
+    if (!r->times || !r->vals) {
+        free(r->times); free(r->vals); free(r);
+        return NULL;
+    }
+    return r;
+}
+
+void wb_automation_recorder_destroy(wb_automation_recorder *r) {
+    if (!r) return;
+    free(r->times); free(r->vals); free(r);
+}
+
+void wb_automation_recorder_arm(wb_automation_recorder *r, double init_value) {
+    if (!r) return;
+    r->count = 0;
+    r->last_value = init_value;
+    r->armed = 1;
+}
+
+void wb_automation_recorder_disarm(wb_automation_recorder *r) {
+    if (r) r->armed = 0;
+}
+
+int wb_automation_recorder_armed(const wb_automation_recorder *r) {
+    return r ? r->armed : 0;
+}
+
+/* Number of points captured but not yet committed. */
+int wb_automation_recorder_count(const wb_automation_recorder *r) {
+    return r ? (int)r->count : 0;
+}
+
+/* Feed a parameter value observed at song position `pos`. If it differs from
+ * the last recorded value by more than the dead-band, a point is appended. */
+void wb_automation_recorder_capture(wb_automation_recorder *r, double pos,
+                                     double value) {
+    if (!r || !r->armed) return;
+    /* dead-band: ignore changes below threshold (jitter/quantization) */
+    if (r->count > 0 && fabs(value - r->last_value) < r->deadband) return;
+    /* ensure capacity */
+    if (r->count == r->cap) {
+        uint32_t ncap = r->cap * 2;
+        if (ncap > WB_AUTO_REC_MAX) return;
+        double *nt = realloc(r->times, ncap * sizeof(double));
+        double *nv = realloc(r->vals, ncap * sizeof(double));
+        if (!nt || !nv) return;
+        r->times = nt; r->vals = nv; r->cap = ncap;
+    }
+    r->times[r->count] = pos;
+    r->vals[r->count] = value;
+    r->count++;
+    r->last_value = value;
+}
+
+/* Commit the captured points into the target lane. Points already in the
+ * lane at times >= first captured time are removed first (overwrite region),
+ * then captured points are added (keeps sorted order). */
+int wb_automation_recorder_commit(wb_automation_recorder *r) {
+    if (!r || !r->lane || r->count == 0) return 0;
+    wb_automation_lane *l = r->lane;
+    double t0 = r->times[0];
+    /* remove existing points at/after t0 (overwrite the recording region) */
+    uint32_t keep = 0;
+    for (uint32_t i = 0; i < l->point_count; i++)
+        if (l->points[i].time < t0 - 1e-9) l->points[keep++] = l->points[i];
+    l->point_count = keep;
+    /* add captured points (insertion keeps them sorted) */
+    for (uint32_t i = 0; i < r->count; i++)
+        wb_automation_add_point(l, r->times[i], r->vals[i], 0 /* linear */);
+    r->count = 0;
+    return 1;
+}
+
+
 /* ---- lane lifecycle ---------------------------------------------------- */
 wb_automation_lane *wb_automation_lane_create(const char *param) {
     wb_automation_lane *l = calloc(1, sizeof(*l));

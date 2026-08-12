@@ -375,6 +375,60 @@ static void test_automation(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: automation recording (capture live fader moves) ------------- */
+/* helper: count pending points in a recorder */
+static int rec_count_pending(const wb_automation_recorder *r) {
+    return wb_automation_recorder_count(r);
+}
+
+static void test_automation_record(void) {
+    printf("test_automation_record\n");
+    wb_automation_lane *lane = wb_automation_lane_create("volume");
+    wb_automation_recorder *rec = wb_automation_recorder_create(lane, 0.02);
+    CHECK(rec != NULL, "automation recorder created");
+
+    /* arm with initial value, then feed a rising fader during playback */
+    wb_automation_recorder_arm(rec, 0.0);
+    wb_automation_recorder_capture(rec, 0.0, 0.0);
+    wb_automation_recorder_capture(rec, 44100, 0.3);
+    wb_automation_recorder_capture(rec, 88200, 0.6);
+    wb_automation_recorder_capture(rec, 132300, 0.9);
+    /* a sub-deadband jitter move should be ignored */
+    wb_automation_recorder_capture(rec, 176400, 0.905);
+    wb_automation_recorder_disarm(rec);
+    wb_automation_recorder_capture(rec, 220500, 1.0);  /* ignored: disarmed */
+    CHECK(rec_count_pending(rec) == 4, "4 points captured (jitter + post-disarm ignored)");
+
+    /* commit into the lane */
+    int n = wb_automation_recorder_commit(rec);
+    CHECK(n == 1, "commit performed");
+    CHECK(lane->point_count == 4, "lane holds 4 recorded points");
+    CHECK(lane->points[1].value == 0.3, "second point value kept");
+    CHECK(lane->points[3].value == 0.9, "last recorded value kept");
+    CHECK(lane->points[0].curve == 0, "recorded points are linear");
+
+    /* overwrite region: pre-existing points before t0 survive, at/after are dropped */
+    wb_automation_lane *lane2 = wb_automation_lane_create("volume");
+    wb_automation_add_point(lane2, 10000, 0.1, 0);
+    wb_automation_add_point(lane2, 50000, 0.9, 0);  /* in overwrite region */
+    wb_automation_recorder *rec2 = wb_automation_recorder_create(lane2, 0.01);
+    wb_automation_recorder_arm(rec2, 0.5);
+    wb_automation_recorder_capture(rec2, 30000, 0.2); /* t0 = 30000 */
+    wb_automation_recorder_capture(rec2, 60000, 0.7);
+    wb_automation_recorder_commit(rec2);
+    /* point at 10000 (before t0) survives; point at 50000 (>= t0) replaced */
+    CHECK(lane2->point_count == 3, "pre-recording point + 2 new = 3");
+    CHECK(lane2->points[0].time == 10000 && lane2->points[0].value == 0.1,
+          "point before recording region survived");
+    CHECK(lane2->points[2].time == 60000 && lane2->points[2].value == 0.7,
+          "recorded points appended sorted");
+
+    wb_automation_recorder_destroy(rec2);
+    wb_automation_recorder_destroy(rec);
+    wb_automation_lane_destroy(lane2);
+    wb_automation_lane_destroy(lane);
+}
+
 /* ---- test: MIDI recording into clips ----------------------------------- */
 static void test_recorder(void) {
     printf("test_recorder\n");
@@ -583,6 +637,7 @@ int main(void) {
     test_session_io();
     test_instruments();
     test_automation();
+    test_automation_record();
     test_recorder();
     test_audio_clip();
     test_undo();

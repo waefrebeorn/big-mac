@@ -293,6 +293,12 @@ typedef struct {
     double sine_ph1, sine_ph2, sine_ph3;  /* sine oscillator phases */
     /* R020 Klatt cascade resonator states (persist across samples+phones) */
     double k_y1[6], k_y2[6];   /* cascade resonators F1..F5 (indices 0..4) */
+    /* R013 Klatt spectral tilt: a one-pole low-pass shaping the glottal
+     * source's natural high-frequency rolloff (Klatt 'tilt', 0-24dB at 3kHz).
+     * Without it the cascade passes far too much energy above F3 (measured
+     * centroid 6505Hz vs real speech ~1665Hz). */
+    double k_tilt;             /* one-pole low-pass state */
+    double k_tilt_fc;          /* tilt corner frequency Hz */
 } wb_tts_t;
 
 /* Vowel formant targets (Peterson & Barney) for the sine-track mode. */
@@ -643,18 +649,32 @@ static void sine_render_phone(wb_tts_t *T, double t0, double dur,
  * notch; voiceless stops = silent closure + release burst + aspiration.
  * Pure formant-based (no neural banks, no sample concatenation), matching
  * the state of the art in the espeak-ng/flite references. */
-static void wb_reson_set(double f, double bw, int sr, double *a0, double *a1, double *a2) {
+/* R013: the EXACT Klatt cascade resonator (from espeak-ng klatt.c setabc/
+ * resonator). y[n] = a*x + b*y1 + c*y2 with a = 1-b-c (DC gain normalized to
+ * 1), b = 2r*cos(th), c = -r^2, r = exp(-pi*bw*t). The old implementation
+ * used a0 = 1-r and wrong signs, which crushed the output for some vowels
+ * (/i/ went near-silent). */
+static void wb_reson_set(double f, double bw, int sr, double *a, double *b, double *c) {
     double r = exp(-M_PI * bw / (double)sr);
-    double arg = 2.0 * M_PI * f / (double)sr;
-    *a1 = -2.0 * r * cos(arg);
-    *a2 = r * r;
-    *a0 = 1.0 - r;
+    double th = 2.0 * M_PI * f / (double)sr;
+    *c = -(r * r);
+    *b = r * 2.0 * cos(th);
+    *a = 1.0 - *b - *c;
 }
-static double wb_reson_run(double a0, double a1, double a2, double x,
+static double wb_reson_run(double a, double b, double c, double x,
                            double *y1, double *y2) {
-    double y = a0 * x - a1 * (*y1) - a2 * (*y2);
+    double y = a * x + b * (*y1) + c * (*y2);
     *y2 = *y1; *y1 = y;
     return y;
+}
+
+/* R013: Klatt spectral tilt — one-pole low-pass shaping the natural
+ * high-frequency rolloff (Klatt 'tilt' parameter). Runs on the voiced/nasal
+ * cascade output only, so fricatives keep their high-frequency energy. */
+static double wb_tilt_run(wb_tts_t *T, double x) {
+    double a = 1.0 - exp(-2.0 * M_PI * T->k_tilt_fc / (double)SR);
+    T->k_tilt += a * (x - T->k_tilt);
+    return T->k_tilt;
 }
 
 static void klatt_render_phone(wb_tts_t *T, double t0, double dur,
@@ -689,6 +709,10 @@ static void klatt_render_phone(wb_tts_t *T, double t0, double dur,
     double gint = (ph->voiced && !has_closure) ? 0.7 : 0.0;
     wb_glottis_set_intensity(T->glottis, gint);
     int blk = 0;
+    /* R013: set the spectral-tilt corner (rolls off above F3, keeps F1-F3
+     * and the fricatives). Tuned to bring the voiced spectrum's centroid to
+     * ~speech range (measured: without tilt the cascade is 6505Hz). */
+    T->k_tilt_fc = 2500.0;
 
     for (int j = s0; j < s1; j++) {
         /* update the glottis frequency every block (finish_block is what
@@ -719,7 +743,7 @@ static void klatt_render_phone(wb_tts_t *T, double t0, double dur,
             wb_reson_set(f2,100, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[1],&T->k_y2[1]);
             wb_reson_set(f3,200, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[2],&T->k_y2[2]);
             v = wb_biquad_run(&T->nasal_notch, v);
-            out = v * 40.0 * 0.55;
+            out = wb_tilt_run(T, v * 40.0 * 0.55);
         } else if (is_fric) {
             double nz = (double)((j * 2654435761u) >> 24) / 128.0 - 1.0;
             double src = nz;
@@ -749,7 +773,7 @@ static void klatt_render_phone(wb_tts_t *T, double t0, double dur,
             wb_reson_set(f3,200, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[2],&T->k_y2[2]);
             wb_reson_set(f4,300, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[3],&T->k_y2[3]);
             wb_reson_set(f5,400, SR,&a0,&a1,&a2); v = wb_reson_run(a0,a1,a2,v,&T->k_y1[4],&T->k_y2[4]);
-            out = v;
+            out = wb_tilt_run(T, v);
         }
         int n_env = (int)(0.012 * SR);
         double env = 1.0;

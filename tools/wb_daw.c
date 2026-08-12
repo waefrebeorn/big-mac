@@ -44,6 +44,12 @@ typedef struct app {
 
     SDL_Window *win;
     SDL_Renderer *ren;
+
+    /* ---- UI state (interactive arrangement) ---------------- ------------ */
+    int selected_track;      /* -1 = none */
+    int dragging_clip;       /* -1 = none, else clip index on selected_track */
+    int drag_start_x;        /* mouse x where drag began */
+    double clip_drag_origin; /* timeline pos where drag began */
 } app;
 
 static int running = 1;
@@ -173,9 +179,11 @@ static void draw_arrangement(app *a) {
         int y = TRANSPORT_H + RULER_H + (int)(ti*track_h);
         int th = (int)track_h;
 
-        /* lane bg */
+        /* lane bg: highlight if this is the selected track */
         SDL_Rect lane = { GUTTER_W, y, ARRANG_W, th };
-        setc(a->ren, (ti%2)?C_LANE_A:C_LANE_B); SDL_RenderFillRect(a->ren, &lane);
+        if (ti == a->selected_track) { setc(a->ren, 253,160,60); }
+        else { setc(a->ren, (ti%2)?C_LANE_A:C_LANE_B); }
+        SDL_RenderFillRect(a->ren, &lane);
 
         /* gutter: track name */
         SDL_Rect gut = { 0, y, GUTTER_W, th };
@@ -338,6 +346,47 @@ static void midi_cb(wb_midi_event ev, void *userdata) {
     }
 }
 
+/* ---- arrangement interaction ------------------------------------------- */
+/* Convert a screen x in the arrangement to a sample position (clamped to 0). */
+static double x_to_sample(int x) {
+    if (x < GUTTER_W) x = GUTTER_W;
+    int maxx = GUTTER_W + ARRANG_W;
+    if (x > maxx) x = maxx;
+    double secs = (double)(x - GUTTER_W) / PX_PER_SEC;
+    return secs * WB_SAMPLE_RATE;
+}
+
+/* Track index under screen y, or -1. */
+static int y_to_track(app *a, int y) {
+    int n = a->session ? a->session->track_count : 0;
+    if (n == 0) return -1;
+    int top = TRANSPORT_H + RULER_H;
+    if (y < top || y >= top + ARRANG_H) return -1;
+    double track_h = (double)ARRANG_H / n;
+    return (int)((y - top) / track_h);
+}
+
+static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
+    if (!a->session || b.x < GUTTER_W) return;
+    if (b.state & SDL_BUTTON(SDL_BUTTON_LEFT)) {
+        int ti = y_to_track(a, b.y);
+        if (ti < 0) return;
+        a->selected_track = ti;
+        /* seek playhead to click position (SOTA scrub-on-click) */
+        double pos = x_to_sample(b.x);
+        wb_engine_seek(a->engine, pos);
+        a->clip_drag_origin = pos;
+    }
+    /* right-click toggles mute on the track under cursor */
+    if (b.state & SDL_BUTTON(SDL_BUTTON_RIGHT)) {
+        int ti = y_to_track(a, b.y);
+        if (ti >= 0 && ti < (int)a->session->track_count) {
+            a->session->tracks[ti].mute = !a->session->tracks[ti].mute;
+            wb_engine_set_session(a->engine, a->session); /* rebuild runtime */
+        }
+    }
+}
+
 static void handle_key(app *a, SDL_Keycode k) {
     switch (k) {
     case SDLK_SPACE:
@@ -364,6 +413,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); return 1;
     }
     app *a = calloc(1, sizeof(*a));
+    a->selected_track = -1;
+    a->dragging_clip = -1;
     a->engine = wb_engine_create();
     a->session = wb_session_demo();
     wb_engine_set_session(a->engine, a->session);
@@ -426,6 +477,7 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&ev)) {
             if (ev.type==SDL_QUIT) running=0;
             else if (ev.type==SDL_KEYDOWN) handle_key(a, ev.key.keysym.sym);
+            else if (ev.type==SDL_MOUSEBUTTONDOWN) handle_mouse(a, ev.button);
         }
         render(a);
         SDL_Delay(16);

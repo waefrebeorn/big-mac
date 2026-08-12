@@ -40,10 +40,11 @@ typedef struct wb_track_runtime wb_track_runtime;
 struct wb_engine {
     wb_session    *session;          /* caller-owned */
     wb_transport   t;
-    wb_cmd_queue   queue;
+    wb_cmd_queue    queue;
     wb_track_runtime *rtracks;
     wb_sample *accL, *accR;          /* master accumulation scratch */
     uint32_t   acc_cap;
+    float      master_volume;
     float cpu_load;
 
     /* R002: Xrun detection via process try-lock */
@@ -158,6 +159,9 @@ static void stage_mix(wb_engine *e, uint32_t n, wb_sample *out) {
             }
         }
     }
+    /* apply master volume automation / fader */
+    float mv = e->master_volume;
+    for (uint32_t i = 0; i < (n * 2); i++) out[i] *= mv;
 }
 
 wb_engine *wb_engine_create(void) {
@@ -171,6 +175,7 @@ wb_engine *wb_engine_create(void) {
     e->acc_cap = WB_MAX_BLOCK;
     e->accL = malloc(e->acc_cap * sizeof(wb_sample));
     e->accR = malloc(e->acc_cap * sizeof(wb_sample));
+    e->master_volume = 1.0f;
     if (pthread_mutex_init(&e->process_lock, NULL) == 0)
         e->lock_initialized = 1;
     wb_unit_ensure_all();   /* register built-in FX + instruments */
@@ -181,15 +186,20 @@ void wb_engine_destroy(wb_engine *e) {
     if (!e) return;
     if (e->rtracks) {
         for (int i = 0; i < (int)WB_MAX_TRACKS; i++) {
-            if (e->rtracks[i].voice) wb_synth_destroy(e->rtracks[i].voice);
+            const char *vid = e->rtracks[i].insert_ids[0];
+            if (e->rtracks[i].voice) {
+                const wb_unit *v = vid ? wb_unit_find(vid) : NULL;
+                if (v && v->vt->destroy) v->vt->destroy(e->rtracks[i].voice);
+                else wb_synth_destroy(e->rtracks[i].voice); /* legacy fallback */
+            }
             for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
                 if (e->rtracks[i].inserts[s]) {
                     const char *id = e->rtracks[i].insert_ids[s];
                     const wb_unit *u = id ? wb_unit_find(id) : NULL;
                     if (u) u->vt->destroy(e->rtracks[i].inserts[s]);
-                    else if (id && strcmp(id,"comp")==0)   wb_comp_destroy(e->rtracks[i].inserts[s]);
+                    else if (id && strcmp(id,"comp") ==0)  wb_comp_destroy(e->rtracks[i].inserts[s]);
                     else if (id && strcmp(id,"reverb")==0) wb_reverb_destroy(e->rtracks[i].inserts[s]);
-                    else if (id && strcmp(id,"delay")==0)   wb_delay_destroy(e->rtracks[i].inserts[s]);
+                    else if (id && strcmp(id,"delay") ==0) wb_delay_destroy(e->rtracks[i].inserts[s]);
                     else free(e->rtracks[i].inserts[s]); /* unknown: best-effort */
                 }
             }
@@ -251,6 +261,7 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
             /* first insert slot determines the instrument (default: synth) */
             const char *vuid = s->tracks[i].inserts[0].id;
             tr->voice_unit_id = vuid && vuid[0] ? vuid : "synth";
+            tr->insert_ids[0] = vuid && vuid[0] ? vuid : "synth";
             if (tr->voice_unit_id && strcmp(tr->voice_unit_id,"fm")==0)
                 tr->voice = wb_fm_create(WB_SAMPLE_RATE);
             else if (tr->voice_unit_id && strcmp(tr->voice_unit_id,"drum")==0)
@@ -302,6 +313,29 @@ void wb_engine_end_edit(wb_engine *e) {
 
 uint64_t wb_engine_xruns(wb_engine *e) { return e ? e->xruns : 0; }
 
+/* ---- STAGE: evaluate automation lanes against the current song position -- */
+static void stage_automation(wb_engine *e, uint32_t n) {
+    wb_session *s = e->session;
+    if (!s || !s->automation_count) return;
+    double pos = (double)e->t.song_pos;
+    for (uint32_t l = 0; l < s->automation_count; l++) {
+        wb_automation_lane *al = s->automation[l];
+        if (!al->point_count) continue;
+        double val = wb_automation_value_at(al, pos, -1.0);
+        if (val < 0.0) continue; /* no sample fell in any segment */
+        if (al->target < 0) {
+            e->master_volume = (float)val; /* master volume automation */
+            continue;
+        }
+        if ((uint32_t)al->target >= s->track_count) continue;
+        wb_track_runtime *tr = &e->rtracks[al->target];
+        if (!strcmp(al->param, "volume"))
+            tr->volume = (float)val;
+        else if (!strcmp(al->param, "pan"))
+            tr->pan = (float)(val * 2.0 - 1.0); /* 0..1 -> -1..1 */
+    }
+}
+
 uint32_t wb_engine_render(wb_engine *e, wb_sample *out, uint32_t n) {
     if (!e || !out || n == 0) return 0;
     if (n > e->acc_cap) return 0;
@@ -319,6 +353,7 @@ uint32_t wb_engine_render(wb_engine *e, wb_sample *out, uint32_t n) {
 
     /* staged pipeline (R002) */
     stage_schedule(e, n);
+    stage_automation(e, n);
     stage_instruments(e, n);
     stage_effects(e, n);
     stage_mix(e, n, out);

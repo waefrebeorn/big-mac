@@ -31,7 +31,30 @@ void wb_session_destroy(wb_session *s) {
         free(tr->clips);
     }
     free(s->tracks);
+    wb_session_free_automation(s);
     free(s);
+}
+
+/* ---- automation (session-level lane ownership) ------------------------- */
+wb_automation_lane *wb_session_add_automation(wb_session *s, const char *param, int target) {
+    if (!s) return NULL;
+    wb_automation_lane *l = wb_automation_lane_create(param);
+    if (!l) return NULL;
+    l->target = target;
+    wb_automation_lane **na = realloc(s->automation, (s->automation_count + 1) * sizeof(void*));
+    if (!na) { wb_automation_lane_destroy(l); return NULL; }
+    s->automation = na;
+    s->automation[s->automation_count++] = l;
+    return l;
+}
+
+void wb_session_free_automation(wb_session *s) {
+    if (!s) return;
+    for (uint32_t i = 0; i < s->automation_count; i++)
+        wb_automation_lane_destroy(s->automation[i]);
+    free(s->automation);
+    s->automation = NULL;
+    s->automation_count = 0;
 }
 
 /* ---- track/note helpers ------------------------------------------------- */

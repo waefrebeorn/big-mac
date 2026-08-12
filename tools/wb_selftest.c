@@ -280,7 +280,7 @@ static void test_instruments(void) {
     s->tracks[1].volume = 1.0f;
     strncpy(s->tracks[1].name, "Drums", 64);
     strcpy(s->tracks[1].inserts[0].id, "drum");
-    strcpy(s->tracks[1].inserts[1].id, "");  /* disable eq for isolation */
+    strcpy(s->tracks[1].inserts[1].id, "eq");  /* EQ on drums */
     s->tracks[1].clip_count = 1;
     s->tracks[1].clips = calloc(1, sizeof(wb_clip));
     s->tracks[1].clips[0].start = 0;
@@ -314,6 +314,61 @@ static void test_instruments(void) {
 
     wb_session_destroy(s);
     wb_engine_destroy(e);
+}
+
+/* ---- test: automation envelopes (fade master volume 1->0 over the song) - */
+static void test_automation(void) {
+    printf("test_automation\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0;
+    s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Bump", 0);
+    strcpy(tr->inserts[0].id, "drum");
+    tr->volume = 1.0f;
+    tr->clip_count = 1; tr->clips = calloc(1, sizeof(wb_clip));
+    tr->clips[0].start = 0; tr->clips[0].length = 88200;
+    tr->clips[0].note_count = 1; tr->clips[0].notes = calloc(1, sizeof(wb_note));
+    tr->clips[0].notes[0] = (wb_note){.pitch=36,.start=0,.dur=44100,.vel=100};
+
+    /* master-volume automation: full volume at sample 0, silent by end */
+    wb_automation_lane *lane = wb_session_add_automation(s, "volume", -1);
+    CHECK(lane != NULL, "automation lane created");
+    CHECK(wb_automation_add_point(lane, 0,       1.0, 2) == 0, "point at 0.0s");
+    CHECK(wb_automation_add_point(lane, 44100,   0.8, 0) == 0, "point mid-fade");
+    CHECK(wb_automation_add_point(lane, 88200,   0.0, 0) == 0, "point at end");
+    CHECK(lane->point_count == 3, "three breakpoints present");
+    CHECK(fabs(wb_automation_value_at(lane, 0,   -1) - 1.0) < 1e-6, "v at t=0 is 1.0");
+    CHECK(fabs(wb_automation_value_at(lane, 22050,-1) - 0.9) < 1e-4, "v mid-fade linear interp");
+    CHECK(fabs(wb_automation_value_at(lane, 88200,-1) - 0.0) < 1e-6, "v at end is 0.0");
+    CHECK(wb_automation_value_at(lane, 99999,-7) == 0.0, "past-end holds last value");
+
+    wb_sample *out = NULL;
+    uint32_t frames = 0;
+    CHECK(wb_engine_render_session(NULL, s, &out, &frames) == 0, "render with automation");
+    CHECK(frames > 0, "rendered some frames");
+
+    /* sample the start (loud) vs the tail (quiet) of the master output */
+    float head_peak = 0, tail_peak = 0;
+    for (uint32_t i = 0; i < 2048 && i < frames*2; i++) head_peak = fmaxf(head_peak, fabsf(out[i]));
+    uint32_t tail0 = frames*2 - 2048;
+    for (uint32_t i = tail0; i < frames*2; i++) tail_peak = fmaxf(tail_peak, fabsf(out[i]));
+    printf("         head_peak=%.4f tail_peak=%.4f (expected tail << head)\n", head_peak, tail_peak);
+    CHECK(head_peak > 0.01f, "head of mix is audible (pre-fade)");
+    CHECK(tail_peak < head_peak * 0.5f, "tail quieter than head (fade applied)");
+
+    /* round-trip the automation lane through .wbus */
+    CHECK(wb_session_save(s, "/tmp/wb_auto_test.wbus") == 0, "save session with automation");
+    wb_session *s2 = wb_session_load("/tmp/wb_auto_test.wbus");
+    CHECK(s2 && s2->automation_count == 1, "loaded one automation lane");
+    if (s2 && s2->automation_count == 1) {
+        wb_automation_lane *l2 = s2->automation[0];
+        CHECK(l2->target == -1 && strcmp(l2->param,"volume")==0, "lane params round-trip");
+        CHECK(l2->point_count == 3, "three points round-trip");
+        CHECK(fabs(wb_automation_value_at(l2,22050,-1) - 0.9) < 1e-4, "interpolation round-trips");
+    }
+    wb_session_destroy(s2);
+    free(out);
+    wb_session_destroy(s);
 }
 
 /* ---- test 8: Xrun detection (try-lock drops a block, counts underrun) - */
@@ -351,6 +406,7 @@ int main(void) {
     test_render_file();
     test_session_io();
     test_instruments();
+    test_automation();
     test_xrun();
 
     printf("\n%d checks, %d failures\n", checks, failures);

@@ -71,11 +71,25 @@ int wb_session_save(const wb_session *s, const char *path) {
         }
         fprintf(f, "end_track\n");
     }
+    /* automation lanes */
+    for (uint32_t a = 0; a < s->automation_count; a++) {
+        const wb_automation_lane *al = s->automation[a];
+        fprintf(f, "automation target %d param \"%s\"\n", al->target, al->param);
+        for (uint32_t p = 0; p < al->point_count; p++)
+            fprintf(f, "  point %.3f %.6f %d\n",
+                    al->points[p].time, al->points[p].value, al->points[p].curve);
+        fprintf(f, "end_automation\n");
+    }
     fclose(f);
     return 0;
 }
 
 /* ---- reader ------------------------------------------------------------- */
+/* Grammar addition:
+ *   automation target <n> param "<name>"
+ *     point <time> <value> <curve>
+ *   end_automation
+ */
 wb_session *wb_session_load(const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) return NULL;
@@ -150,6 +164,26 @@ wb_session *wb_session_load(const char *path) {
                 else { /* unknown/blank token — ignore one */ }
             }
             s->track_count++;
+            continue;
+        }
+        if (strcmp(tok,"automation")==0) {
+            int target = -1;
+            char param[64] = {0};
+            tok=next_tok(&ts);                        /* keyword "target" */
+            tok=next_tok(&ts); if(tok) target=atoi(tok);
+            tok=next_tok(&ts);                        /* keyword "param" */
+            tok=next_tok(&ts); if(tok) strncpy(param, tok, sizeof(param)-1);
+            wb_automation_lane *al = wb_session_add_automation(s, param, target);
+            if (!al) continue;
+            while ((tok = next_tok(&ts)) != NULL) {
+                if (strcmp(tok,"end_automation")==0) break;
+                if (strcmp(tok,"point")==0) {
+                    tok=next_tok(&ts); double t = tok?atof(tok):0;
+                    tok=next_tok(&ts); double v = tok?atof(tok):0;
+                    tok=next_tok(&ts); int c = tok?atoi(tok):0;
+                    wb_automation_add_point(al, t, v, c);
+                }
+            }
             continue;
         }
         /* unknown top-level token: skip its value if it follows a key */

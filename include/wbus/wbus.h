@@ -78,6 +78,20 @@ typedef struct wb_track {
     wb_plugin_slot inserts[WB_MAX_INSERT_SLOTS];
 } wb_track;
 
+/* ---- automation envelopes ---------------------------------------------- */
+typedef struct wb_automation_point {
+    double time;    /* song position in samples */
+    double value;   /* 0..1 normalized parameter value */
+    int    curve;   /* 0=linear, 1=hold, 2=smooth */
+} wb_automation_point;
+
+typedef struct wb_automation_lane {
+    char    param[64];           /* target parameter, e.g. "volume" */
+    int     target;              /* -1 = master, else track index */
+    uint32_t point_count;
+    wb_automation_point *points;
+} wb_automation_lane;
+
 /* ---- session (the editable model) ------------------------------------- */
 typedef struct wb_session {
     char      name[128];
@@ -87,6 +101,8 @@ typedef struct wb_session {
     double    length;         /* song length in samples */
     uint32_t  track_count;
     wb_track *tracks;
+    uint32_t  automation_count;
+    wb_automation_lane **automation;
 } wb_session;
 
 /* ---- session lifecycle -------------------------------------------------- */
@@ -99,6 +115,16 @@ int         wb_session_add_note(wb_track *tr, double start, double dur, int pitc
 /* ---- session file save/load (.wbus text format) ----------------------- */
 int  wb_session_save(const wb_session *s, const char *path);
 wb_session *wb_session_load(const char *path);
+
+/* ---- automation envelopes ---------------------------------------------- */
+wb_automation_lane *wb_automation_lane_create(const char *param);
+void  wb_automation_lane_destroy(wb_automation_lane *l);
+int   wb_automation_add_point(wb_automation_lane *l, double time, double value, int curve);
+int   wb_automation_clear(wb_automation_lane *l);
+double wb_automation_value_at(const wb_automation_lane *l, double pos, double fallback);
+/* session-level lane ownership */
+wb_automation_lane *wb_session_add_automation(wb_session *s, const char *param, int target);
+void  wb_session_free_automation(wb_session *s);
 
 /* ---- engine lifecycle ------------------------------------------------- */
 wb_engine *wb_engine_create(void);

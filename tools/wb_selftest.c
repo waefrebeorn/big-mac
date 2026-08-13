@@ -162,6 +162,33 @@ static void test_units(void) {
     CHECK(fabsf(L[10]) > 0.1f, "gate passes above-threshold signal");
     wb_gate_destroy(g);
 
+    /* multiband: 3-band compressor splits + compresses, stays finite */
+    void *mb = wb_mb_create(44100);
+    CHECK(mb != NULL, "multiband created");
+    /* a hot broadband signal with a loud low-frequency thump */
+    for (int i = 0; i < 512; i++) {
+        L[i] = 0.9f * (float)sin(i * 0.05f) + 0.9f * (float)sin(i * 0.005f);
+        R[i] = L[i];
+    }
+    /* push harder on the low band to exercise per-band compression */
+    wb_mb_set_param(mb, "low_thresh", 0.4f);
+    wb_mb_set_param(mb, "low_ratio", 0.9f);
+    wb_mb_set_param(mb, "low_makeup", 0.8f);
+    CHECK(wb_mb_has_param(mb, "f1") && wb_mb_has_param(mb, "mid_ratio"), "multiband exposes named params");
+    CHECK(wb_mb_get_param(mb, "f1") > 0, "multiband get_param returns a crossover value");
+    wb_mb_process(mb, L, R, 512);
+    int finite = 1, nan = 0;
+    for (int i = 0; i < 512; i++) {
+        if (!isfinite(L[i]) || !isfinite(R[i])) finite = 0;
+        if (isnan(L[i]) || isnan(R[i])) nan = 1;
+    }
+    CHECK(finite && !nan, "multiband output is finite (no NaN from crossovers/comp)");
+    /* summed output should be bounded (compression + LR sum) */
+    float pk = 0;
+    for (int i = 0; i < 512; i++) { float a=fabsf(L[i]); if(a>pk)pk=a; }
+    CHECK(pk <= 1.6f, "multiband output bounded after makeup");
+    wb_mb_destroy(mb);
+
     /* sampler */
     void *smp = wb_sampler_create(44100);
     CHECK(smp != NULL, "sampler created");

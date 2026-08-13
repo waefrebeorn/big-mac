@@ -59,6 +59,7 @@ int wb_wav_write_f32(const char *path, const wb_sample *data, uint32_t frames,
 void *wb_comp_create(uint32_t sr);
 void  wb_comp_destroy(void *inst);
 void  wb_comp_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void  wb_comp_set(void *inst, int param, float v);
 void  wb_comp_inplace_wet(void *inst, wb_sample *L, wb_sample *R, uint32_t n, float w);
 /* sidechain key input: feed external signal (already captured block) into the
  * compressor's envelope source. keyL/keyR are the source track's block buffers. */
@@ -88,6 +89,14 @@ void *wb_gate_create(uint32_t sr);
 void  wb_gate_destroy(void *inst);
 void  wb_gate_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 void  wb_gate_set(void *inst, int param, float v);
+
+/* wb_multiband.c — 3-band multiband compressor (af1) */
+void *wb_mb_create(uint32_t sr);
+void  wb_mb_destroy(void *inst);
+void  wb_mb_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+int   wb_mb_has_param(const void *inst, const char *name);
+void  wb_mb_set_param(void *inst, const char *name, float v);
+float wb_mb_get_param(const void *inst, const char *name);
 
 /* wb_sampler.c */
 void *wb_sampler_create(uint32_t sr);

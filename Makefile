@@ -30,7 +30,7 @@ CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c \
              src/wb_sampler.c src/wb_wav.c src/wb_backend.c \
              src/wb_tuner.c src/wb_ui_font.c src/wb_midi_coremidi.c src/wb_clap.c \
              src/wb_session_file.c src/wb_unit.c src/wb_fm.c src/wb_drums.c \
-             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c
+             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c src/wb_multiband.c
 CXX_SRCS := src/wb_vst3_host.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/module.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/processdata.cpp \

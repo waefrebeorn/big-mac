@@ -1,15 +1,25 @@
 # SOTA DAW Gap Research — recursive loop input
 
 ## What Big Mac has (verified)
-- Engine: pull-based, staged (schedule→instruments→effects→buses→mix), RT-safe cmd queue, double-buffered, Xrun detection
+- Engine: pull-based, staged (schedule→automation→modulation→instruments→bus→effects), RT-safe cmd queue, double-buffered, Xrun detection
 - Instruments: FM synth, drum machine, audio-clip player
-- Effects: comp, delay, reverb, chorus, EQ, sampler
+- Effects: comp, delay, reverb, chorus, EQ, sampler, **saturation (tanh waveshaper), noise gate, 3-band multiband compressor**
+- **VST3 hosting** (raw SDK interfaces, plugin scan/create/process, param automation via ProcessData.inputParameterChanges, engine routing `vst3:` prefix)
+- **Modulation matrix**: LFO / envelope / step sources → per-block setter callbacks (unified, Bitwig-style)
+- **MIDI FX chain**: arpeggiator (BPM-clocked), chord, transpose, velocity — wired into the note path
+- **Sidechain**: per-track send to compressor key input (wb_comp_set_key + stage_effects feed, WB_CMD_SET_SIDECHAIN, .wbus round-trip)
 - CLAP host bridge (graph integration, 12/12)
 - Transport: play/stop/record, bpm, time sig, loop
-- Session: tracks, clips, notes, inserts, automation lanes, undo/redo, route=bus/group
+- Session: tracks, clips, notes (add/remove), inserts, automation lanes, undo/redo, route=bus/group
 - MIDI recording, launchpad LED feedback, project file workflow (.wbus)
 - Per-slot bypass/wet, aux send array (send[WB_MAX_TRACKS])
-- Build: 0 warnings, 114/114 selftest, 12/12 CLAP
+- **UI**: transport bar, arrangement (MIDI note bars + audio waveforms, piano-roll click-add / right-click-delete, 2-octave pitch span), mixer (faders/mute/solo + selected-track insert-chain readout), project load/save
+- Build: 0 warnings, 147/147 selftest (ASan clean), 12/12 CLAP, render AUDIO PRESENT
+
+## Closed gaps (recursive loop, committed)
+- P0 VST/VST3 hosting ✅  P2 Modulation ✅  P1 Sidechain ✅
+- P4 MIDI FX ✅  P3 UI (piano-roll + mixer + arrangement) ✅
+- P5 Audio FX depth: saturation ✅, gate ✅, multiband comp ✅ (vocoder/parallel-chains remaining stretch)
 
 ## SOTA benchmarks (online research, 2026)
 

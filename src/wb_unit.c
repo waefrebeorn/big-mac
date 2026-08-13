@@ -68,6 +68,19 @@ UNIT("saturation", wb_sat_create, wb_sat_destroy, wb_sat_process);
 /* gate (af1) */
 UNIT("gate", wb_gate_create, wb_gate_destroy, wb_gate_process);
 
+/* multiband compressor (af1) — custom vtable for named params */
+static void *u_mb_create(uint32_t sr){ return wb_mb_create(sr); }
+static void u_mb_destroy(void *i){ wb_mb_destroy(i); }
+static void u_mb_process(void *i, wb_sample *L, wb_sample *R, uint32_t n){ wb_mb_process(i,L,R,n); }
+static int  u_mb_has_param(const void *i, const char *n){ return wb_mb_has_param(i,n); }
+static void u_mb_set_param(void *i, const char *n, float v){ wb_mb_set_param(i,n,v); }
+static float u_mb_get_param(const void *i, const char *n){ return wb_mb_get_param(i,n); }
+static const char *u_mb_id(void){ return "multiband"; }
+static const wb_unit_vtable u_mb_vt = {
+    u_mb_id, u_mb_create, u_mb_destroy, u_mb_process, 0,
+    u_mb_has_param, u_mb_set_param, u_mb_get_param };
+static const wb_unit u_mb_unit = { &u_mb_vt };
+
 /* sampler (in-place process + note hook) */
 static void *u_sampler_create(uint32_t sr){ return wb_sampler_create(sr); }
 static void u_sampler_destroy(void *i){ wb_sampler_destroy(i); }
@@ -89,6 +102,7 @@ void wb_unit_ensure_all(void) {
     wb_unit_register(&u_unit_wb_reverb_create);
     wb_unit_register(&u_unit_wb_sat_create);
     wb_unit_register(&u_unit_wb_gate_create);
+    wb_unit_register(&u_mb_unit);
     wb_unit_register(&u_sampler_unit);
     /* new units self-register through their own ensure hooks */
     wb_unit_ensure_fm();

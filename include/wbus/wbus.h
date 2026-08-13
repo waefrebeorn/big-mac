@@ -9,6 +9,10 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "wbus_midifx.h"
+
+/* Forward declarations for cross-referenced types. */
+typedef struct wb_mod_matrix wb_mod_matrix;
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,6 +67,8 @@ typedef struct wb_clip {
 typedef struct wb_plugin_slot {
     char   id[64];            /* plugin type id, e.g. "synth", "comp", "reverb" */
     void  *unit;              /* owned by engine */
+    int    bypass;            /* per-slot bypass toggle (0 = process, 1 = bypass) */
+    float  wet;               /* per-slot wet mix (0.0 = dry, 1.0 = wet) */
 } wb_plugin_slot;
 
 /* ---- track ------------------------------------------------------------ */
@@ -74,6 +80,8 @@ typedef struct wb_track {
     int        mute;
     int        solo;
     int        route;         /* -1 = master, else index of bus track (kind 2) */
+    float      send[WB_MAX_TRACKS];  /* send level to each other track (aux send) */
+    int        sidechain[WB_MAX_INSERT_SLOTS];  /* per-slot key source track (-1 = none) */
     uint32_t   clip_count;
     wb_clip   *clips;
     wb_plugin_slot inserts[WB_MAX_INSERT_SLOTS];
@@ -113,6 +121,9 @@ void        wb_session_destroy(wb_session *s);
 wb_session *wb_session_copy(const wb_session *s); /* deep independent copy */
 wb_track   *wb_session_add_track(wb_session *s, const char *name, int kind);
 int         wb_session_add_note(wb_track *tr, double start, double dur, int pitch, int vel);
+/* Remove the note in `tr` closest to (start,pitch) within a small tolerance.
+ * Returns 0 if a note was removed, -1 if none matched. */
+int         wb_session_remove_note(wb_track *tr, double start, int pitch);
 int         wb_session_add_audio_clip(wb_track *tr, double start, double length,
                                       const wb_sample *data, uint32_t frames,
                                       int channels);
@@ -181,6 +192,22 @@ void wb_engine_get_transport(wb_engine *e, wb_transport *out);
 void wb_engine_set_track_volume(wb_engine *e, int track, float vol);
 void wb_engine_note(wb_engine *e, int track, uint8_t pitch, uint8_t vel);
 void wb_engine_set_insert_param(wb_engine *e, int track, int slot, int param, float value);
+/* Returns the engine's modulation matrix (may be NULL if engine uninitialized). */
+wb_mod_matrix *wb_engine_get_mod_matrix(wb_engine *e);
+/* Per-insert slot bypass + wet mix (thread-safe via cmd queue). */
+void wb_engine_set_insert_bypass(wb_engine *e, int track, int slot, int on);
+void wb_engine_set_insert_wet(wb_engine *e, int track, int slot, float wet);
+/* Send/aux routing: set a track's send level to another track (bus or audio).
+ * send_level 0.0 = no send; >0 sends a post-FX copy to the destination. */
+void wb_engine_set_send_level(wb_engine *e, int src_track, int dst_track, float level);
+/* Route a source track's audio into a destination track/slot's key input
+ * (compressor sidechain). src_track = -1 clears the sidechain. */
+void wb_engine_set_insert_sidechain(wb_engine *e, int track, int slot, int src_track);
+/* Insert a MIDI FX unit of the given type into a track's MIDI FX chain slot.
+ * Pass WB_MIDIFX_NONE to clear the slot. Returns 0 on success. */
+int  wb_engine_set_midifx(wb_engine *e, int track, int slot, wb_midifx_type type);
+/* Set a param on a track's MIDI FX unit (see wbus_midifx.h for param meaning). */
+void wb_engine_set_midifx_param(wb_engine *e, int track, int slot, int param, float value);
 
 /* ---- MIDI recording into clips ----------------------------------------- */
 /* arm/disarm recording on a track's clip. When armed, wb_engine_note events

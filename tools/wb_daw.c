@@ -256,12 +256,13 @@ static void draw_arrangement(app *a) {
                 double dur = nt->dur;
                 int x = arr_x(s);
                 int w = (int)((dur/WB_SAMPLE_RATE)*PX_PER_SEC); if(w<3)w=3;
-                /* pitch maps to vertical: low at bottom */
-                int row = (nt->pitch % 12);
-                int cell_h = th / 12;
+                /* pitch maps to vertical: full lane = PITCH_SPAN semitones, low at bottom */
+                int span = 24;  /* 2 octaves visible per lane */
+                int row = nt->pitch % span;
+                int cell_h = th / span;
                 int ny = y + th - (row+1)*cell_h;
                 SDL_Rect bar = { x, ny, w, cell_h-1 };
-                setc(a->ren, row==0 ? C_NOTE2 : C_NOTE); SDL_RenderFillRect(a->ren, &bar);
+                setc(a->ren, (nt->pitch%12)==0 ? C_NOTE2 : C_NOTE); SDL_RenderFillRect(a->ren, &bar);
             }
         }
     }
@@ -322,6 +323,25 @@ static void draw_mixer(app *a) {
 
         /* track name under fader */
         wb_ui_draw_text(a->ren, x+2, fy_top-16, tr->name, 1, C_TEXT);
+
+        /* insert-chain readout (shows FX routing for this track) */
+        if (ti == a->selected_track) {
+            int iy = fy_bot + 46;
+            int any = 0;
+            for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
+                const char *id = tr->inserts[s].id;
+                if (!id || !id[0]) continue;
+                char chain[64];
+                snprintf(chain, sizeof(chain), "  %d:%s%s", s,
+                         id, tr->sidechain[s] >= 0 ? "<-" : "");
+                wb_ui_draw_text(a->ren, x+2, iy, chain, 1, C_TEXT_DIM);
+                iy += 12;
+                any = 1;
+                if (iy > WIN_H - 12) break;
+            }
+            if (!any)
+                wb_ui_draw_text(a->ren, x+2, iy, "  (no inserts)", 1, C_TEXT_DIM);
+        }
     }
 }
 
@@ -420,23 +440,50 @@ static int y_to_track(app *a, int y) {
     return (int)((y - top) / track_h);
 }
 
+/* Convert a screen y within a track lane to a MIDI pitch (2-octave span). */
+static int y_to_pitch(app *a, int ti, int y) {
+    int n = a->session ? a->session->track_count : 0;
+    if (n == 0) return 60;
+    int top = TRANSPORT_H + RULER_H;
+    double track_h = (double)ARRANG_H / n;
+    double span = 24.0;
+    double rel = (y - top - ti*track_h) / track_h;   /* 0..1 within lane */
+    if (rel < 0) rel = 0; if (rel > 1) rel = 1;
+    int row = (int)(rel * span);
+    int base = 48;  /* C3 */
+    return base + (span - 1 - row);
+}
+
 static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
     if (!a->session || b.x < GUTTER_W) return;
-    if (b.state & SDL_BUTTON(SDL_BUTTON_LEFT)) {
-        int ti = y_to_track(a, b.y);
-        if (ti < 0) return;
-        a->selected_track = ti;
-        /* seek playhead to click position (SOTA scrub-on-click) */
+    int ti = y_to_track(a, b.y);
+    if (ti < 0) return;
+    a->selected_track = ti;
+
+    Uint32 btn = b.button;
+    if (btn == SDL_BUTTON_LEFT) {
+        /* seek playhead to click position (scrub-on-click) */
         double pos = x_to_sample(b.x);
         wb_engine_seek(a->engine, pos);
         a->clip_drag_origin = pos;
+        /* piano-roll: left-click in an empty lane adds a note (1 beat, mid vel) */
+        if (b.y > TRANSPORT_H + RULER_H) {
+            int pitch = y_to_pitch(a, ti, b.y);
+            double start = pos / WB_SAMPLE_RATE;
+            double beat = 60.0 / a->t.bpm;
+            wb_session_add_note(&a->session->tracks[ti], start, beat, pitch, 100);
+            wb_engine_set_session(a->engine, a->session);  /* rebuild runtime */
+        }
     }
-    /* right-click toggles mute on the track under cursor */
-    if (b.state & SDL_BUTTON(SDL_BUTTON_RIGHT)) {
-        int ti = y_to_track(a, b.y);
-        if (ti >= 0 && ti < (int)a->session->track_count) {
+    /* right-click toggles mute on the track under cursor OR deletes a note */
+    if (btn == SDL_BUTTON_RIGHT) {
+        int pitch = y_to_pitch(a, ti, b.y);
+        double start = x_to_sample(b.x) / WB_SAMPLE_RATE;
+        if (wb_session_remove_note(&a->session->tracks[ti], start, pitch) == 0) {
+            wb_engine_set_session(a->engine, a->session);
+        } else {
             a->session->tracks[ti].mute = !a->session->tracks[ti].mute;
-            wb_engine_set_session(a->engine, a->session); /* rebuild runtime */
+            wb_engine_set_session(a->engine, a->session);
         }
     }
 }

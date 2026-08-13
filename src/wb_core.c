@@ -19,8 +19,18 @@
 #include "wbus_cmd.h"
 #include "wbus_plugin.h"
 #include "wbus_dsp.h"
+#include "wbus_vst3.h"
+#include "wbus_modulation.h"
+#include "wbus_midifx.h"
 #include "wb_internal.h"
 #include "wb_recorder.h"
+
+/* forward declarations: VST3 slot map (defined later in this file) */
+static void *wb_vst3_slot_map[WB_MAX_TRACKS][WB_MAX_INSERT_SLOTS];
+void *wb_vst3_slot_get(int track, int slot);
+void wb_vst3_slot_set(int track, int slot, void *inst);
+void wb_vst3_slot_clear(int track, int slot);
+void wb_unit_set_param(const char *id, void *ins, const char *pname, float v01);
 
 /* one per track at render time */
 struct wb_track_runtime {
@@ -40,6 +50,14 @@ struct wb_track_runtime {
      * default: bypassed=0, wet=1.0 (process through fully). */
     int    bypass[WB_MAX_INSERT_SLOTS];
     float  wet[WB_MAX_INSERT_SLOTS];
+    /* aux send levels: send[src] = amount to send to track 'src' (0 = no send). */
+    float  send[WB_MAX_TRACKS];
+    /* sidechain routing: sidechainSrc[slot] = source track index whose audio
+     * feeds this slot's key input (compressor sidechain). -1 = none. */
+    int    sidechainSrc[WB_MAX_INSERT_SLOTS];
+    /* MIDI FX chain (mf1): transforms note events before the instrument voice.
+     * NULL entries are empty slots. */
+    struct wb_midifx *midifx[WB_MAX_INSERT_SLOTS];
 };
 typedef struct wb_track_runtime wb_track_runtime;
 
@@ -63,7 +81,39 @@ struct wb_engine {
 
     /* ---- CLAP plugin bridge (optional; NULL if no host) ------------------ */
     struct wb_clap_host *clap_host;
+
+    /* ---- Modulation matrix (unified modulation; m1) --------------------- */
+    wb_mod_matrix *mod;
 };
+
+/* forward a note event through a track's MIDI FX chain, then to the voice */
+static void engine_route_note(wb_engine *e, int track, const wb_midifx_event *ev) {
+    wb_track_runtime *tr = &e->rtracks[track];
+    if (!tr->voice) return;
+    wb_midifx_event buf[8];
+    int n = 1;
+    buf[0] = *ev;
+    /* run the event through each MIDI FX unit in chain order */
+    for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
+        if (!tr->midifx[s]) continue;
+        int produced = 0;
+        for (int i = 0; i < n && produced < 8; i++)
+            produced += wb_midifx_process(tr->midifx[s], &buf[i], buf + produced, 8 - produced);
+        n = produced > 0 ? produced : n;   /* if a unit swallowed all, stay empty */
+        if (n == 0) return;                /* fully consumed */
+    }
+    /* deliver every emitted event to the instrument voice */
+    for (int i = 0; i < n && i < 8; i++) {
+        int pitch = buf[i].pitch;
+        int vel = buf[i].on ? buf[i].vel : 0;
+        if (tr->voice_unit_id && strcmp(tr->voice_unit_id, "fm") == 0)
+            wb_fm_note(tr->voice, pitch, (uint8_t)vel);
+        else if (tr->voice_unit_id && strcmp(tr->voice_unit_id, "drum") == 0)
+            wb_drum_note(tr->voice, pitch, (uint8_t)vel);
+        else
+            wb_synth_note(tr->voice, pitch, (uint8_t)vel);
+    }
+}
 
 /* drain UI commands (RT thread, once per block) */
 static void engine_process_cmds(wb_engine *e) {
@@ -88,10 +138,25 @@ static void engine_process_cmds(wb_engine *e) {
                 && c.i1 >= 0 && c.i1 < WB_MAX_INSERT_SLOTS)
                 e->rtracks[c.i0].wet[c.i1] = (float)c.f1;
             break;
+        case WB_CMD_SET_SEND_LEVEL:
+            if (e->rtracks && c.i0 >= 0 && c.i0 < (int64_t)WB_MAX_TRACKS
+                && c.i1 >= 0 && c.i1 < (int64_t)WB_MAX_TRACKS)
+                e->rtracks[c.i0].send[c.i1] = (float)c.f0;
+            break;
+        case WB_CMD_SET_SIDECHAIN:
+            if (e->rtracks && c.i0 >= 0 && c.i0 < (int64_t)WB_MAX_TRACKS
+                && c.i1 >= 0 && c.i1 < WB_MAX_INSERT_SLOTS)
+                e->rtracks[c.i0].sidechainSrc[c.i1] = (int)c.i2;
+            break;
         case WB_CMD_NOTE:
-            if (e->rtracks && c.i0 >= 0 && c.i0 < (int64_t)WB_MAX_TRACKS)
-                if (e->rtracks[c.i0].voice)
-                    wb_synth_note(e->rtracks[c.i0].voice, (int)c.i1, (int)c.f0);
+            if (e->rtracks && c.i0 >= 0 && c.i0 < (int64_t)WB_MAX_TRACKS) {
+                wb_midifx_event ev;
+                ev.pitch = (uint8_t)c.i1;
+                ev.vel   = (uint8_t)(int)(c.f0 * 127.0);
+                ev.on    = (int)(c.f0 > 0.0) ? 1 : 0;
+                ev.tick  = 0;
+                engine_route_note(e, (int)c.i0, &ev);
+            }
             break;
         default: break;
         }
@@ -114,6 +179,36 @@ static void stage_schedule(wb_engine *e, uint32_t frames) {
         else
             wb_transport_schedule_notes(tk, e->t.song_pos, frames,
                                         wb_synth_note, tr->voice);
+    }
+}
+
+/* ---- STAGE 1b: clock MIDI FX arpeggiators on a 1/16-note grid ---------- */
+static void stage_midifx_tick(wb_engine *e, uint32_t frames) {
+    if (!e->session || !e->rtracks) return;
+    double spb = 60.0 / (e->t.bpm > 0 ? e->t.bpm : 120.0);   /* sec per beat */
+    double sp16 = spb / 4.0;                                  /* sec per 1/16 */
+    double ticks_d = (frames / (double)e->t.sample_rate) / sp16;/* 1/16 ticks this block */
+    int ticks = (int)(ticks_d + 0.5);
+    if (ticks < 1) ticks = 0;
+    for (uint32_t t = 0; t < e->session->track_count; t++) {
+        wb_track_runtime *tr = &e->rtracks[t];
+        if (!tr->voice) continue;
+        for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
+            if (!tr->midifx[s]) continue;
+            if (wb_midifx_get_type(tr->midifx[s]) != WB_MIDIFX_ARP) continue;
+            wb_midifx_event out[16];
+            int n = wb_midifx_tick(tr->midifx[s], ticks, out, 16);
+            for (int i = 0; i < n; i++) {
+                int pitch = out[i].pitch;
+                int vel = out[i].on ? out[i].vel : 0;
+                if (tr->voice_unit_id && strcmp(tr->voice_unit_id,"fm")==0)
+                    wb_fm_note(tr->voice, pitch, (uint8_t)vel);
+                else if (tr->voice_unit_id && strcmp(tr->voice_unit_id,"drum")==0)
+                    wb_drum_note(tr->voice, pitch, (uint8_t)vel);
+                else
+                    wb_synth_note(tr->voice, pitch, (uint8_t)vel);
+            }
+        }
     }
 }
 
@@ -179,24 +274,51 @@ static void stage_bus(wb_engine *e, uint32_t frames) {
             bus->bufR[i] += tr->bufR[i];
         }
     }
-    /* run each bus's insert chain on its accumulated buffer */
+    /* run each bus's insert chain on its accumulated buffer.
+     * per-slot bypass/wet honored (same contract as track inserts). */
     for (uint32_t t = 0; t < e->session->track_count; t++) {
         wb_track_runtime *tr = &e->rtracks[t];
         if (!tr->active || tr->kind != 2) continue;
         for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
+            if (tr->bypass[s]) continue;
+            float w = tr->wet[s];
+            if (w <= 0.0f) continue;
             void *ins = tr->inserts[s];
             if (!ins) continue;
             const char *id = tr->insert_ids[s];
             const wb_unit *u = id ? wb_unit_find(id) : NULL;
-            if (u && u->vt->process)
+            if (u && u->vt->process) {
+                wb_sample dryL[WB_MAX_BLOCK], dryR[WB_MAX_BLOCK];
+                if (w < 1.0f) {
+                    memcpy(dryL, tr->bufL, frames * sizeof(wb_sample));
+                    memcpy(dryR, tr->bufR, frames * sizeof(wb_sample));
+                }
                 u->vt->process(ins, tr->bufL, tr->bufR, frames);
-            else if (id && strncmp(id,"clap:",5)==0) {
+                if (w < 1.0f) {
+                    for (uint32_t i = 0; i < frames; i++) {
+                        tr->bufL[i] = dryL[i] * (1.0f - w) + tr->bufL[i] * w;
+                        tr->bufR[i] = dryR[i] * (1.0f - w) + tr->bufR[i] * w;
+                    }
+                }
+            } else if (id && strncmp(id,"clap:",5)==0) {
                 const wb_unit *cu = wb_unit_find("clap");
-                if (cu && cu->vt->process) cu->vt->process(ins, tr->bufL, tr->bufR, frames);
-            }
-            else if (id && strcmp(id,"comp")==0)   wb_comp_process(ins, tr->bufL, tr->bufR, frames);
-            else if (id && strcmp(id,"reverb")==0) wb_reverb_process(ins, tr->bufL, tr->bufR, frames);
-            else if (id && strcmp(id,"delay")==0)  wb_delay_process(ins, tr->bufL, tr->bufR, frames);
+                if (cu && cu->vt->process) {
+                    wb_sample dryL[WB_MAX_BLOCK], dryR[WB_MAX_BLOCK];
+                    if (w < 1.0f) {
+                        memcpy(dryL, tr->bufL, frames * sizeof(wb_sample));
+                        memcpy(dryR, tr->bufR, frames * sizeof(wb_sample));
+                    }
+                    cu->vt->process(ins, tr->bufL, tr->bufR, frames);
+                    if (w < 1.0f) {
+                        for (uint32_t i = 0; i < frames; i++) {
+                            tr->bufL[i] = dryL[i] * (1.0f - w) + tr->bufL[i] * w;
+                            tr->bufR[i] = dryR[i] * (1.0f - w) + tr->bufR[i] * w;
+                        }
+                    }
+                }
+            } else if (id && strcmp(id,"comp")==0)   wb_comp_inplace_wet(ins, tr->bufL, tr->bufR, frames, w);
+            else if (id && strcmp(id,"reverb")==0)   wb_reverb_inplace_wet(ins, tr->bufL, tr->bufR, frames, w);
+            else if (id && strcmp(id,"delay")==0)    wb_delay_inplace_wet(ins, tr->bufL, tr->bufR, frames, w);
         }
     }
 }
@@ -204,13 +326,28 @@ static void stage_bus(wb_engine *e, uint32_t frames) {
 /* ---- STAGE 3: effects (run each track's insert chain) ---------------- */
 static void stage_effects(wb_engine *e, uint32_t frames) {
     if (!e->session || !e->rtracks) return;
+    /* aux send tap: after each track's FX, tap its post-FX buffer into any
+     * destination tracks that have a non-zero send level from this source.
+     * This runs BEFORE the FX chain so the send carries the dry signal.
+     * (Post-FX sends: tap AFTER the chain — implemented below after FX.) */
     for (uint32_t t = 0; t < e->session->track_count; t++) {
         wb_track_runtime *tr = &e->rtracks[t];
-        if (!tr->active || tr->kind == 2) continue;  /* buses handled in stage_bus */
+        if (!tr->active || tr->kind == 2) continue;
         /* insert chain, in slot order. Each effect reads+writes the track
          * buffer in place. per-slot bypass/wet: if bypassed, skip; otherwise
          * apply the wet mix (0.0 = fully dry, 1.0 = fully processed). */
         for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
+            /* sidechain: feed the source track's block into this slot's key input
+             * (compressor sidechain). Must run before the comp slot processes. */
+            int sc = tr->sidechainSrc[s];
+            if (sc >= 0 && sc < (int)e->session->track_count && sc != (int)t) {
+                const char *sid = tr->insert_ids[s];
+                if (sid && strcmp(sid, "comp") == 0 && tr->inserts[s]) {
+                    wb_track_runtime *src = &e->rtracks[sc];
+                    if (src->active && src->bufL && src->bufR)
+                        wb_comp_set_key(tr->inserts[s], src->bufL, src->bufR, frames);
+                }
+            }
             if (tr->bypass[s]) continue;
             float w = tr->wet[s];
             if (w <= 0.0f) continue; /* fully dry: no-op, keep buf untouched */
@@ -250,6 +387,41 @@ static void stage_effects(wb_engine *e, uint32_t frames) {
             } else if (id && strcmp(id,"comp")==0)      wb_comp_inplace_wet(ins, tr->bufL, tr->bufR, frames, w);
             else if (id && strcmp(id,"reverb")==0)       wb_reverb_inplace_wet(ins, tr->bufL, tr->bufR, frames, w);
             else if (id && strcmp(id,"delay")==0)        wb_delay_inplace_wet(ins, tr->bufL, tr->bufR, frames, w);
+            else if (id && strncmp(id,"vst3:",5)==0) {
+                /* VST3 plugin: instance stored in the global slot map, keyed
+                 * by track+slot. The "vst3:" prefix identifies the slot as
+                 * holding a VST3 plugin; the plugin name follows the prefix. */
+                const char *vname = id + 5;
+                void *vinst = wb_vst3_slot_get((int)t, s);
+                if (vinst && vname && *vname) {
+                    wb_sample dryL[WB_MAX_BLOCK], dryR[WB_MAX_BLOCK];
+                    if (w < 1.0f) {
+                        memcpy(dryL, tr->bufL, frames * sizeof(wb_sample));
+                        memcpy(dryR, tr->bufR, frames * sizeof(wb_sample));
+                    }
+                    int rc = wb_vst3_process(vinst, tr->bufL, tr->bufR,
+                                             tr->bufL, tr->bufR, frames);
+                    (void)rc;
+                    if (w < 1.0f) {
+                        for (uint32_t i = 0; i < frames; i++) {
+                            tr->bufL[i] = dryL[i] * (1.0f - w) + tr->bufL[i] * w;
+                            tr->bufR[i] = dryR[i] * (1.0f - w) + tr->bufR[i] * w;
+                        }
+                    }
+                }
+            }
+        }
+        /* post-FX aux send tap: send this track's post-FX buffer to any
+         * destination that has send[dst] > 0 from this source track. */
+        for (uint32_t dst = 0; dst < e->session->track_count; dst++) {
+            float sl = tr->send[dst];
+            if (sl <= 0.0f) continue;
+            wb_track_runtime *dt = &e->rtracks[dst];
+            if (!dt->active) continue;
+            for (uint32_t i = 0; i < frames; i++) {
+                dt->bufL[i] += tr->bufL[i] * sl;
+                dt->bufR[i] += tr->bufR[i] * sl;
+            }
         }
     }
 }
@@ -298,6 +470,7 @@ wb_engine *wb_engine_create(void) {
     if (pthread_mutex_init(&e->process_lock, NULL) == 0)
         e->lock_initialized = 1;
     wb_unit_ensure_all();   /* register built-in FX + instruments */
+    e->mod = wb_mod_matrix_create();
     return e;
 }
 
@@ -332,6 +505,7 @@ void wb_engine_destroy(wb_engine *e) {
         if (e->recorders[t]) wb_recorder_destroy(e->recorders[t]);
     free(e->accL);
     free(e->accR);
+    if (e->mod) wb_mod_matrix_destroy(e->mod);
     free(e);
 }
 
@@ -359,6 +533,8 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
                     else if (tr->insert_ids[s] && strcmp(tr->insert_ids[s],"delay")==0)   wb_delay_destroy(tr->inserts[s]);
                 }
             }
+            for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++)
+                if (tr->midifx[s]) { wb_midifx_destroy(tr->midifx[s]); tr->midifx[s] = NULL; }
             free(tr->bufL); free(tr->bufR);
             memset(tr, 0, sizeof(*tr));
         }
@@ -412,6 +588,9 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
             else if (strcmp(id,"reverb") == 0) tr->inserts[slot] = wb_reverb_create(WB_SAMPLE_RATE);
             else if (strcmp(id,"delay") == 0)  tr->inserts[slot] = wb_delay_create(WB_SAMPLE_RATE);
         }
+        /* sync per-slot sidechain routing from session -> runtime (-1 = none) */
+        for (int slot = 0; slot < WB_MAX_INSERT_SLOTS; slot++)
+            tr->sidechainSrc[slot] = s->tracks[i].sidechain[slot];
     }
 }
 
@@ -455,9 +634,133 @@ void wb_engine_record(wb_engine *e, int track, int clip_idx, int on, int overdub
     }
 }
 
+/* ---- VST3 slot map -------------------------------------------------------
+ * Per (track, slot) → VST3 plugin instance pointer. Tracked across render
+ * so the engine can locate the right VST3 instance for process + param ops.
+ * Keyed by (track index, slot index); one slot may hold at most one VST3
+ * instance at a time. Insertion/destruction of VST3 plugins goes through
+ * wb_vst3_slot_set / wb_vst3_slot_clear.
+ */
+
+static void *wb_vst3_slot_map[WB_MAX_TRACKS][WB_MAX_INSERT_SLOTS];
+
+void *wb_vst3_slot_get(int track, int slot) {
+    if (track < 0 || slot < 0 || track >= (int)WB_MAX_TRACKS || slot >= WB_MAX_INSERT_SLOTS)
+        return NULL;
+    return wb_vst3_slot_map[track][slot];
+}
+
+void wb_vst3_slot_set(int track, int slot, void *inst) {
+    if (track < 0 || slot < 0 || track >= (int)WB_MAX_TRACKS || slot >= WB_MAX_INSERT_SLOTS)
+        return;
+    if (wb_vst3_slot_map[track][slot]) {
+        wb_vst3_destroy(wb_vst3_slot_map[track][slot]);
+    }
+    wb_vst3_slot_map[track][slot] = inst;
+}
+
+void wb_vst3_slot_clear(int track, int slot) {
+    if (track < 0 || slot < 0 || track >= (int)WB_MAX_TRACKS || slot >= WB_MAX_INSERT_SLOTS)
+        return;
+    if (wb_vst3_slot_map[track][slot]) {
+        wb_vst3_destroy(wb_vst3_slot_map[track][slot]);
+        wb_vst3_slot_map[track][slot] = NULL;
+    }
+}
+
+/* ---- end VST3 slot map ------------------------------------------------- */
+void wb_unit_set_param(const char *id, void *ins, const char *pname, float v01) {
+    (void)id;
+    if (!ins || !pname) return;
+    const wb_unit *u = wb_unit_find(id);
+    if (u && u->vt->set_param) {
+        u->vt->set_param(ins, pname, v01);
+    }
+}
+
 void wb_engine_set_insert_param(wb_engine *e, int track, int slot, int param, float value) {
-    (void)e; (void)track; (void)slot; (void)param; (void)value;
-    /* TODO: route to the unit's set_param via the insert chain (data-driven). */
+    if (!e) return;
+    if (track < 0 || slot < 0 || track >= (int)WB_MAX_TRACKS || slot >= WB_MAX_INSERT_SLOTS)
+        return;
+    const char *id = e->rtracks[track].insert_ids[slot];
+    if (id && strncmp(id, "vst3:", 5) == 0) {
+        /* VST3 plugin param: route to the VST3 host by param index.
+         * param is the VST3 parameter index (0..getParameterCount-1). */
+        void *vinst = wb_vst3_slot_get(track, slot);
+        if (vinst) {
+            wb_vst3_set_param(vinst, param, value);
+        }
+        return;
+    }
+    if (id && strncmp(id, "clap:", 5) == 0) {
+        /* CLAP plugin param: route via the CLAP host (future work). */
+        return;
+    }
+    /* built-in units: use the vtable's set_param */
+    const wb_unit *u = id ? wb_unit_find(id) : NULL;
+    if (u && u->vt->set_param) {
+        wb_unit_set_param(id, e->rtracks[track].inserts[slot], id, value);
+    }
+}
+
+wb_mod_matrix *wb_engine_get_mod_matrix(wb_engine *e) {
+    return e ? e->mod : NULL;
+}
+
+void wb_engine_set_insert_bypass(wb_engine *e, int track, int slot, int on) {
+    if (!e) return;
+    wb_cmd c = { .type = WB_CMD_SET_INSERT_BYPASS, .i0 = track, .i1 = slot, .f0 = on ? 1.0 : 0.0 };
+    wb_cmd_push(&e->queue, c);
+}
+
+void wb_engine_set_insert_wet(wb_engine *e, int track, int slot, float wet) {
+    if (!e) return;
+    wb_cmd c = { .type = WB_CMD_SET_INSERT_WET, .i0 = track, .i1 = slot, .f1 = wet };
+    wb_cmd_push(&e->queue, c);
+}
+
+void wb_engine_set_send_level(wb_engine *e, int src_track, int dst_track, float level) {
+    if (!e || src_track < 0 || dst_track < 0
+        || src_track >= (int)WB_MAX_TRACKS || dst_track >= (int)WB_MAX_TRACKS)
+        return;
+    /* update session model (persisted in .wbus) */
+    if (e->session && src_track < (int)e->session->track_count
+        && dst_track < (int)e->session->track_count)
+        e->session->tracks[src_track].send[dst_track] = level;
+    /* push to RT cmd queue so the next render block sees it */
+    wb_cmd c = { .type = WB_CMD_SET_SEND_LEVEL, .i0 = src_track, .i1 = dst_track, .f0 = level };
+    wb_cmd_push(&e->queue, c);
+}
+
+void wb_engine_set_insert_sidechain(wb_engine *e, int track, int slot, int src_track) {
+    if (!e || track < 0 || slot < 0 || src_track < -1
+        || track >= (int)WB_MAX_TRACKS || slot >= WB_MAX_INSERT_SLOTS
+        || src_track >= (int)WB_MAX_TRACKS)
+        return;
+    if (e->session && track < (int)e->session->track_count)
+        e->session->tracks[track].sidechain[slot] = src_track;
+    wb_cmd c = { .type = WB_CMD_SET_SIDECHAIN, .i0 = track, .i1 = slot, .i2 = src_track };
+    wb_cmd_push(&e->queue, c);
+}
+
+int wb_engine_set_midifx(wb_engine *e, int track, int slot, wb_midifx_type type) {
+    if (!e || track < 0 || slot < 0 || track >= (int)WB_MAX_TRACKS || slot >= WB_MAX_INSERT_SLOTS)
+        return -1;
+    if (track >= (int)e->session->track_count) return -1;
+    /* destroy any existing unit in this slot (RT-safe: swap under edit lock) */
+    wb_engine_begin_edit(e);
+    if (e->rtracks[track].midifx[slot])
+        wb_midifx_destroy(e->rtracks[track].midifx[slot]);
+    e->rtracks[track].midifx[slot] = (type == WB_MIDIFX_NONE) ? NULL : wb_midifx_create(type);
+    wb_engine_end_edit(e);
+    return 0;
+}
+
+void wb_engine_set_midifx_param(wb_engine *e, int track, int slot, int param, float value) {
+    if (!e || track < 0 || slot < 0 || track >= (int)WB_MAX_TRACKS || slot >= WB_MAX_INSERT_SLOTS)
+        return;
+    if (e->rtracks[track].midifx[slot])
+        wb_midifx_set_param(e->rtracks[track].midifx[slot], param, value);
 }
 
 void wb_engine_begin_edit(wb_engine *e) {
@@ -493,6 +796,17 @@ static void stage_automation(wb_engine *e, uint32_t n) {
     }
 }
 
+/* ---- STAGE: evaluate the modulation matrix and push to param destinations -- */
+static void wb_mod_setter_cb(void *ctx, int track, int slot, int param, float value01) {
+    wb_engine *e = (wb_engine *)ctx;
+    wb_engine_set_insert_param(e, track, slot, param, value01);
+}
+
+static void stage_modulation(wb_engine *e, uint32_t n) {
+    if (!e->mod) return;
+    wb_mod_matrix_eval(e->mod, n, (float)e->t.sample_rate, wb_mod_setter_cb, e);
+}
+
 uint32_t wb_engine_render(wb_engine *e, wb_sample *out, uint32_t n) {
     if (!e || !out || n == 0) return 0;
     if (n > e->acc_cap) return 0;
@@ -510,7 +824,9 @@ uint32_t wb_engine_render(wb_engine *e, wb_sample *out, uint32_t n) {
 
     /* staged pipeline (R002) */
     stage_schedule(e, n);
+    stage_midifx_tick(e, n);
     stage_automation(e, n);
+    stage_modulation(e, n);
     stage_instruments(e, n);
     stage_effects(e, n);
     stage_bus(e, n);

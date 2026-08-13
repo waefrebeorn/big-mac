@@ -6,8 +6,15 @@
 # install, no Homebrew, fully self-contained and portable.
 
 CC       := clang
+CXX      := clang++
 CFLAGS   := -std=c11 -O2 -Wall -Wextra -g -D_THREAD_SAFE
-INC      := -Iinclude -Iinclude/wbus -Ithird_party/SDL2-2.32.10/include
+CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -g -D_THREAD_SAFE
+INC      := -Iinclude -Iinclude/wbus -Ithird_party/SDL2-2.32.10/include \
+           -Ithird_party/vst3sdk \
+           -Ithird_party/vst3sdk/pluginterfaces \
+           -Ithird_party/vst3sdk/pluginterfaces/base \
+           -Ithird_party/vst3sdk/pluginterfaces/vst \
+           -Ithird_party/vst3sdk/public.sdk/source/vst/hosting
 LIBS     := third_party/SDL2-2.32.10/build/.libs/libSDL2.a \
             -lm -lobjc \
             -Wl,-framework,CoreAudio -Wl,-framework,AudioToolbox \
@@ -23,8 +30,21 @@ CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c \
              src/wb_sampler.c src/wb_wav.c src/wb_backend.c \
              src/wb_tuner.c src/wb_ui_font.c src/wb_midi_coremidi.c src/wb_clap.c \
              src/wb_session_file.c src/wb_unit.c src/wb_fm.c src/wb_drums.c \
-             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c
+             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c
+CXX_SRCS := src/wb_vst3_host.cpp \
+             third_party/vst3sdk/public.sdk/source/vst/hosting/module.cpp \
+             third_party/vst3sdk/public.sdk/source/vst/hosting/processdata.cpp \
+             third_party/vst3sdk/public.sdk/source/vst/hosting/parameterchanges.cpp \
+             third_party/vst3sdk/public.sdk/source/vst/utility/stringconvert.cpp \
+             third_party/vst3sdk/public.sdk/source/common/commonstringconvert.cpp \
+             third_party/vst3sdk/pluginterfaces/base/funknown.cpp \
+             third_party/vst3sdk/pluginterfaces/base/coreiids.cpp \
+             third_party/vst3sdk/pluginterfaces/base/ustring.cpp \
+             third_party/vst3sdk/public.sdk/source/vst/vstinitiids.cpp
+MM_OBJS := build/third_party/vst3sdk/public.sdk/source/vst/hosting/module_mac.mm.o
 CORE_OBJS := $(CORE_SRCS:%.c=build/%.o)
+CORE_OBJS += $(CXX_SRCS:%.cpp=build/%.o)
+CORE_OBJS += $(MM_OBJS)
 
 # ---- targets -------------------------------------------------------------
 
@@ -34,22 +54,35 @@ build/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
+build/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(INC) -c $< -o $@
+
+build/third_party/vst3sdk/public.sdk/source/vst/hosting/module_mac.mm.o: third_party/vst3sdk/public.sdk/source/vst/hosting/module_mac.mm
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -fobjc-arc $(INC) -c $< -o $@
+
+build/%.o: %.mm
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -fobjc-arc $(INC) -c $< -o $@
+
 build/wb_daw: build/tools/wb_daw.o $(CORE_OBJS)
-	$(CC) $(CFLAGS) $(INC) -o $@ $^ $(LIBS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ $(LIBS)
 
 build/wb_render: build/tools/wb_render.o $(CORE_OBJS)
-	$(CC) $(CFLAGS) $(INC) -o $@ $^ $(LIBS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ $(LIBS)
 
 build/wb_selftest: build/tools/wb_selftest.o $(CORE_OBJS)
-	$(CC) $(CFLAGS) $(INC) -o $@ $^ $(LIBS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ $(LIBS)
 
 # ---- CLAP host + test plugin --------------------------------------------
+
 build/test-clap/bigmac-test.clap: tests/test_clap_plugin.c
 	@mkdir -p $(dir $@)
 	$(CC) -shared -fPIC -O1 -o $@ $<
 
 build/wb_test_clap: tools/test_clap.c $(CORE_OBJS)
-	$(CC) $(CFLAGS) $(INC) -o $@ $^ $(LIBS) -ldl
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ $(LIBS) -ldl
 
 test-clap: build/test-clap/bigmac-test.clap build/wb_test_clap
 	./build/wb_test_clap build/test-clap

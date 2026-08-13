@@ -28,12 +28,14 @@ typedef enum {
     WB_CMD_SET_INSERT_PARAM,
     WB_CMD_SET_INSERT_BYPASS,
     WB_CMD_SET_INSERT_WET,
+    WB_CMD_SET_SEND_LEVEL,
+    WB_CMD_SET_SIDECHAIN,
 } wb_cmd_type;
 
 typedef struct wb_cmd {
     uint32_t type;
-    int64_t  i0, i1;    /* int payload */
-    double   f0, f1;    /* float payload */
+    int64_t  i0, i1, i2;   /* int payload */
+    double   f0, f1;       /* float payload */
 } wb_cmd;
 
 typedef struct wb_cmd_queue {

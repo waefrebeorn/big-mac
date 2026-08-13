@@ -61,6 +61,22 @@ int wb_session_save(const wb_session *s, const char *path) {
         for (int i = 0; i < WB_MAX_INSERT_SLOTS; i++)
             if (tk->inserts[i].id[0])
                 fprintf(f, "  insert %d \"%s\"\n", i, tk->inserts[i].id);
+        for (int i = 0; i < WB_MAX_INSERT_SLOTS; i++)
+            if (tk->inserts[i].id[0] && (tk->inserts[i].bypass || tk->inserts[i].wet != 1.0f))
+                fprintf(f, "  slot_state %d bypass %d wet %.4f\n", i, tk->inserts[i].bypass, tk->inserts[i].wet);
+        /* sidechain routing: only emit when a key source is set */
+        for (int i = 0; i < WB_MAX_INSERT_SLOTS; i++)
+            if (tk->sidechain[i] >= 0)
+                fprintf(f, "  sidechain %d %d\n", i, tk->sidechain[i]);
+        /* aux send levels: only emit non-zero sends (sparser than emit-all) */
+        int any_send = 0;
+        for (uint32_t d = 0; d < WB_MAX_TRACKS; d++)
+            if (tk->send[d] > 0.0f) { any_send = 1; break; }
+        if (any_send) {
+            for (uint32_t d = 0; d < WB_MAX_TRACKS; d++)
+                if (tk->send[d] > 0.0f)
+                    fprintf(f, "  send %u %.4f\n", d, tk->send[d]);
+        }
         for (uint32_t c = 0; c < tk->clip_count; c++) {
             const wb_clip *cl = &tk->clips[c];
             fprintf(f, "  clip %u start %.3f length %.3f\n", c, cl->start, cl->length);
@@ -133,6 +149,22 @@ wb_session *wb_session_load(const char *path) {
                     tok=next_tok(&ts); int slot = tok?atoi(tok):0;
                     tok=next_tok(&ts); if (tok && slot>=0 && slot<WB_MAX_INSERT_SLOTS)
                         strncpy(tk->inserts[slot].id, tok, 63);
+                }
+                else if (strcmp(tok,"slot_state")==0) {
+                    tok=next_tok(&ts); int slot = tok?atoi(tok):0;
+                    if (slot>=0 && slot<WB_MAX_INSERT_SLOTS) {
+                        tok=next_tok(&ts); if(tok) tk->inserts[slot].bypass = atoi(tok);
+                        tok=next_tok(&ts); if(tok) tk->inserts[slot].wet = (float)atof(tok);
+                    }
+                }
+                else if (strcmp(tok,"send")==0) {
+                    tok=next_tok(&ts); uint32_t dst = tok?atoi(tok):0;
+                    tok=next_tok(&ts); if(tok && dst<WB_MAX_TRACKS) tk->send[dst] = (float)atof(tok);
+                }
+                else if (strcmp(tok,"sidechain")==0) {
+                    tok=next_tok(&ts); int slot = tok?atoi(tok):0;
+                    tok=next_tok(&ts); if (tok && slot>=0 && slot<WB_MAX_INSERT_SLOTS)
+                        tk->sidechain[slot] = atoi(tok);
                 }
                 else if (strcmp(tok,"clip")==0) {;
                     next_tok(&ts); /* clip index */

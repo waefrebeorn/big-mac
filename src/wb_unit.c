@@ -63,6 +63,11 @@ UNIT("delay", wb_delay_create, wb_delay_destroy, wb_delay_process);
 /* reverb */
 UNIT("reverb", wb_reverb_create, wb_reverb_destroy, wb_reverb_process);
 
+/* saturation (af1) */
+UNIT("saturation", wb_sat_create, wb_sat_destroy, wb_sat_process);
+/* gate (af1) */
+UNIT("gate", wb_gate_create, wb_gate_destroy, wb_gate_process);
+
 /* sampler (in-place process + note hook) */
 static void *u_sampler_create(uint32_t sr){ return wb_sampler_create(sr); }
 static void u_sampler_destroy(void *i){ wb_sampler_destroy(i); }
@@ -82,6 +87,8 @@ void wb_unit_ensure_all(void) {
     wb_unit_register(&u_unit_wb_comp_create);
     wb_unit_register(&u_unit_wb_delay_create);
     wb_unit_register(&u_unit_wb_reverb_create);
+    wb_unit_register(&u_unit_wb_sat_create);
+    wb_unit_register(&u_unit_wb_gate_create);
     wb_unit_register(&u_sampler_unit);
     /* new units self-register through their own ensure hooks */
     wb_unit_ensure_fm();

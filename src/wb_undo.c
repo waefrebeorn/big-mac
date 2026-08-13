@@ -33,7 +33,7 @@ static wb_session *replace_session(wb_session **owner, wb_session *replacement) 
 }
 
 wb_undo *wb_undo_create(void) {
-    wb_undo *u = calloc(1, sizeof(*u));
+    wb_undo *u = (wb_undo *)calloc(1, sizeof(*u));
     if (!u) return NULL;
     u->undo_stack = calloc(WB_UNDO_MAX, sizeof(void*));
     u->redo_stack = calloc(WB_UNDO_MAX, sizeof(void*));

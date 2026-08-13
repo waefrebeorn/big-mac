@@ -157,6 +157,26 @@ int wb_session_add_note(wb_track *tr, double start, double dur, int pitch, int v
     return 0;
 }
 
+int wb_session_remove_note(wb_track *tr, double start, int pitch) {
+    if (!tr || tr->clip_count == 0) return -1;
+    /* search the last clip (where add_note appends) */
+    wb_clip *cl = &tr->clips[tr->clip_count - 1];
+    double best_d = 1e18; int best = -1;
+    for (uint32_t i = 0; i < cl->note_count; i++) {
+        double dt = fabs(cl->notes[i].start - start);
+        int dp = abs((int)cl->notes[i].pitch - pitch);
+        double d = dt + dp * 0.001 * (60.0 / 120.0);  /* pitch counts a little */
+        if (dt < 0.25 && dp <= 1 && d < best_d) { best_d = d; best = (int)i; }
+    }
+    if (best < 0) return -1;
+    for (uint32_t i = (uint32_t)best; i + 1 < cl->note_count; i++)
+        cl->notes[i] = cl->notes[i + 1];
+    cl->note_count--;
+    /* NOTE: keep the buffer allocated (do NOT free to NULL) so any undo
+     * snapshot holding a pointer to cl->notes stays valid. note_count==0 is fine. */
+    return 0;
+}
+
 /* ---- demo song --------------------------------------------------------- */
 /* Build a simple demo session: a synth lead line over a bass. This is what
  * the first render/playback exercise uses to prove the engine works. */

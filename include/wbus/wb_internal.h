@@ -60,6 +60,10 @@ void *wb_comp_create(uint32_t sr);
 void  wb_comp_destroy(void *inst);
 void  wb_comp_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 void  wb_comp_inplace_wet(void *inst, wb_sample *L, wb_sample *R, uint32_t n, float w);
+/* sidechain key input: feed external signal (already captured block) into the
+ * compressor's envelope source. keyL/keyR are the source track's block buffers. */
+void  wb_comp_set_key(void *inst, const wb_sample *keyL, const wb_sample *keyR,
+                     uint32_t n);
 
 /* wb_delay.c */
 void *wb_delay_create(uint32_t sr);
@@ -72,6 +76,18 @@ void *wb_reverb_create(uint32_t sr);
 void  wb_reverb_destroy(void *inst);
 void  wb_reverb_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 void  wb_reverb_inplace_wet(void *inst, wb_sample *L, wb_sample *R, uint32_t n, float w);
+
+/* wb_saturation.c — analog-style waveshaper (af1) */
+void *wb_sat_create(uint32_t sr);
+void  wb_sat_destroy(void *inst);
+void  wb_sat_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void  wb_sat_set(void *inst, int param, float v);
+
+/* wb_gate.c — noise gate / expander (af1) */
+void *wb_gate_create(uint32_t sr);
+void  wb_gate_destroy(void *inst);
+void  wb_gate_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void  wb_gate_set(void *inst, int param, float v);
 
 /* wb_sampler.c */
 void *wb_sampler_create(uint32_t sr);

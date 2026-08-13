@@ -11,6 +11,8 @@
 
 #include "wbus.h"
 #include "wbus_midi.h"
+#include "wbus_modulation.h"
+#include "wbus_midifx.h"
 #include "wb_internal.h"
 
 static int failures = 0;
@@ -132,6 +134,33 @@ static void test_units(void) {
     for (int i = 0; i < 256; i++) { L[i] = (float)sin(i * 0.1); R[i] = L[i]; }
     wb_reverb_process(rv, L, R, 256);
     wb_reverb_destroy(rv);
+
+    /* saturation: drives a soft-clipped, louder-thicker signal */
+    void *sat = wb_sat_create(44100);
+    CHECK(sat != NULL, "saturation created");
+    for (int i = 0; i < 256; i++) { L[i] = (float)sin(i * 0.1); R[i] = L[i]; }
+    wb_sat_set(sat, 0, 1.0f);   /* max drive */
+    wb_sat_set(sat, 1, 0.5f);   /* some makeup */
+    wb_sat_process(sat, L, R, 256);
+    int clipped = 0;
+    for (int i = 0; i < 256; i++) if (fabsf(L[i]) > 1.0f) clipped++;
+    CHECK(clipped == 0, "saturation stays within [-1,1] (tanh clamps)");
+    wb_sat_destroy(sat);
+
+    /* gate: silences a sub-threshold signal */
+    void *g = wb_gate_create(44100);
+    CHECK(g != NULL, "gate created");
+    for (int i = 0; i < 256; i++) { L[i] = 0.005f; R[i] = 0.005f; }  /* below threshold */
+    wb_gate_set(g, 0, 0.05f);  /* threshold 0.05 */
+    wb_gate_process(g, L, R, 256);
+    float gpk = 0;
+    for (int i = 0; i < 256; i++) { float a=fabsf(L[i]); if(a>gpk)gpk=a; }
+    CHECK(gpk < 0.005f + 1e-3f, "gate attenuates sub-threshold signal");
+    /* now an above-threshold burst should pass */
+    for (int i = 0; i < 256; i++) { L[i] = (i < 64) ? 0.5f : 0.005f; R[i] = L[i]; }
+    wb_gate_process(g, L, R, 256);
+    CHECK(fabsf(L[10]) > 0.1f, "gate passes above-threshold signal");
+    wb_gate_destroy(g);
 
     /* sampler */
     void *smp = wb_sampler_create(44100);
@@ -592,10 +621,25 @@ static void test_undo(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: wb_session_remove_note (self-contained; does not perturb undo) - */
+static void test_remove_note(void) {
+    printf("test_remove_note\n");
+    wb_session *s = wb_session_create();
+    wb_track *tr = wb_session_add_track(s, "Lead", 0);
+    wb_session_add_note(tr, 0, 44100, 60, 100);
+    wb_session_add_note(tr, 44100, 44100, 64, 100);
+    CHECK(tr->clips[0].note_count == 2, "two notes added");
+    int rc = wb_session_remove_note(tr, 0, 60);
+    CHECK(rc == 0 && tr->clips[0].note_count == 1, "remove_note deletes one note");
+    CHECK(tr->clips[0].notes[0].pitch == 64, "remaining note is the other one");
+    int rc2 = wb_session_remove_note(tr, 44100, 64);
+    CHECK(rc2 == 0 && tr->clips[0].note_count == 0, "remove_note deletes the last note");
+    int rc3 = wb_session_remove_note(tr, 0, 60);
+    CHECK(rc3 == -1, "remove_note on empty clip returns -1 (no crash)");
+    wb_session_destroy(s);
+}
+
 /* ---- test: bus/group routing -------------------------------------------- */
-/* Two tracks routed into a bus (kind 2). The bus's own volume must scale the
- * summed signal that reaches the master, and the routed tracks must NOT reach
- * the master directly (they only reach it via the bus). */
 static void test_bus_routing(void) {
     printf("test_bus_routing\n");
     wb_session *s = wb_session_create();
@@ -669,7 +713,68 @@ static void test_launchpad(void) {
     printf("         grid maps 64 cells -> notes 0..119 (classic Launchpad)\n");
 }
 
-/* ---- test 8: Xrun detection (try-lock drops a block, counts underrun) - */
+/* ---- test: compressor sidechain key input ducks the program signal ------- */
+static void test_sidechain(void) {
+    printf("test_sidechain\n");
+    void *comp = wb_comp_create(44100);
+    CHECK(comp != NULL, "compressor created for sidechain test");
+
+    /* program material: steady -6 dBFS tone-ish signal */
+    wb_sample prog[256];
+    for (int i = 0; i < 256; i++) prog[i] = 0.5f;
+
+    /* pass 1: NO key (normal compression of program only) */
+    wb_sample out_nokey[256];
+    memcpy(out_nokey, prog, sizeof(prog));
+    wb_comp_process(comp, out_nokey, out_nokey, 256);
+    float peak_nokey = 0;
+    for (int i = 0; i < 256; i++) if (fabsf(out_nokey[i]) > peak_nokey) peak_nokey = fabsf(out_nokey[i]);
+
+    /* reset envelope so this is a fair comparison */
+    wb_comp_destroy(comp);
+    comp = wb_comp_create(44100);
+
+    /* pass 2: WITH a loud key signal driving the envelope */
+    wb_sample key[256];
+    for (int i = 0; i < 256; i++) key[i] = 1.0f;  /* full-scale key */
+    wb_comp_set_key(comp, key, key, 256);
+    wb_sample out_key[256];
+    memcpy(out_key, prog, sizeof(prog));
+    wb_comp_process(comp, out_key, out_key, 256);
+    float peak_key = 0;
+    for (int i = 0; i < 256; i++) if (fabsf(out_key[i]) > peak_key) peak_key = fabsf(out_key[i]);
+
+    CHECK(peak_key < peak_nokey, "sidechain key ducks program output (peak_key < peak_nokey)");
+    CHECK(peak_key < 0.5f, "keyed compression attenuates the steady program");
+
+    /* engine routing: build a 2-track session with sidechain 0 -> track1 slot1 */
+    wb_session *s = wb_session_create();
+    s->track_count = 2;
+    s->tracks = calloc(2, sizeof(wb_track));
+    s->tracks[0].kind = 0; s->tracks[0].route = -1;
+    strcpy(s->tracks[0].inserts[0].id, "synth");
+    s->tracks[1].kind = 0; s->tracks[1].route = -1;
+    strcpy(s->tracks[1].inserts[0].id, "synth");
+    strcpy(s->tracks[1].inserts[1].id, "comp");
+    s->tracks[1].sidechain[1] = 0;   /* track1 slot1 keyed from track0 */
+
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    wb_engine_play(e);
+    wb_engine_note(e, 0, 48, 100);  /* kick-ish note on track 0 (key source) */
+    wb_engine_note(e, 1, 36, 100);  /* bass note on track 1 (keyed comp) */
+    wb_sample buf[1024 * 2];
+    for (int b = 0; b < 16; b++) wb_engine_render(e, buf, 1024);
+    CHECK(1, "engine renders with sidechain routing active (no crash)");
+    int nan = 0;
+    for (int i = 0; i < 1024 * 2; i++) if (!isfinite(buf[i])) nan++;
+    CHECK(nan == 0, "sidechain routing produces finite (non-NaN) output");
+
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+    wb_comp_destroy(comp);
+}
+
 static void test_xrun(void) {
     printf("test_xrun\n");
     wb_session *s = wb_session_demo();
@@ -693,6 +798,96 @@ static void test_xrun(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: MIDI FX chain transforms note events ----------------------- */
+static void test_midifx(void) {
+    printf("test_midifx\n");
+    wb_midifx_event in = { .pitch = 60, .vel = 100, .on = 1, .tick = 0 };
+    wb_midifx_event out[8];
+
+    /* transpose +12 */
+    wb_midifx *tp = wb_midifx_create(WB_MIDIFX_TRANSPOSE);
+    wb_midifx_set_param(tp, 0, 12.0f);
+    int n = wb_midifx_process(tp, &in, out, 8);
+    CHECK(n == 1 && out[0].pitch == 72, "transpose +12 maps C4->C5");
+    wb_midifx_destroy(tp);
+
+    /* velocity scale 0.5 */
+    wb_midifx *vel = wb_midifx_create(WB_MIDIFX_VELOCITY);
+    wb_midifx_set_param(vel, 0, 0.5f);
+    n = wb_midifx_process(vel, &in, out, 8);
+    CHECK(n == 1 && out[0].vel == 50, "velocity x0.5 scales 100->50");
+    wb_midifx_destroy(vel);
+
+    /* chord: root +7 (fifth) +12 (octave) => 3 notes */
+    wb_midifx *ch = wb_midifx_create(WB_MIDIFX_CHORD);
+    wb_midifx_set_param(ch, 0, 7.0f);
+    wb_midifx_set_param(ch, 1, 12.0f);
+    n = wb_midifx_process(ch, &in, out, 8);
+    CHECK(n == 3, "chord with 2 intervals emits 3 notes");
+    CHECK(out[0].pitch == 60 && out[1].pitch == 67 && out[2].pitch == 72,
+          "chord intervals correct (root/5th/oct)");
+    wb_midifx_destroy(ch);
+
+    /* arpeggiator: latch 2 held notes, tick emits them in turn */
+    wb_midifx *arp = wb_midifx_create(WB_MIDIFX_ARP);
+    wb_midifx_event n60 = { .pitch = 60, .vel = 100, .on = 1 };
+    wb_midifx_event n64 = { .pitch = 64, .vel = 100, .on = 1 };
+    wb_midifx_event off = { .pitch = 60, .vel = 0,   .on = 0 };
+    wb_midifx_process(arp, &n60, out, 8);   /* latch 60 */
+    wb_midifx_process(arp, &n64, out, 8);   /* latch 64 */
+    int e1 = wb_midifx_tick(arp, 1, out, 16);
+    int e2 = wb_midifx_tick(arp, 1, out + 1, 15);
+    CHECK(e1 == 1 && e2 == 1, "arp emits one note per tick");
+    CHECK((out[0].pitch == 60 && out[1].pitch == 64) ||
+          (out[0].pitch == 64 && out[1].pitch == 60),
+          "arp cycles through held notes");
+    wb_midifx_process(arp, &off, out, 8);   /* release 60 */
+    wb_midifx_tick(arp, 1, out, 16);
+    CHECK(1, "arp handles note release without crash");
+    wb_midifx_destroy(arp);
+}
+
+/* ---- test: modulation matrix drives a parameter over time -------------- */
+static void mod_test_setter(void *ctx, int track, int slot, int param, float value01) {
+    (void)track; (void)slot; (void)param;
+    float *dst = (float*)ctx;
+    if (dst) *dst = value01;
+}
+
+static void test_modulation(void) {
+    printf("test_modulation\n");
+    wb_mod_matrix *m = wb_mod_matrix_create();
+    CHECK(m != NULL, "modulation matrix created");
+
+    /* LFO source at 1 Hz, full depth */
+    wb_mod_src *lfo = wb_mod_src_create(WB_MOD_LFO);
+    lfo->rate = 1.0f;
+    lfo->depth = 1.0f;
+    int sid = wb_mod_matrix_add_src(m, lfo);
+    CHECK(sid == 0, "LFO source added (id 0)");
+
+    /* Route LFO -> track 0, slot 0, param 0, amount 0.5, base 0.5 => 0.25..0.75 */
+    wb_mod_route r = { .src = sid, .track = 0, .slot = 0, .param = 0,
+                       .amount = 0.5f, .base = 0.5f, .enabled = 1 };
+    int rid = wb_mod_matrix_add_route(m, &r);
+    CHECK(rid == 0, "route added (id 0)");
+
+    /* Record the destination values we push through the setter. */
+    float minv = 1e9f, maxv = -1e9f;
+    for (int b = 0; b < 64; b++) {
+        float got = -1.0f;
+        wb_mod_setter cb = mod_test_setter;
+        wb_mod_matrix_eval(m, 512, 44100.0f, cb, &got);
+        if (got < minv) minv = got;
+        if (got > maxv) maxv = got;
+    }
+    CHECK(minv < 0.30f, "LFO modulation reaches low value (< 0.30)");
+    CHECK(maxv > 0.70f, "LFO modulation reaches high value (> 0.70)");
+    CHECK(maxv - minv > 0.3f, "LFO produces a visible swing over time");
+
+    wb_mod_matrix_destroy(m);
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0); /* unbuffered so we see output on crash */
     printf("=== Big Mac DAW self-test gate ===\n");
@@ -710,8 +905,12 @@ int main(void) {
     test_audio_clip();
     test_bus_routing();
     test_undo();
+    test_remove_note();
     test_launchpad();
     test_xrun();
+    test_sidechain();
+    test_modulation();
+    test_midifx();
 
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

@@ -17,6 +17,7 @@
 #include "wbus.h"
 #include "wbus_backend.h"
 #include "wbus_midi.h"
+#include "wbus_vst3.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
 
@@ -51,6 +52,16 @@ typedef struct app {
     int drag_start_x;        /* mouse x where drag began */
     double clip_drag_origin; /* timeline pos where drag began */
 
+    /* zoom / scroll (arrangement navigation) */
+    double view_start;       /* timeline sample at left edge of arrangement */
+    float  visible_secs;     /* seconds visible across the arrangement width */
+
+    /* plugin-parameter editor (per selected track/slot) */
+    int param_view;          /* 1 = showing the param panel */
+    int param_slot;          /* slot whose params are shown */
+    int param_drag;          /* -1 = none, else param index being dragged */
+    int param_drag_x;        /* x where the drag began */
+
     char project_path[512];  /* current .wbus file, "" = unsaved */
 } app;
 
@@ -76,9 +87,21 @@ static void setc(SDL_Renderer *r, Uint8 cr, Uint8 cg, Uint8 cb) {
     SDL_SetRenderDrawColor(r, cr, cg, cb, 255);
 }
 
-/* sample pos -> x in arrangement */
-static int arr_x(double sample_pos) {
-    return GUTTER_W + (int)((sample_pos / WB_SAMPLE_RATE) * PX_PER_SEC);
+/* sample pos -> x in arrangement (respects zoom/scroll view window) */
+static int arr_x(app *a, double sample_pos) {
+    double secs = sample_pos / WB_SAMPLE_RATE;
+    double view_secs = a ? a->visible_secs : VISIBLE_SECS;
+    if (view_secs <= 0.0) view_secs = VISIBLE_SECS;  /* guard div-by-zero */
+    double view0 = (a ? a->view_start : 0) / WB_SAMPLE_RATE;
+    double px = GUTTER_W + (secs - view0) * (ARRANG_W / view_secs);
+    return (int)px;
+}
+
+/* pixels per second for the current view window (zoom-aware). */
+static double arr_px_per_sec(app *a) {
+    double view_secs = a ? a->visible_secs : VISIBLE_SECS;
+    if (view_secs <= 0.0) view_secs = VISIBLE_SECS;
+    return ARRANG_W / view_secs;
 }
 
 #if 0  /* note_name: reserved for the note/arrangement display feature */
@@ -132,7 +155,7 @@ static void draw_transport(app *a) {
 
     /* loop toggle hint */
     wb_ui_draw_text(a->ren, 260, 12, "SPACE play/stop", 1, C_TEXT_DIM);
-    wb_ui_draw_text(a->ren, 260, 32, "L/R seek  B/N bpm  ^O open  ^S save  ^N new", 1, C_TEXT_DIM);
+    wb_ui_draw_text(a->ren, 260, 32, "L/R seek  B/N bpm  P=VST3 edit  wheel=zoom", 1, C_TEXT_DIM);
 
     /* project file name (SOTA: show what's open) */
     {
@@ -165,10 +188,15 @@ static void draw_ruler(app *a) {
     SDL_Rect rr = { GUTTER_W, TRANSPORT_H, ARRANG_W, RULER_H };
     setc(a->ren, C_PANEL2); SDL_RenderFillRect(a->ren, &rr);
 
-    /* bar numbers */
+    /* bar numbers (respect zoom/scroll view window) */
     double bps = a->t.bpm / 60.0;
-    for (int b = 0; b < (int)(VISIBLE_SECS * bps); b++) {
-        int x = GUTTER_W + (int)(b / bps * PX_PER_SEC);
+    double v0 = a->view_start / WB_SAMPLE_RATE;
+    double vis = a->visible_secs;
+    int b0 = (int)(v0 * bps);
+    for (int b = b0; (b - b0) * (1.0/bps) < vis + 1.0/bps; b++) {
+        double sec = b / bps;
+        int x = GUTTER_W + (int)((sec - v0) * (ARRANG_W / vis));
+        if (x < GUTTER_W) continue;
         setc(a->ren, C_GRID); SDL_RenderDrawLine(a->ren, x, TRANSPORT_H, x, TRANSPORT_H+RULER_H);
         char bar[8]; snprintf(bar,sizeof(bar),"%d",b+1);
         wb_ui_draw_text(a->ren, x+3, TRANSPORT_H+6, bar, 1, C_TEXT_DIM);
@@ -184,10 +212,14 @@ static void draw_arrangement(app *a) {
     double track_h = (double)ARRANG_H / (n>0?n:1);
     double bps = a->t.bpm/60.0;
 
-    /* beat grid */
+    /* beat grid (respect zoom/scroll view window) */
     setc(a->ren, C_GRID);
-    for (int b=0;b<(int)(VISIBLE_SECS*bps);b++) {
-        int x = GUTTER_W + (int)(b/bps*PX_PER_SEC);
+    double v0 = a->view_start / WB_SAMPLE_RATE;
+    double vis = a->visible_secs;
+    int b0 = (int)(v0 * bps);
+    for (int b=b0; (b - b0) * (1.0/bps) < vis + 1.0/bps; b++) {
+        int x = GUTTER_W + (int)(((b/bps) - v0) * (ARRANG_W / vis));
+        if (x < GUTTER_W) continue;
         SDL_RenderDrawLine(a->ren, x, TRANSPORT_H+RULER_H, x, TRANSPORT_H+RULER_H+ARRANG_H);
     }
 
@@ -214,8 +246,8 @@ static void draw_arrangement(app *a) {
             wb_clip *cl = &tr->clips[c];
             if (cl->type == 1 && cl->audio_data && cl->audio_frames > 0) {
                 /* audio clip: draw a peak-envelope waveform */
-                int wx = arr_x(cl->start);
-                int ww = (int)((cl->length/WB_SAMPLE_RATE)*PX_PER_SEC);
+                int wx = arr_x(a, cl->start);
+                int ww = (int)((cl->length/WB_SAMPLE_RATE)*arr_px_per_sec(a));
                 if (ww < 4) ww = 4;
                 SDL_Rect clipbox = { wx, y+4, ww, th-8 };
                 if (clipbox.x < GUTTER_W) { int over = GUTTER_W-clipbox.x; clipbox.w -= over; clipbox.x = GUTTER_W; }
@@ -254,8 +286,8 @@ static void draw_arrangement(app *a) {
                 wb_note *nt = &cl->notes[k];
                 double s = cl->start + nt->start;
                 double dur = nt->dur;
-                int x = arr_x(s);
-                int w = (int)((dur/WB_SAMPLE_RATE)*PX_PER_SEC); if(w<3)w=3;
+                int x = arr_x(a, s);
+                int w = (int)((dur/WB_SAMPLE_RATE)*arr_px_per_sec(a)); if(w<3)w=3;
                 /* pitch maps to vertical: full lane = PITCH_SPAN semitones, low at bottom */
                 int span = 24;  /* 2 octaves visible per lane */
                 int row = nt->pitch % span;
@@ -268,7 +300,7 @@ static void draw_arrangement(app *a) {
     }
 
     /* playhead */
-    int px = arr_x(a->t.song_pos);
+    int px = arr_x(a, a->t.song_pos);
     setc(a->ren, C_PLAY);
     SDL_RenderDrawLine(a->ren, px, TRANSPORT_H, px, TRANSPORT_H+RULER_H+ARRANG_H);
     SDL_Rect head = { px-3, TRANSPORT_H, 7, 8 };
@@ -345,6 +377,64 @@ static void draw_mixer(app *a) {
     }
 }
 
+/* ---- VST3 parameter editor panel -------------------------------------- */
+#define PED_X        GUTTER_W
+#define PED_Y        (TRANSPORT_H + RULER_H + 8)
+#define PED_W        400
+#define PED_ROW_H    19
+#define PED_TITLE_H  22
+#define PED_SLIDER_X (PED_X + 150)
+#define PED_SLIDER_W 210
+#define PED_MAX_ROWS 18
+
+/* Draw the VST3 parameter editor for the selected track's param_slot.
+ * Shows nothing if the slot isn't a VST3 plugin or the editor is off. */
+static void draw_param_editor(app *a) {
+    if (!a->param_view || !a->session) return;
+    int ti = a->selected_track;
+    if (ti < 0 || ti >= (int)a->session->track_count) return;
+    wb_track *tr = &a->session->tracks[ti];
+    const char *id = tr->inserts[a->param_slot].id;
+    if (!id || strncmp(id, "vst3:", 5) != 0) {
+        /* slot has no VST3 plugin — tell the user how to change slot */
+        SDL_Rect panel = { PED_X, PED_Y, PED_W, PED_TITLE_H + 16 };
+        setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &panel);
+        char msg[80]; snprintf(msg, sizeof(msg), "slot %d: not a VST3 (^/up-down to switch)", a->param_slot);
+        wb_ui_draw_text(a->ren, PED_X+8, PED_Y+6, msg, 1, C_TEXT_DIM);
+        return;
+    }
+    void *inst = wb_vst3_slot_get(ti, a->param_slot);
+    if (!inst) return;
+    int n = wb_vst3_param_count(inst);
+    int rows = n < PED_MAX_ROWS ? n : PED_MAX_ROWS;
+    int ph = PED_TITLE_H + rows * PED_ROW_H + 8;
+    SDL_Rect panel = { PED_X, PED_Y, PED_W, ph };
+    setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &panel);
+    setc(a->ren, C_BG); SDL_RenderDrawRect(a->ren, &panel);
+
+    char title[96];
+    snprintf(title, sizeof(title), "VST3: %s  (slot %d, %d params)", id+5, a->param_slot, n);
+    wb_ui_draw_text(a->ren, PED_X+8, PED_Y+5, title, 1, C_ACCENT);
+
+    for (int i = 0; i < rows; i++) {
+        int ry = PED_Y + PED_TITLE_H + i * PED_ROW_H;
+        char pname[64];
+        if (wb_vst3_param_name(inst, i, pname, sizeof(pname)) < 0) pname[0] = '\0';
+        wb_ui_draw_text(a->ren, PED_X+8, ry+3, pname, 1, (i==a->param_drag)?C_NOTE:C_TEXT);
+        /* slider track */
+        SDL_Rect sb = { PED_SLIDER_X, ry+4, PED_SLIDER_W, PED_ROW_H-9 };
+        setc(a->ren, C_LANE_A); SDL_RenderFillRect(a->ren, &sb);
+        float v = wb_vst3_get_param(inst, i);
+        int kx = PED_SLIDER_X + (int)(v * (PED_SLIDER_W-6));
+        if (kx < PED_SLIDER_X) kx = PED_SLIDER_X;
+        if (kx > PED_SLIDER_X+PED_SLIDER_W-6) kx = PED_SLIDER_X+PED_SLIDER_W-6;
+        SDL_Rect knob = { kx, ry+2, 6, PED_ROW_H-5 };
+        setc(a->ren, C_NOTE); SDL_RenderFillRect(a->ren, &knob);
+        char val[12]; snprintf(val, sizeof(val), "%.2f", v);
+        wb_ui_draw_text(a->ren, PED_SLIDER_X+PED_SLIDER_W+8, ry+3, val, 1, C_TEXT_DIM);
+    }
+}
+
 static void render(app *a) {
     wb_engine_get_transport(a->engine, &a->t);
     setc(a->ren, C_BG); SDL_RenderClear(a->ren);
@@ -352,6 +442,7 @@ static void render(app *a) {
     draw_ruler(a);
     draw_arrangement(a);
     draw_mixer(a);
+    draw_param_editor(a);
     SDL_RenderPresent(a->ren);
 }
 
@@ -421,12 +512,17 @@ static int save_project(app *a, const char *path) {
 }
 
 /* ---- arrangement interaction ------------------------------------------- */
-/* Convert a screen x in the arrangement to a sample position (clamped to 0). */
-static double x_to_sample(int x) {
+/* Convert a screen x in the arrangement to a sample position (clamped to 0).
+ * Zoom-aware: inverts the same window math arr_x() uses. */
+static double x_to_sample(app *a, int x) {
     if (x < GUTTER_W) x = GUTTER_W;
     int maxx = GUTTER_W + ARRANG_W;
     if (x > maxx) x = maxx;
-    double secs = (double)(x - GUTTER_W) / PX_PER_SEC;
+    double vis = a ? a->visible_secs : VISIBLE_SECS;
+    if (vis <= 0.0) vis = VISIBLE_SECS;
+    double view0 = a ? a->view_start / WB_SAMPLE_RATE : 0.0;
+    double secs = view0 + (double)(x - GUTTER_W) / (ARRANG_W / vis);
+    if (secs < 0) secs = 0;
     return secs * WB_SAMPLE_RATE;
 }
 
@@ -455,6 +551,29 @@ static int y_to_pitch(app *a, int ti, int y) {
 }
 
 static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
+    /* If the VST3 param editor is open and the click lands on a slider row,
+     * arm that parameter for dragging (motion handler does the rest). */
+    if (a->param_view && b.button == SDL_BUTTON_LEFT) {
+        int ti = a->selected_track;
+        if (ti >= 0 && ti < (int)a->session->track_count) {
+            const char *id = a->session->tracks[ti].inserts[a->param_slot].id;
+            void *inst = (id && strncmp(id,"vst3:",5)==0) ? wb_vst3_slot_get(ti, a->param_slot) : NULL;
+            if (inst && b.x >= PED_SLIDER_X-4 && b.x <= PED_SLIDER_X+PED_SLIDER_W+4
+                && b.y >= PED_Y+PED_TITLE_H && b.y <= PED_Y+PED_TITLE_H+PED_MAX_ROWS*PED_ROW_H) {
+                int row = (b.y - (PED_Y+PED_TITLE_H)) / PED_ROW_H;
+                int n = wb_vst3_param_count(inst);
+                if (row >= 0 && row < n) {
+                    a->param_drag = row;
+                    /* apply initial value at click x */
+                    float v = (float)(b.x - PED_SLIDER_X) / PED_SLIDER_W;
+                    if (v<0) v=0; if (v>1) v=1;
+                    wb_vst3_set_param(inst, row, v);
+                    wb_engine_set_insert_param(a->engine, ti, a->param_slot, row, v);
+                    return;
+                }
+            }
+        }
+    }
     if (!a->session || b.x < GUTTER_W) return;
     int ti = y_to_track(a, b.y);
     if (ti < 0) return;
@@ -463,7 +582,7 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
     Uint32 btn = b.button;
     if (btn == SDL_BUTTON_LEFT) {
         /* seek playhead to click position (scrub-on-click) */
-        double pos = x_to_sample(b.x);
+        double pos = x_to_sample(a, b.x);
         wb_engine_seek(a->engine, pos);
         a->clip_drag_origin = pos;
         /* piano-roll: left-click in an empty lane adds a note (1 beat, mid vel) */
@@ -478,7 +597,7 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
     /* right-click toggles mute on the track under cursor OR deletes a note */
     if (btn == SDL_BUTTON_RIGHT) {
         int pitch = y_to_pitch(a, ti, b.y);
-        double start = x_to_sample(b.x) / WB_SAMPLE_RATE;
+        double start = x_to_sample(a, b.x) / WB_SAMPLE_RATE;
         if (wb_session_remove_note(&a->session->tracks[ti], start, pitch) == 0) {
             wb_engine_set_session(a->engine, a->session);
         } else {
@@ -486,6 +605,70 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
             wb_engine_set_session(a->engine, a->session);
         }
     }
+}
+
+/* Total song length in samples (for scroll clamping). Falls back to a
+ * generous default if the session length wasn't set. */
+static double song_len_samples(app *a) {
+    double len = a->session ? a->session->length : 0;
+    if (len <= 0) {
+        /* derive from longest clip end if length is unset */
+        double mx = 30.0 * WB_SAMPLE_RATE;
+        if (a->session) {
+            for (uint32_t ti = 0; ti < a->session->track_count; ti++) {
+                wb_track *tr = &a->session->tracks[ti];
+                for (uint32_t c = 0; c < tr->clip_count; c++) {
+                    wb_clip *cl = &tr->clips[c];
+                    double end = cl->start + cl->length;
+                    if (end > mx) mx = end;
+                }
+            }
+        }
+        return mx;
+    }
+    return len;
+}
+
+/* Mouse wheel: horizontal scroll (shift+wheel) or vertical scroll;
+ * plain wheel zooms the timeline around the cursor. */
+static void handle_wheel(app *a, SDL_MouseWheelEvent w) {
+    if (!a->session) return;
+    int mx = ARRANG_W / 2 + GUTTER_W;  /* zoom anchor: center of arrangement */
+    if (w.x != 0 || (SDL_GetModState() & KMOD_SHIFT)) {
+        /* horizontal scroll (or shift+wheel) — pan the view */
+        double px = (w.x != 0 ? w.x : w.y);
+        a->view_start += px * 0.10 * a->visible_secs * WB_SAMPLE_RATE;
+    } else {
+        /* plain vertical wheel — zoom in/out around the anchor */
+        double factor = w.y > 0 ? 0.85 : 1.18;
+        double newvis = a->visible_secs * factor;
+        if (newvis < 1.0)  newvis = 1.0;
+        if (newvis > 600.0) newvis = 600.0;
+        /* keep the anchor sample fixed on screen while changing span */
+        double anchor_sec = (mx - GUTTER_W) / (ARRANG_W / a->visible_secs);
+        double anchor_song = a->view_start / WB_SAMPLE_RATE + anchor_sec;
+        a->visible_secs = newvis;
+        a->view_start = (anchor_song - (mx - GUTTER_W) / (ARRANG_W / newvis)) * WB_SAMPLE_RATE;
+    }
+    /* clamp view_start so the window stays within [0, song_len - vis] */
+    double max_start = song_len_samples(a) - a->visible_secs * WB_SAMPLE_RATE;
+    if (max_start < 0) max_start = 0;
+    if (a->view_start < 0) a->view_start = 0;
+    if (a->view_start > max_start) a->view_start = max_start;
+}
+
+/* Mouse motion: drag a parameter slider when one is armed. */
+static void handle_motion(app *a, SDL_MouseMotionEvent m) {
+    if (!a->param_view || a->param_drag < 0 || !a->session) return;
+    int ti = a->selected_track;
+    if (ti < 0) return;
+    void *inst = wb_vst3_slot_get(ti, a->param_slot);
+    if (!inst) { a->param_drag = -1; return; }
+    int sx = PED_SLIDER_X, ex = PED_SLIDER_X + PED_SLIDER_W;
+    float v = (float)(m.x - sx) / (ex - sx);
+    if (v < 0) v = 0; if (v > 1) v = 1;
+    wb_vst3_set_param(inst, a->param_drag, v);
+    wb_engine_set_insert_param(a->engine, ti, a->param_slot, a->param_drag, v);
 }
 
 static void handle_key(app *a, SDL_Keycode k) {
@@ -518,7 +701,29 @@ static void handle_key(app *a, SDL_Keycode k) {
     case SDLK_o:
         if (ctrl) load_project(a, "/tmp/bigmac_proj.wbus"); /* Ctrl+O: open demo project */
         break;
-    case SDLK_ESCAPE: case SDLK_q: running = 0; break;
+    case SDLK_p:
+        /* toggle the VST3 parameter editor for the selected track */
+        a->param_view = !a->param_view;
+        a->param_drag = -1;
+        if (a->selected_track >= 0)
+            printf("param editor: %s (track %d, slot %d)\n",
+                   a->param_view ? "OPEN" : "closed", a->selected_track, a->param_slot);
+        break;
+    case SDLK_UP: case SDLK_DOWN:
+        /* switch the VST3 slot being edited (only when editor is open) */
+        if (a->param_view) {
+            int dir = (k == SDLK_UP) ? -1 : 1;
+            a->param_slot += dir;
+            if (a->param_slot < 0) a->param_slot = 0;
+            if (a->param_slot >= WB_MAX_INSERT_SLOTS) a->param_slot = WB_MAX_INSERT_SLOTS - 1;
+            a->param_drag = -1;
+        }
+        break;
+    case SDLK_ESCAPE:
+        if (a->param_view) { a->param_view = 0; a->param_drag = -1; }
+        else { running = 0; }
+        break;
+    case SDLK_q: running = 0; break;
     default: break;
     }
 }
@@ -551,6 +756,15 @@ int main(int argc, char **argv) {
     }
     wb_engine_set_session(a->engine, a->session);
     wb_engine_play(a->engine);   /* show the playhead + playing state */
+
+    /* arrangement view window (zoom/scroll): start fully zoomed-out to the
+     * default span. visible_secs MUST be nonzero or arr_x() divides by zero. */
+    a->view_start   = 0.0;
+    a->visible_secs = VISIBLE_SECS;
+    a->param_view   = 0;
+    a->param_slot   = 0;
+    a->param_drag   = -1;
+    a->param_drag_x = 0;
 
     a->win = SDL_CreateWindow("Big Mac DAW", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                               WIN_W, WIN_H, SDL_WINDOW_SHOWN);
@@ -609,7 +823,10 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&ev)) {
             if (ev.type==SDL_QUIT) running=0;
             else if (ev.type==SDL_KEYDOWN) handle_key(a, ev.key.keysym.sym);
+            else if (ev.type==SDL_MOUSEWHEEL) handle_wheel(a, ev.wheel);
+            else if (ev.type==SDL_MOUSEMOTION) handle_motion(a, ev.motion);
             else if (ev.type==SDL_MOUSEBUTTONDOWN) handle_mouse(a, ev.button);
+            else if (ev.type==SDL_MOUSEBUTTONUP) a->param_drag = -1;
         }
         render(a);
         SDL_Delay(16);

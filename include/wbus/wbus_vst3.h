@@ -65,6 +65,13 @@ int wb_vst3_process(void* inst, const float* inL, const float* inR,
  * plugin's internal parameter index. Returns the cached value. */
 float wb_vst3_get_param(void* inst, int param_index);
 
+/* Number of parameters the plugin exposes. 0 if no controller. */
+int   wb_vst3_param_count(void* inst);
+
+/* Copy the title of parameter `idx` into `out` (sized `outsz`).
+ * Returns characters written (excl. NUL), or -1 on error. */
+int   wb_vst3_param_name(void* inst, int idx, char* out, int outsz);
+
 /* Set a plugin parameter value (normalized 0..1). Caches the value and
  * attempts to push to the VST3 controller. Returns 0 on success. */
 int wb_vst3_set_param(void* inst, int param_index, float value);
@@ -76,6 +83,11 @@ int wb_vst3_get_info(void* inst, char* name, int name_sz,
 
 /* Get the last error message (if any). NULL if no error. Caller must not free. */
 const char* wb_vst3_error(void);
+
+/* Look up the live VST3 instance bound to a track+slot (NULL if none).
+ * The engine stores instances in a track/slot map; the DAW uses this to
+ * enumerate and edit plugin parameters. Caller must not free the handle. */
+void* wb_vst3_slot_get(int track, int slot);
 
 #ifdef __cplusplus
 }

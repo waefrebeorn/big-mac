@@ -322,6 +322,30 @@ extern "C" float  wb_vst3_get_param(void *h, int param_index) {
     return (float)v->controller->getParamNormalized((Vst::ParamID)param_index);
 }
 
+extern "C" int  wb_vst3_param_count(void *h) {
+    if (!h) return 0;
+    wb_vst3_inst *v = (wb_vst3_inst *)h;
+    if (!v->controller) return 0;
+    return (int)v->controller->getParameterCount();
+}
+
+extern "C" int  wb_vst3_param_name(void *h, int idx, char *out, int outsz) {
+    if (!h || !out || outsz <= 0) return -1;
+    wb_vst3_inst *v = (wb_vst3_inst *)h;
+    if (!v->controller) { out[0] = '\0'; return -1; }
+    Vst::ParameterInfo info;
+    memset(&info, 0, sizeof(info));
+    if (v->controller->getParameterInfo((int32)idx, info) != S::kResultOk) { out[0] = '\0'; return -1; }
+    /* TChar is UTF-16 (char16_t), so no wcslen — measure manually, then
+     * down-copy the low byte (ASCII/UTF-8 titles cover the common case). */
+    int n = 0;
+    while (info.title[n] != 0 && n < (int)(sizeof(info.title)/sizeof(info.title[0]))) n++;
+    if (n >= outsz) n = outsz - 1;
+    for (int i = 0; i < n; i++) out[i] = (char)info.title[i];
+    out[n] = '\0';
+    return n;
+}
+
 extern "C" int    wb_vst3_set_param(void *h, int param_index, float value) {
     if (!h) return -1;
     wb_vst3_inst *v = (wb_vst3_inst *)h;

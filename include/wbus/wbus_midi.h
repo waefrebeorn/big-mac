@@ -50,18 +50,73 @@ void wb_midi_close(wb_midi *m);
 int wb_midi_open_output(wb_midi *m, const char *substr);
 
 /* ---- MIDI output (controller LED / feedback / sysex) ------------------- */
+/* Create a headless MIDI handle with NO device attached (for testing /
+ * inspection only). All wb_midi_send / wb_midi_send_sysex calls will fail to
+ * reach hardware but can be captured via wb_midi_capture(). Returns NULL on
+ * alloc failure. Free with wb_midi_close(). */
+wb_midi *wb_midi_create_null(void);
+
+/* Enable a capture buffer: every sent byte (short + sysex) is appended here
+ * so headless tests can assert exact wire bytes. Pass buf=NULL to disable. */
+int wb_midi_capture(wb_midi *m, uint8_t *buf, int cap);
+int wb_midi_capture_len(wb_midi *m);
 /* Send a short (3-byte) MIDI message on the given output destination.
  * `status` is the raw status byte (e.g. 0x90 note-on), data1/data2 follow.
  * Returns 0 on success, -1 on error. Not RT-safe (CoreMIDI send). */
 int wb_midi_send(wb_midi *m, uint8_t status, uint8_t data1, uint8_t data2);
 
-/* ---- Launchpad LED feedback (via MIDI output) ------------------------- */
+/* Send a raw SysEx (or any) byte stream on the output destination. Used for
+ * Launchpad Mk2 RGB LED control. `data` must be a complete message beginning
+ * with 0xF0 and ending with 0xF7. Returns 0 on success, -1 on error. */
+int wb_midi_send_sysex(wb_midi *m, const uint8_t *data, int len);
+
+/* ---- Launchpad Mk2 (our own driver, C11, class-compliant) ------------- */
+#define WB_LP_MK2_COLS 8
+#define WB_LP_MK2_ROWS 8
+
+/* Grid (row,col) -> Mk2 MIDI note. Mk2 layout is 11 + col + row*10
+ * (NOT the classic Launchpad's row*16+col). Returns -1 if out of bounds. */
+int  wb_lp_mk2_note(int row, int col);
+
+/* Top-row button index (0..7) -> Mk2 MIDI note (91..98). */
+int  wb_lp_mk2_top_note(int idx);
+
+/* State colors we encode on the grid (R006 §4: color = meaning). */
+typedef enum {
+    WB_LP_OFF=0, WB_LP_WHITE=1, WB_LP_GREEN=2, WB_LP_AMBER=3,
+    WB_LP_BLUE=4, WB_LP_RED=5, WB_LP_DIM=6, WB_LP_CYAN=7
+} wb_lp_color;
+
+/* Set a pad to a named state color (maps to an RGB triple, each 0..63). */
+int  wb_lp_mk2_led(wb_midi *m, int row, int col, wb_lp_color c);
+/* Set a pad / top button to an explicit RGB color (each channel 0..63). */
+int  wb_lp_mk2_led_rgb(wb_midi *m, int row, int col, uint8_t r, uint8_t g, uint8_t b);
+int  wb_lp_mk2_top_rgb(wb_midi *m, int idx, uint8_t r, uint8_t g, uint8_t b);
+/* Clear the whole grid (RGB all-off SysEx). */
+int  wb_lp_mk2_clear(wb_midi *m);
+/* Map a named state color to its RGB triple (r,g,b each 0..63). */
+void wb_lp_color_rgb(wb_lp_color c, uint8_t *r, uint8_t *g, uint8_t *b);
+
+/* Scale helpers (R006 §3: scale lock, owned) ----------------------- */
+/* scale_type: 0=major 1=natural minor 2=dorian 3=mixolydian 4=chromatic
+ * (chromatic treats every note as in-scale). Returns 1 if `note` is in the
+ * scale rooted at `scale_root` (0..11), else 0. */
+int  wb_scale_contains(int scale_root, int scale_type, int note);
+/* Snap a raw MIDI note to the nearest in-scale note (returns a MIDI note). */
+int  wb_scale_snap(int scale_root, int scale_type, int note);
+
+/* ---- Launchpad LED feedback (classic LP — kept for backward compat) --- */
 /* A Launchpad shows its 8x8 grid as MIDI notes; sending a note-on sets the
  * LED color (velocity = color on the classic Launchpad). These helpers map
- * grid (row,col) to note and send the color. row/col are 0..7. */
-int wb_launchpad_led(wb_midi *m, int row, int col, uint8_t color);
-int wb_launchpad_note(int row, int col);      /* pure grid→note mapping */
-int wb_launchpad_clear(wb_midi *m);   /* turn all grid LEDs off */
+ * grid (row,col) to note and send the color. row/col are 0..7.
+ * NOTE: the Mk2 uses a DIFFERENT layout + RGB SysEx — use wb_lp_mk2_* for it. */
+int wb_launchpad_classic_led(wb_midi *m, int row, int col, uint8_t color);
+int wb_launchpad_classic_note(int row, int col);      /* pure grid→note mapping */
+int wb_launchpad_classic_clear(wb_midi *m);   /* turn all grid LEDs off */
+
+/* Mk2 inverse: MIDI note → grid (row,col). Returns 0 on success, -1 if note
+ * is not a Mk2 grid or top-row note. Fills *row,*col (0..7). */
+int wb_lp_mk2_row_col_from_note(int note, int *row, int *col);
 
 #ifdef __cplusplus
 }

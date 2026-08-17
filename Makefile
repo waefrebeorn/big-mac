@@ -92,6 +92,14 @@ test-clap: build/test-clap/bigmac-test.clap build/wb_test_clap
 test: build/wb_selftest
 	./build/wb_selftest
 
+test_launchpad_mk2: build/wb_test_launchpad_mk2
+	./build/wb_test_launchpad_mk2
+
+# ---- mk2 driver test ----------------------------------------------------
+
+build/wb_test_launchpad_mk2: tests/test_launchpad_mk2.c $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm -lobjc -Wl,-framework,CoreMIDI -Wl,-framework,CoreFoundation $(LIBS)
+
 # ---- misc -----------------------------------------------------------------
 
 clean:

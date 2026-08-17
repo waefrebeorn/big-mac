@@ -716,28 +716,40 @@ static void test_bus_routing(void) {
     wb_session_destroy(s);
 }
 
-/* ---- test: Launchpad grid→note mapping (pure logic, no hardware) ------- */
+/* ---- test: Launchpad grid→note mapping (classic LP, pure logic) ------- */
 static void test_launchpad(void) {
     printf("test_launchpad\n");
-    /* grid corners */
-    CHECK(wb_launchpad_note(0,0) == 0,    "grid (0,0) -> note 0");
-    CHECK(wb_launchpad_note(0,7) == 7,    "grid (0,7) -> note 7");
-    CHECK(wb_launchpad_note(1,0) == 16,   "grid (1,0) -> note 16");
-    CHECK(wb_launchpad_note(7,7) == 119,  "grid (7,7) -> note 119");
+    /* grid corners — classic Launchpad layout: row*16 + col */
+    CHECK(wb_launchpad_classic_note(0,0) == 0,    "grid (0,0) -> note 0");
+    CHECK(wb_launchpad_classic_note(0,7) == 7,    "grid (0,7) -> note 7");
+    CHECK(wb_launchpad_classic_note(1,0) == 16,   "grid (1,0) -> note 16");
+    CHECK(wb_launchpad_classic_note(7,7) == 119,  "grid (7,7) -> note 119");
     /* out of range is rejected */
-    CHECK(wb_launchpad_note(-1,0) == -1,  "negative row rejected");
-    CHECK(wb_launchpad_note(8,0)  == -1,  "row>7 rejected");
-    CHECK(wb_launchpad_note(0,8)  == -1,  "col>7 rejected");
+    CHECK(wb_launchpad_classic_note(-1,0) == -1,  "negative row rejected");
+    CHECK(wb_launchpad_classic_note(8,0)  == -1,  "row>7 rejected");
+    CHECK(wb_launchpad_classic_note(0,8)  == -1,  "col>7 rejected");
     /* full 8x8 grid covers exactly 0..119 in 16-steps */
     int seen[120] = {0}; int ok = 1;
     for (int r = 0; r < 8; r++)
         for (int c = 0; c < 8; c++) {
-            int n = wb_launchpad_note(r, c);
+            int n = wb_launchpad_classic_note(r, c);
             if (n < 0 || n > 119 || seen[n]) ok = 0;
             seen[n] = 1;
         }
-    CHECK(ok, "8x8 grid maps to 64 unique notes in 0..119");
+    CHECK(ok, "8x8 grid maps to 64 unique notes in 0..119 (classic)");
+    CHECK(wb_lp_mk2_note(0,0) == 11,  "MK2 grid (0,0) -> note 11");
+    CHECK(wb_lp_mk2_note(7,7) == 88,  "MK2 grid (7,7) -> note 88");
+    CHECK(wb_lp_mk2_note(-1,0) == -1, "MK2 negative row rejected");
+    int seen2[128] = {0}; int ok2 = 1;
+    for (int r = 0; r < 8; r++)
+        for (int c = 0; c < 8; c++) {
+            int n = wb_lp_mk2_note(r, c);
+            if (n < 11 || n > 88 || seen2[n]) ok2 = 0;
+            seen2[n] = 1;
+        }
+    CHECK(ok2, "MK2 8x8 grid maps to 64 unique notes in 11..88");
     printf("         grid maps 64 cells -> notes 0..119 (classic Launchpad)\n");
+    printf("         MK2 grid maps 64 cells -> notes 11..88\n");
 }
 
 /* ---- test: compressor sidechain key input ducks the program signal ------- */

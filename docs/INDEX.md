@@ -36,5 +36,13 @@ try-lock, DAG worker model.
 | Sends/returns/aux (pre/post-fader sends from any track to any bus; parallel FX return tracks; sidechain-capable compressor key input) |
 | Per-insert wet/dry mix + per-slot bypass toggles (bus + track) |
 | Per-insert on/off bypass (track + bus insert slots) |
+| **Launchpad Mk2 driver (our own, C11)** — see R006/R007. Current `wb_launchpad_*` uses the *classic* `row*16+col` + velocity-color map, which is WRONG for Mk2 (Mk2 = `11+col+row*10` + RGB SysEx `F0 00 20 29 02 18 0B n r g b F7`). Need `wb_lp_mk2_*` + `wb_midi_send_sysex` + `wb_scale_*`. |
+| **Tabbed UI** — KEYS / PAD (Mk2 piano roll) / STEP / SESSION as one editable clip object (R006 convergence: kill the Session-vs-Arrangement metaphor gap). |
+| **Scale lock** — pick root+type once, both rolls snap in-key; Mk2 lights in-scale pads (FL/Ableton "scale highlighting" owned). |
+| **Color = state** on Mk2 grid (playhead=white, loop=amber, clip=green, sel=blue, off-scale=dim). |
 
-Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done — next is the mixing topology above, not more RT-pattern work.
+## Research docs
+- `R006-launchpad-ux-research.md` — 7-hop Kevin Bacon (25 sources, 8 domains): convergent truth = one owned surface, scale-locked, color-coded, no menu-diving.
+- `R007-launchpad-mk2-driver-and-tabs.md` — applied spec: Mk2 byte-exact protocol, C11 driver API, tabbed UI, scale lock, verification plan, build order.
+
+Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done — next is the mixing topology above, not more RT-pattern work. Research R006/R007 scopes the Launchpad Mk2 + tabbed-UI push.

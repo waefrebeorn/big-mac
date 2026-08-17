@@ -21,6 +21,19 @@
 #include "wb_internal.h"
 #include "wb_ui.h"
 
+/* ---- helpers ----------------------------------------------------------- */
+
+static const char *tab_name(int t) {
+    static const char *names[] = {"KEYS", "PAD", "STEP", "SESSION"};
+    return (t >= 0 && t < 4) ? names[t] : "KEYS";
+}
+
+static const char *scale_name(int root, int type) {
+    static const char *names[] = {"major", "natural minor", "dorian", "mixolydian", "chromatic"};
+    static const char *roots[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+    return (type >= 0 && type < 5) ? roots[root] : "C";
+}
+
 /* ---- geometry --------------------------------------------------------- */
 #define WIN_W 1360
 #define WIN_H 760
@@ -61,6 +74,13 @@ typedef struct app {
     int param_slot;          /* slot whose params are shown */
     int param_drag;          /* -1 = none, else param index being dragged */
     int param_drag_x;        /* x where the drag began */
+
+    /* tabbed view (R006/R007: KEYS / PAD / STEP / SESSION) */
+    int tab;                 /* 0=KEYS 1=PAD 2=STEP 3=SESSION */
+    int scale_root;          /* 0..11 MIDI root */
+    int scale_type;          /* 0=major 1=minor 2=dorian 3=mixolydian 4=chromatic */
+    int last_lp_row;         /* last Mk2 grid row lit (for release dim) */
+    int last_lp_col;
 
     char project_path[512];  /* current .wbus file, "" = unsaved */
 } app;
@@ -455,21 +475,35 @@ static void midi_cb(wb_midi_event ev, void *userdata) {
     if (st == 0x90) {
         /* note on → play a note on this DAW's instrument track */
         wb_engine_note(a->engine, a->midi_track, ev.data1, ev.data2);
-        /* light the pad so you get tactile feedback — fire-and-forget.
-         * If the incoming note is a Launchpad grid note (0-127), reflect it
-         * back as an LED with a green-on, dim-on-release color. */
+        /* Launchpad LED feedback — support both classic and Mk2 layouts.
+         * Classic grid: notes 0..119 (row*16+col).  Mk2 grid: notes 11..88
+         * (11+col+row*10) + top row 91..98.  We invert the note via the
+         * API so the right pad lights regardless of which controller is wired. */
         if (a->midi) {
-            int row = ev.data1 / 16, col = ev.data1 % 16;
-            if (row <= 7 && col <= 7)
-                wb_launchpad_led(a->midi, row, col, 3);  /* green */
+            int row = -1, col = -1;
+            if (wb_lp_mk2_row_col_from_note(ev.data1, &row, &col) == 0) {
+                wb_lp_mk2_led(a->midi, row, col, WB_LP_GREEN);
+            } else if (ev.data1 >= 0 && ev.data1 <= 119) {
+                int cr = ev.data1 / 16, cc = ev.data1 % 16;
+                if (cr <= 7 && cc <= 7)
+                    wb_launchpad_classic_led(a->midi, cr, cc, 3);
+            }
+            a->last_lp_row = row; a->last_lp_col = col;
         }
     } else if (st == 0x80) {
-        /* note off → silence the voice (key off) + dim the LED */
+        /* note off → silence the voice (key off) + dim the pad */
         wb_engine_note(a->engine, a->midi_track, ev.data1, 0);
-        if (a->midi) {
-            int row = ev.data1 / 16, col = ev.data1 % 16;
-            if (row <= 7 && col <= 7)
-                wb_launchpad_led(a->midi, row, col, 0);  /* off */
+        if (a->midi && a->last_lp_row >= 0) {
+            int row = a->last_lp_row, col = a->last_lp_col;
+            a->last_lp_row = -1;
+            /* prefer Mk2 API; fall back to classic if the pad was lit that way */
+            if (wb_lp_mk2_row_col_from_note(ev.data1, &row, &col) == 0)
+                wb_lp_mk2_led(a->midi, row, col, WB_LP_DIM);
+            else if (ev.data1 >= 0 && ev.data1 <= 119) {
+                int cr = ev.data1 / 16, cc = ev.data1 % 16;
+                if (cr <= 7 && cc <= 7)
+                    wb_launchpad_classic_led(a->midi, cr, cc, 0);
+            }
         }
     }
 }
@@ -724,6 +758,34 @@ static void handle_key(app *a, SDL_Keycode k) {
         else { running = 0; }
         break;
     case SDLK_q: running = 0; break;
+    case SDLK_1: a->tab = 0; break;
+    case SDLK_2: a->tab = 1; break;
+    case SDLK_3: a->tab = 2; break;
+    case SDLK_4: a->tab = 3; break;
+    case SDLK_TAB:
+        a->tab = (a->tab + 1) % 4;
+        a->param_drag = -1;
+        printf("tab: %s (track %d, scale %s)\n",
+               tab_name(a->tab), a->selected_track, scale_name(a->scale_root, a->scale_type));
+        break;
+    case SDLK_h:
+        /* cycle scale type (major->minor->dorian->mixolydian->chromatic->major) */
+        a->scale_type = (a->scale_type + 1) % 5;
+        a->param_drag = -1;
+        printf("scale: %s (root %d)\n", scale_name(a->scale_root, a->scale_type), a->scale_root);
+        break;
+    case SDLK_r:
+        /* cycle scale root up */
+        a->scale_root = (a->scale_root + 1) % 12;
+        a->param_drag = -1;
+        printf("scale: %s (root %d)\n", scale_name(a->scale_root, a->scale_type), a->scale_root);
+        break;
+    case SDLK_l:
+        /* cycle scale root down */
+        a->scale_root = (a->scale_root + 11) % 12;
+        a->param_drag = -1;
+        printf("scale: %s (root %d)\n", scale_name(a->scale_root, a->scale_type), a->scale_root);
+        break;
     default: break;
     }
 }
@@ -765,6 +827,13 @@ int main(int argc, char **argv) {
     a->param_slot   = 0;
     a->param_drag   = -1;
     a->param_drag_x = 0;
+
+    /* tabbed view default: keyboard piano roll, A minor scale */
+    a->tab          = 0;   /* KEYS */
+    a->scale_root   = 9;   /* A */
+    a->scale_type   = 1;   /* natural minor */
+    a->last_lp_row  = -1;
+    a->last_lp_col  = -1;
 
     a->win = SDL_CreateWindow("Big Mac DAW", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                               WIN_W, WIN_H, SDL_WINDOW_SHOWN);
@@ -814,7 +883,7 @@ int main(int argc, char **argv) {
             printf("MIDI: Launchpad LED feedback armed\n");
         else if (wb_midi_open_output(a->midi, NULL) == 0)
             printf("MIDI: controller output armed (generic)\n");
-        wb_launchpad_clear(a->midi); /* reset all LEDs */
+        wb_launchpad_classic_clear(a->midi); /* reset all LEDs */
     }
     else printf("MIDI: no input device open (input disabled)\n");
 

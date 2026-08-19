@@ -170,6 +170,12 @@ build/wb_test_fcpxml: build/tools/test_fcpxml.o $(CORE_OBJS)
 test_fcpxml: build/wb_test_fcpxml
 	./build/wb_test_fcpxml
 
+build/wb_test_loudness_meter: build/tools/test_loudness_meter.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_loudness_meter: build/wb_test_loudness_meter
+	./build/wb_test_loudness_meter
+
 build/wb_test_compositor: build/tools/test_compositor.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 

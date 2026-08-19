@@ -74,6 +74,7 @@
 | Node compositor: **G12 GPU-offload boundary** — `wb_compositor_set_backend(CPU|GPU)` + `wb_frame.gpu` flag; CPU path authoritative, Metal interop slot | `make test_compositor` (66/66: backend set/get, frame GPU-eligible, CPU output unchanged, R018-B color nodes) |
 | Video: **ProRes editorial export** (R018-A) — `wb_video_export_codec` with `WB_VIDEO_CODEC_PRORES(_HQ)` (prores_ks 10-bit 4:2:2) for NLE interchange | `make test_export_e2e` (ProRes .mov reports `prores` codec via ffprobe) |
 | Voice: **spectral voice isolation** (R018-D) — `wb_voice_isolate` STFT + per-bin noise-floor Wiener gate (RNNoise-style, no ML weights); self-contained `wb_fft` radix-2 | `make test_voice_isolate` (8/8: FFT round-trip, noise RMS reduced, tone preserved, no NaN) |
+| Voice: **live gated loudness meter** (R018-G) — `wb_loudness_meter` streaming BS.1770-4 gated integrated + short-term LUFS (Resolve/Fairlight meter parity) | `make test_loudness_meter` (6/6: sane range, tracks level) |
 | Compositor: **HDR / wide-gamut color pipeline** (R018-B) — `wb_node_colorspace` (sRGB↔linear, PQ/HLG HDR, Rec.709↔2020) + `wb_node_tonemap` (Reinhard/ACES) on the 32-bit-float frame | `make test_compositor` (66/66: CST round-trips, PQ peak, gamut matrix, tonemap bounds) |
 | Interchange: **FCPXML intent enrichment** (R018-C) — `<adjust-color>` (exposure/saturation) on video clips + `audioRole` + `<adjust-volume>` on audio; "transfer intent, not just data" | `make test_fcpxml` (10/10: adjust-color values, role, volume carried) |
 ## R017 recursive-loop gaps — ALL 12 CLOSED ✅ (G1–G12)

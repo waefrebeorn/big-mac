@@ -62,4 +62,20 @@ int wb_voice_polish_apply_twopass(float *buf, uint32_t frames, int channels,
 float wb_loudness_measure(const float *buf, uint32_t frames, int channels,
                            float sample_rate);
 
+/* R018-G: live loudness *meter* — streaming (not one-shot) gated integrated
+ * + short-term LUFS, the Resolve/Fairlight "loudness meter" gap. Feed blocks
+ * as they render; read integrated (whole program) and short-term (last 400ms)
+ * on demand. BS.1770-4 gated integrated (absolute -70 LUFS + relative -10 LU). */
+typedef struct wb_loudness_meter wb_loudness_meter;
+wb_loudness_meter *wb_loudness_meter_create(float sample_rate);
+void wb_loudness_meter_destroy(wb_loudness_meter *m);
+void wb_loudness_meter_reset(wb_loudness_meter *m);
+/* Feed one render block (interleaved frames*channels floats). */
+void wb_loudness_meter_process(wb_loudness_meter *m, const float *buf,
+                               uint32_t frames, int channels);
+/* Integrated LUFS (gated, whole program) and short-term LUFS (last 400 ms).
+ * Returns -1e9 if insufficient data. */
+float wb_loudness_meter_integrated(wb_loudness_meter *m);
+float wb_loudness_meter_short_term(wb_loudness_meter *m);
+
 #endif /* WUBUS_WBUS_VOICE_POLISH_H */

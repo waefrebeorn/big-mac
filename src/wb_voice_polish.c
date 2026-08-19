@@ -279,6 +279,113 @@ float wb_loudness_measure(const float *buf, uint32_t frames, int channels,
     return (float)(10.0 * log10(mean_sq + 1e-12) - 0.691);
 }
 
+/* ---- R018-G: live gated loudness meter -------------------------------- *
+ * Streaming BS.1770-4: accumulate K-weighted mean-square per 400 ms block,
+ * then compute gated integrated (absolute -70 LUFS, relative -10 LU). */
+struct wb_loudness_meter {
+    float sr;
+    int   ch;
+    /* 400 ms block accumulator */
+    double block_ms;     /* sum of K-weighted x^2 over block */
+    uint32_t block_n;    /* sample count (per-channel) in block */
+    /* short-term = latest finalized block */
+    double st_ms;
+    int    st_valid;
+    /* integrated: store per-block mean-square in a bounded ring */
+    #define WB_LM_MAXBLOCKS 32768
+    double blocks[WB_LM_MAXBLOCKS];
+    uint32_t nblocks;
+    /* K-weighting biquads (persisted across blocks so phase is continuous) */
+    wb_biquad hp[8], hs[8];
+    int      init;
+};
+
+wb_loudness_meter *wb_loudness_meter_create(float sample_rate) {
+    wb_loudness_meter *m = calloc(1, sizeof(*m));
+    if (!m) return NULL;
+    m->sr = sample_rate > 0 ? sample_rate : 44100.0f;
+    return m;
+}
+
+void wb_loudness_meter_destroy(wb_loudness_meter *m) { free(m); }
+
+void wb_loudness_meter_reset(wb_loudness_meter *m) {
+    if (!m) return;
+    memset(m->blocks, 0, sizeof(m->blocks));
+    m->nblocks = 0; m->block_ms = 0; m->block_n = 0;
+    m->st_ms = 0; m->st_valid = 0; m->init = 0;
+}
+
+static void wb_loudness_meter_ensure_init(wb_loudness_meter *m) {
+    if (m->init) return;
+    for (int c = 0; c < m->ch && c < 8; c++) {
+        wb_biquad_init(&m->hp[c], m->sr);
+        wb_biquad_set(&m->hp[c], 1, 38.0f, 0.5f, 0.0f);
+        wb_biquad_init(&m->hs[c], m->sr);
+        wb_biquad_set(&m->hs[c], 3, 2000.0f, 1.0f, 4.0f);
+    }
+    m->init = 1;
+}
+
+void wb_loudness_meter_process(wb_loudness_meter *m, const float *buf,
+                               uint32_t frames, int channels) {
+    if (!m || !buf || channels <= 0) return;
+    m->ch = channels;
+    wb_loudness_meter_ensure_init(m);
+    uint32_t block_len = (uint32_t)(0.4 * m->sr + 0.5);   /* 400 ms */
+    if (block_len == 0) block_len = 1;
+    for (uint32_t i = 0; i < frames; i++) {
+        double x = 0;
+        for (int c = 0; c < channels && c < 8; c++)
+            x += wb_biquad_process(&m->hs[c],
+                    wb_biquad_process(&m->hp[c],
+                        buf[(size_t)i * channels + c]));
+        m->block_ms += x * x;
+        m->block_n += channels;
+        if (m->block_n >= block_len * channels) {
+            /* finalize 400 ms block -> mean-square per channel-sample */
+            double ms = m->block_n ? m->block_ms / m->block_n : 0;
+            if (m->nblocks < WB_LM_MAXBLOCKS) {
+                m->blocks[m->nblocks++] = ms;
+                m->st_ms = ms; m->st_valid = 1;
+            }
+            m->block_ms = 0; m->block_n = 0;
+        }
+    }
+}
+
+static double wb_lm_gated_integrated_ms(wb_loudness_meter *m) {
+    if (m->nblocks == 0) return 0;
+    /* ungated mean of block mean-squares */
+    double ung = 0;
+    for (uint32_t i = 0; i < m->nblocks; i++) ung += m->blocks[i];
+    ung /= m->nblocks;
+    if (ung <= 0) return 0;
+    double ung_lufs = 10.0 * log10(ung + 1e-12) - 0.691;
+    /* relative gate: blocks must exceed (ungated - 10 LU) */
+    double gate = ung_lufs - 10.0;
+    double gsum = 0; uint32_t gc = 0;
+    for (uint32_t i = 0; i < m->nblocks; i++) {
+        double lufs = 10.0 * log10(m->blocks[i] + 1e-12) - 0.691;
+        if (lufs < -70.0) continue;          /* absolute gate */
+        if (lufs < gate && ung_lufs > -70.0) continue;  /* relative gate */
+        gsum += m->blocks[i]; gc++;
+    }
+    if (gc == 0) return ung;   /* fallback to ungated if all gated out */
+    return gsum / gc;
+}
+
+float wb_loudness_meter_integrated(wb_loudness_meter *m) {
+    if (!m || m->nblocks == 0) return -1e9f;
+    double ms = wb_lm_gated_integrated_ms(m);
+    return (float)(10.0 * log10(ms + 1e-12) - 0.691);
+}
+
+float wb_loudness_meter_short_term(wb_loudness_meter *m) {
+    if (!m || !m->st_valid) return -1e9f;
+    return (float)(10.0 * log10(m->st_ms + 1e-12) - 0.691);
+}
+
 /* ---- convenience: gate->...->limiter, then scale to target LUFS -------- */
 
 int wb_voice_polish_apply(float *buf, uint32_t frames, int channels,

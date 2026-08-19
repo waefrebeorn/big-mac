@@ -164,6 +164,12 @@ build/wb_test_voice_isolate: build/tools/test_voice_isolate.o $(CORE_OBJS)
 test_voice_isolate: build/wb_test_voice_isolate
 	./build/wb_test_voice_isolate
 
+build/wb_test_fcpxml: build/tools/test_fcpxml.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_fcpxml: build/wb_test_fcpxml
+	./build/wb_test_fcpxml
+
 build/wb_test_compositor: build/tools/test_compositor.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 

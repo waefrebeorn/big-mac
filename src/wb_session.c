@@ -332,6 +332,7 @@ int wb_session_add_video_clip(wb_session *s, int track, const char *source_path,
     wb_clip *cl = &tr->clips[tr->clip_count++];
     memset(cl, 0, sizeof(*cl));
     cl->type = 2;
+    cl->color_saturation = 1.0f;   /* R018-C: default = no saturation change */
     cl->start = timeline_pos;
     cl->video = calloc(1, sizeof(wb_video_clip));
     if (!cl->video) { tr->clip_count--; return -1; }
@@ -360,6 +361,13 @@ int wb_session_add_video_clip(wb_session *s, int track, const char *source_path,
         if (clip_end_samples > s->length) s->length = clip_end_samples;
     }
     return (int)(tr->clip_count - 1);
+}
+
+/* R018-C: set a clip's color-correction "intent" (carried into FCPXML). */
+void wb_clip_set_color(wb_clip *cl, float exposure, float saturation) {
+    if (!cl) return;
+    cl->color_exposure = exposure;
+    cl->color_saturation = saturation;
 }
 
 /* Set a proxy path on an existing video clip (called by the UI import once the
@@ -523,7 +531,9 @@ int wb_session_export_edl(const wb_session *s, const char *edl_path) {
     return 0;
 }
 
-/* Write a minimal FCPXML (Final Cut Pro X) of all video clips. Returns 0. */
+/* Write a minimal FCPXML (Final Cut Pro X) of all video + audio clips,
+ * carrying R018-C "intent": per-clip color correction (<adjust-color>) on
+ * video, and audio roles + volume (<adjust-volume>) on audio. Returns 0. */
 int wb_session_export_fcpxml(const wb_session *s, const char *xml_path) {
     if (!s || !xml_path) return -1;
     FILE *f = fopen(xml_path, "w");
@@ -565,9 +575,43 @@ int wb_session_export_fcpxml(const wb_session *s, const char *xml_path) {
             long long dur_f = (long long)(dur * 25 + 0.5);
             fprintf(f, "            <asset-clip ref=\"a%d\" "
                        "offset=\"%lld/25s\" duration=\"%lld/25s\" "
-                       "name=\"%s\"/>\n",
+                       "name=\"%s\"",
                     asset_id, off_f, dur_f, cl->video->source_path);
+            /* R018-C: carry color-correction intent when non-default. */
+            if (cl->color_exposure != 0.0f || cl->color_saturation != 1.0f) {
+                fprintf(f, ">\n");
+                fprintf(f, "              <adjust-color ex=\"%+.3f\" sat=\"%.3f\"/>\n",
+                        cl->color_exposure, cl->color_saturation);
+                fprintf(f, "            </asset-clip>\n");
+            } else {
+                fprintf(f, "/>\n");
+            }
             asset_id++;
+        }
+    }
+    /* R018-C: audio clips carry role + volume intent. */
+    for (uint32_t t = 0; t < s->track_count; t++) {
+        const wb_track *tr = &s->tracks[t];
+        if (tr->kind != WB_TRACK_KIND_AUDIO) continue;
+        /* derive FCPXML role from track name */
+        const char *role = "dialogue";
+        if (strstr(tr->name, "music") || strstr(tr->name, "Music")) role = "music";
+        else if (strstr(tr->name, "sfx") || strstr(tr->name, "SFX") ||
+                 strstr(tr->name, "fx") || strstr(tr->name, "effect")) role = "effects";
+        for (uint32_t c = 0; c < tr->clip_count; c++) {
+            const wb_clip *cl = &tr->clips[c];
+            if (cl->type != 1) continue;
+            double off = cl->start / 44100.0;     /* samples -> seconds */
+            double len = cl->length / 44100.0;
+            long long off_f = (long long)(off * 25 + 0.5);
+            long long len_f = (long long)(len * 25 + 0.5);
+            /* volume in dB: 20*log10(gain); -inf handled as -60 */
+            double db = tr->volume > 0 ? 20.0 * log10(tr->volume) : -60.0;
+            fprintf(f, "            <asset-clip name=\"%s\" offset=\"%lld/25s\" "
+                       "duration=\"%lld/25s\" audioRole=\"%s\">\n",
+                    tr->name, off_f, len_f, role);
+            fprintf(f, "              <adjust-volume amount=\"%.1fdB\"/>\n", db);
+            fprintf(f, "            </asset-clip>\n");
         }
     }
     fprintf(f, "          </spine>\n");

@@ -64,7 +64,11 @@ typedef struct wb_clip {
     uint32_t audio_frames;
     wb_sample *audio_data;
     /* video clip: FFmpeg-backed */
-    wb_video_clip *video;     /* non-NULL for type==2 */
+    wb_video_clip *video;      /* non-NULL for type==2 */
+    /* R018-C: color-correction "intent" carried into interchange (FCPXML).
+     * exposure in stops (0 = none), saturation multiplier (1 = none). */
+    float color_exposure;
+    float color_saturation;
 } wb_clip;
 
 /* ---- mixer insert (one plugin slot on a track) ------------------------ */
@@ -257,6 +261,10 @@ int  wb_session_add_video_track(wb_session *s, const char *name);
  * or -1 on error. */
 int  wb_session_add_video_clip(wb_session *s, int track, const char *source_path,
                                double timeline_pos);
+
+/* R018-C: set a clip's color-correction "intent" (carried into FCPXML).
+ * exposure in stops (0 = none), saturation multiplier (1 = none). */
+void wb_clip_set_color(wb_clip *cl, float exposure, float saturation);
 
 /* Set a proxy path on an existing video clip (UI import, post-proxy-gen). */
 int  wb_session_set_video_proxy(wb_session *s, int track, int clip,

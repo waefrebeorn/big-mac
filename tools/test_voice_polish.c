@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include "wbus/wbus_voice_polish.h"
 #include "wbus/wbus_dsp.h"
@@ -126,6 +127,32 @@ int main(void) {
         CHECK(fabsf(peak_kf - peak_static) > 1e-3f,
               "keyframed comp_ratio changed the processed output");
         free(a); free(b_sig);
+    }
+
+    /* ---- G8: EBUR128 two-pass loudness --- */
+    {
+        int sr8 = 44100, ch8 = 2; uint32_t n8 = sr8 / 2;
+        float *w = malloc((size_t)n8 * ch8 * sizeof(float));
+        for (uint32_t i = 0; i < n8 * (uint32_t)ch8; i++)
+            w[i] = 0.04f * (float)sinf(2.0f * 3.14159f * 200.0f * i / sr8);
+        float in_lufs = wb_loudness_measure(w, n8, ch8, (float)sr8);
+        /* single-pass */
+        float *w1 = malloc((size_t)n8 * ch8 * sizeof(float));
+        memcpy(w1, w, (size_t)n8 * ch8 * sizeof(float));
+        wb_voice_polish_apply(w1, n8, ch8, (float)sr8, -16.0f);
+        float l1 = wb_loudness_measure(w1, n8, ch8, (float)sr8);
+        /* two-pass */
+        float *w2 = malloc((size_t)n8 * ch8 * sizeof(float));
+        memcpy(w2, w, (size_t)n8 * ch8 * sizeof(float));
+        wb_voice_polish_apply_twopass(w2, n8, ch8, (float)sr8, -16.0f);
+        float l2 = wb_loudness_measure(w2, n8, ch8, (float)sr8);
+        printf("         input=%.1f  single-pass=%.1f  two-pass=%.1f LUFS\n",
+               in_lufs, l1, l2);
+        CHECK(l1 > -26.0f && l1 < -10.0f, "single-pass normalizes toward target (chain-dependent)");
+        CHECK(l2 > -19.0f && l2 < -13.0f, "two-pass lands near -16 LUFS (BS.1770)");
+        CHECK(fabsf(l2 + 16.0f) < 1.0f,
+              "two-pass is the accurate BS.1770 loudness normalize");
+        free(w); free(w1); free(w2);
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);

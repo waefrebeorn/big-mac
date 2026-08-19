@@ -112,7 +112,11 @@ int wb_video_auto_clip_shorts(const char *src, const char *out_dir,
  * clips, preserving each half's source window. Returns index of the new
  * (right) clip, or -1 on error. Declared here (video API) but defined in
  * wb_session.c alongside the other video-clip lifecycle ops. */
-int wb_session_split_video_clip(wb_session *s, int track, int clip,
-                                 double split_pos);
+int wb_session_split_video_clip(wb_session *s, int track, int clip, double split_pos);
+
+/* G5: EDL / FCPXML interchange (R017 G5). Serialize the session's video
+ * tracks so projects travel to Resolve/Premiere/Final Cut. Returns 0/-1. */
+int wb_session_export_edl(const wb_session *s, const char *edl_path);
+int wb_session_export_fcpxml(const wb_session *s, const char *xml_path);
 
 #endif /* WUBUS_WBUS_VIDEO_H */

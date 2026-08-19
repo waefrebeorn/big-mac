@@ -63,6 +63,10 @@
 | Keyframe tracks: hold/linear/bezier + valid-clamp (R016 S2) | `make test_compositor` (shared param bus for FX/automation) |
 | Node compositor: recursive pull(t,roi), RoI→RoD, identity bypass, content-hash LRU edge cache (R013 D1/D3) | `make test_compositor` (18/8: composite/identity/cache-hit) |
 | Node compositor: **minimal OpenFX host** (G4) — loads OfxPlugin, wraps as wb_node, keyframed param rides G11 bus | `make test_ofx` (13/13: Load→Describe→Render, identity, 2x, keyframe) |
+| Node compositor: **G1 proxy/QoS dial** — `wb_compositor_set_quality(0..1)` shrinks tile size on slow frames | `make test_agent` (quality 0.25 → tile 352; 1.0 → 1024) |
+| Session: **EDL + FCPXML interchange** (G5) — CMX3600 + Final Cut XML of video clips | `make test_agent` (2 clips → 2 EDL events + 2 FCPXML assets) |
+| Voice-polish: **EBUR128 two-pass** (G8) — measure input, linear apply to target | `make test_voice_polish` (input -31.9 → -16.6 LUFS) |
+| Agent API: headless line protocol (G9) import/split/quality/edl/fcpxml/export/polish | `make test_agent` (17/17) |
 | Node compositor: **G11 unified param bus** — FX node params driven by keyframed `wb_param_track` OR session `wb_automation_lane` (same channel) | `make test_compositor` (33/33: keyframed gain animates FX, lane bus clamps, lane→FX binding) |
 
 ## Open (next) — recursive-loop gaps (see R017 G1–G12)

@@ -52,6 +52,11 @@ int wb_voice_polish_process(wb_voice_polish *vp, float *buf, uint32_t frames);
 int wb_voice_polish_apply(float *buf, uint32_t frames, int channels,
                            float sample_rate, float target_lufs);
 
+/* G8: EBUR128 two-pass loudness (measure input -> linear apply). Same
+ * signature as wb_voice_polish_apply but conforms to BS.1770 two-pass. */
+int wb_voice_polish_apply_twopass(float *buf, uint32_t frames, int channels,
+                                  float sample_rate, float target_lufs);
+
 /* Measure integrated loudness (LUFS, BS.1770 K-weighted) of a buffer.
  * Exposed for tests/UI. Returns LUFS (negative dB). */
 float wb_loudness_measure(const float *buf, uint32_t frames, int channels,

@@ -466,3 +466,116 @@ int wb_session_split_video_clip(wb_session *s, int track, int clip, double split
     tr->clip_count++;
     return clip + 1;
 }
+
+/* ---- G5: EDL / FCPXML interchange (R017 G5) ----------------------------
+ * Serialize the session's video tracks to standard edit-decision formats so
+ * projects can travel to Resolve/Premiere/ Final Cut. CMX3600 is plain text;
+ * FCPXML is XML. Both describe each video clip as (reel/source, src in/out,
+ * rec in/out). */
+
+static void edl_timecode(FILE *f, double secs) {
+    /* 25 fps EDL timecode (CMX3600 convention) */
+    int fps = 25;
+    long total = (long)(secs * fps + 0.5);
+    int ff = (int)(total % fps);
+    int ss = (int)((total / fps) % 60);
+    int mm = (int)((total / (fps * 60)) % 60);
+    int hh = (int)(total / (fps * 3600));
+    fprintf(f, "%02d:%02d:%02d:%02d", hh, mm, ss, ff);
+}
+
+/* Write a CMX3600 EDL of all video clips. Returns 0 on success, -1 on error. */
+int wb_session_export_edl(const wb_session *s, const char *edl_path) {
+    if (!s || !edl_path) return -1;
+    FILE *f = fopen(edl_path, "w");
+    if (!f) return -1;
+    fprintf(f, "TITLE: BigMac Session\n\n");
+    int ev = 1;
+    for (uint32_t t = 0; t < s->track_count; t++) {
+        if (s->tracks[t].kind != WB_TRACK_KIND_VIDEO) continue;
+        for (uint32_t c = 0; c < s->tracks[t].clip_count; c++) {
+            const wb_clip *cl = &s->tracks[t].clips[c];
+            if (cl->type != 2 || !cl->video) continue;
+            double src_in  = cl->video->start_in_source < 0 ? 0 : cl->video->start_in_source;
+            double dur     = cl->video->duration > 0 ? cl->video->duration : 0;
+            double rec_in  = cl->start;
+            double rec_out = cl->start + dur;
+            const char *name = cl->video->source_path;
+            /* reel = basename of source, uppercased, no extension */
+            char reel[64];
+            const char *bn = strrchr(name, '/'); bn = bn ? bn + 1 : name;
+            int i = 0;
+            for (; bn[i] && bn[i] != '.' && i < 63; i++)
+                reel[i] = (bn[i] >= 'a' && bn[i] <= 'z') ? bn[i] - 32 : bn[i];
+            reel[i] = '\0';
+            if (reel[0] == '\0') snprintf(reel, sizeof(reel), "REEL%03d", ev);
+
+            fprintf(f, "%03d  %s V C\t", ev, reel);
+            edl_timecode(f, rec_in);  fprintf(f, " ");
+            edl_timecode(f, rec_out); fprintf(f, " ");
+            edl_timecode(f, src_in);  fprintf(f, " ");
+            edl_timecode(f, src_in + dur); fprintf(f, "\n");
+            ev++;
+        }
+    }
+    fprintf(f, "\n");
+    fclose(f);
+    return 0;
+}
+
+/* Write a minimal FCPXML (Final Cut Pro X) of all video clips. Returns 0. */
+int wb_session_export_fcpxml(const wb_session *s, const char *xml_path) {
+    if (!s || !xml_path) return -1;
+    FILE *f = fopen(xml_path, "w");
+    if (!f) return -1;
+    fprintf(f, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    fprintf(f, "<!DOCTYPE fcpxml>\n");
+    fprintf(f, "<fcpxml version=\"1.9\">\n");
+    fprintf(f, "  <resources>\n");
+    fprintf(f, "    <format id=\"r1\" name=\"FFVideoFormat1080p25\"/>\n");
+    int asset_id = 1;
+    for (uint32_t t = 0; t < s->track_count; t++) {
+        if (s->tracks[t].kind != WB_TRACK_KIND_VIDEO) continue;
+        for (uint32_t c = 0; c < s->tracks[t].clip_count; c++) {
+            const wb_clip *cl = &s->tracks[t].clips[c];
+            if (cl->type != 2 || !cl->video) continue;
+            double dur = cl->video->duration > 0 ? cl->video->duration : 0;
+            fprintf(f, "    <asset id=\"a%d\" name=\"%s\" src=\"file://%s\" "
+                       "hasVideo=\"1\" format=\"r1\" duration=\"%llds\"/>\n",
+                    asset_id, cl->video->source_path, cl->video->source_path,
+                    (long long)(dur * 25 + 0.5) / 25 * 25 /* frames@25 */);
+            asset_id++;
+        }
+    }
+    fprintf(f, "  </resources>\n");
+    fprintf(f, "  <library>\n");
+    fprintf(f, "    <event name=\"BigMac Session\">\n");
+    fprintf(f, "      <project name=\"BigMac Project\">\n");
+    fprintf(f, "        <sequence format=\"r1\">\n");
+    fprintf(f, "          <spine>\n");
+    asset_id = 1;
+    for (uint32_t t = 0; t < s->track_count; t++) {
+        if (s->tracks[t].kind != WB_TRACK_KIND_VIDEO) continue;
+        for (uint32_t c = 0; c < s->tracks[t].clip_count; c++) {
+            const wb_clip *cl = &s->tracks[t].clips[c];
+            if (cl->type != 2 || !cl->video) continue;
+            double dur = cl->video->duration > 0 ? cl->video->duration : 0;
+            double off = cl->start;
+            long long off_f = (long long)(off * 25 + 0.5);
+            long long dur_f = (long long)(dur * 25 + 0.5);
+            fprintf(f, "            <asset-clip ref=\"a%d\" "
+                       "offset=\"%lld/25s\" duration=\"%lld/25s\" "
+                       "name=\"%s\"/>\n",
+                    asset_id, off_f, dur_f, cl->video->source_path);
+            asset_id++;
+        }
+    }
+    fprintf(f, "          </spine>\n");
+    fprintf(f, "        </sequence>\n");
+    fprintf(f, "      </project>\n");
+    fprintf(f, "    </event>\n");
+    fprintf(f, "  </library>\n");
+    fprintf(f, "</fcpxml>\n");
+    fclose(f);
+    return 0;
+}

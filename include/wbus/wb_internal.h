@@ -54,6 +54,8 @@ int wb_wav_write_pcm16(const char *path, const wb_sample *data, uint32_t frames,
                        uint8_t channels, uint32_t sample_rate);
 int wb_wav_write_f32(const char *path, const wb_sample *data, uint32_t frames,
                      uint8_t channels, uint32_t sample_rate);
+int wb_wav_read_pcm16(const char *path, float **out_data, uint32_t *out_frames,
+                      int *out_channels, int *out_sr);
 
 /* wb_comp.c */
 void *wb_comp_create(uint32_t sr);

@@ -86,6 +86,16 @@ int  wb_node_add_param_lane(wb_node *n, const char *name, wb_automation_lane *la
 /* Get the animated value of a node param at time t (0 if unset). */
 float wb_node_param_value(const wb_node *n, const char *name, double t);
 
+/* G1: proxy-scale / quality-of-service dial (0.0 = draft/proxy, 1.0 = full).
+ * Drives tile size and proxy-vs-fullres swaps on slow frames (R017 G1,
+ * modeled on GStreamer QoS + Resolve render cache). Stored process-globally
+ * so any node pull can consult it. */
+void wb_compositor_set_quality(double q);   /* 0..1 */
+double wb_compositor_get_quality(void);
+/* Effective tile size for the current quality (smaller tiles = cheaper
+ * per-pull work on a dual-core machine under load). */
+int  wb_compositor_tile_size(void);
+
 /* ---- convenience node factories ------------------------------------- */
 /* SOURCE: returns a solid color or a (future) decoded producer.
  * color producer for now (deterministic, testable). */

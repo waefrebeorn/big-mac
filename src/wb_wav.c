@@ -94,3 +94,60 @@ int wb_wav_write_f32(const char *path,
     fclose(f);
     return 0;
 }
+
+/* Read a 16-bit PCM WAV into an interleaved float buffer (caller-owned).
+ * On success sets *out_frames/*out_channels/*out_sr and returns 0; the buffer
+ * must be freed by the caller. Returns -1 on error. */
+int wb_wav_read_pcm16(const char *path, float **out_data, uint32_t *out_frames,
+                      int *out_channels, int *out_sr) {
+    if (!path || !out_data) return -1;
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+
+    char tag[4];
+    if (fread(tag, 1, 4, f) != 4 || memcmp(tag, "RIFF", 4) != 0) { fclose(f); return -1; }
+    uint32_t riff = 0; fread(&riff, 4, 1, f); (void)riff;
+    if (fread(tag, 1, 4, f) != 4 || memcmp(tag, "WAVE", 4) != 0) { fclose(f); return -1; }
+
+    int channels = 0, sr = 0;
+    uint32_t data_bytes = 0;
+    int found_fmt = 0, found_data = 0;
+    while (!found_data && fread(tag, 1, 4, f) == 4) {
+        uint32_t chunk = 0;
+        if (fread(&chunk, 4, 1, f) != 1) break;
+        if (memcmp(tag, "fmt ", 4) == 0) {
+            uint16_t fmt = 0, ch = 0, bits = 0;
+            uint32_t rate = 0;
+            fread(&fmt, 2, 1, f);
+            fread(&ch, 2, 1, f);
+            fread(&rate, 4, 1, f);
+            fseek(f, 6, SEEK_CUR);          /* byte_rate(4) + block_align(2) */
+            fread(&bits, 2, 1, f);
+            channels = ch; sr = (int)rate; (void)fmt; (void)bits;
+            found_fmt = 1;
+            if (chunk > 16) fseek(f, (long)(chunk - 16), SEEK_CUR);
+        } else if (memcmp(tag, "data", 4) == 0) {
+            data_bytes = chunk;
+            found_data = 1;
+        } else {
+            fseek(f, (long)chunk, SEEK_CUR);
+        }
+    }
+    if (!found_fmt || !found_data || channels <= 0 || data_bytes == 0) {
+        fclose(f); return -1;
+    }
+    uint32_t n_samples = data_bytes / (2 * (uint32_t)channels);
+    float *buf = malloc((size_t)n_samples * sizeof(float));
+    if (!buf) { fclose(f); return -1; }
+    for (uint32_t i = 0; i < n_samples; i++) {
+        int16_t s = 0;
+        if (fread(&s, 2, 1, f) != 1) { free(buf); fclose(f); return -1; }
+        buf[i] = (float)s / 32768.0f;
+    }
+    fclose(f);
+    *out_data = buf;
+    *out_frames = n_samples / (uint32_t)channels;
+    *out_channels = channels;
+    *out_sr = sr;
+    return 0;
+}

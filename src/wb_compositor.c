@@ -7,6 +7,22 @@
 #include <stdio.h>
 #include <math.h>
 
+/* ---- G1: global quality-of-service dial (0..1) ----------------------- */
+static double g_quality = 1.0;   /* default full quality */
+
+void wb_compositor_set_quality(double q) {
+    if (q < 0.0) q = 0.0;
+    if (q > 1.0) q = 1.0;
+    g_quality = q;
+}
+double wb_compositor_get_quality(void) { return g_quality; }
+
+/* Tile size shrinks with quality: full-res = 1024px tiles, draft = 128px.
+ * Smaller tiles spread work and let a slow frame bail/retry a tile. */
+int wb_compositor_tile_size(void) {
+    return (int)(128.0 + g_quality * (1024.0 - 128.0));
+}
+
 /* ---- frame ------------------------------------------------------------ */
 wb_frame *wb_frame_alloc(int w, int h) {
     if (w <= 0 || h <= 0) return NULL;

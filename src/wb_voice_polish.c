@@ -303,3 +303,33 @@ int wb_voice_polish_apply(float *buf, uint32_t frames, int channels,
     wb_voice_polish_free(vp);
     return 0;
 }
+
+/* G8: true EBUR128-style two-pass. Pass 1 measures the *input* loudness with
+ * K-weighting (no chain applied yet), pass 2 runs the chain then applies a
+ * single linear gain to hit target. This is the ITU-R BS.1770 two-pass model
+ * (measure whole buffer -> linear apply) that FFmpeg loudnorm uses, and it
+ * avoids the level-dependent non-linearity of scaling post-compression. */
+int wb_voice_polish_apply_twopass(float *buf, uint32_t frames, int channels,
+                                  float sample_rate, float target_lufs) {
+    if (!buf || channels <= 0) return -1;
+    /* Pass 1: measure input loudness (K-weighted) before any processing. */
+    float in_lufs = wb_loudness_measure(buf, frames, channels, sample_rate);
+
+    wb_voice_polish *vp = wb_voice_polish_create(sample_rate, channels);
+    if (!vp) return -1;
+    vp->target_lufs = target_lufs;
+    wb_voice_polish_process(vp, buf, frames);
+
+    /* Pass 2: linear gain from measured input (chain preserves loudness
+     * shape; we scale the whole buffer linearly to the target). */
+    float delta_db = target_lufs - in_lufs;
+    float g = db_to_lin(delta_db);
+    if (g > 6.0f) g = 6.0f;   /* two-pass can allow a slightly higher cap */
+    for (uint32_t i = 0; i < frames * (uint32_t)channels; i++) {
+        buf[i] *= g;
+        if (buf[i] > 1.0f) buf[i] = 1.0f;
+        if (buf[i] < -1.0f) buf[i] = -1.0f;
+    }
+    wb_voice_polish_free(vp);
+    return 0;
+}

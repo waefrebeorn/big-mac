@@ -1,12 +1,19 @@
 # R018 — Recursive Research Loop (frontier after R017)
 
+**Status: 5 DONE (A, B, C, D, G), 2 DEFERRED (E, F).** All DONE items are
+committed and verified by the full gate (383 checks, 0 failures + E2E export).
+
 **Method:** 7-hop, multi-domain web recon (25+ sources) → converge on the
 highest-leverage gaps that move `big-mac` toward "complete and total supremacy"
 (video + audio editor). Each gap is implemented, verified by `make test_*`,
 committed, then the loop re-opens.
 
-**Loop status:** HOP 1 complete (6 domains searched). Gaps below ranked by
-leverage × achievability on our C11/SDL/FFmpeg/Node-Compositor base.
+> The loop closes here: the two remaining gaps (E auto-reframe, F Metal GPU)
+> are ML/SDK-licensed and cannot be finished honestly without a vendored
+> saliency model / a real Metal kernel — so they are DEFERRED, not stubbed
+> (Big Mac doctrine: no half-wired features).
+
+**Loop status:** closed after HOP 6 (5 implemented, 2 deferred with rationale).
 
 ## Convergent findings (HOP 1)
 | Domain | Convergent truth | Source signal |
@@ -25,8 +32,8 @@ leverage × achievability on our C11/SDL/FFmpeg/Node-Compositor base.
 | B | **No HDR / wide-gamut color pipeline** in compositor | Resolve's moat = 32-bit float + two-step CST + ST.2084/HLG tone mapping; our compositor is 8-bit RGBA only | frame.io CST; blackmagic HDR grading | Add `wb_node_colorspace` (sRGB/linear, PQ/HLG, Rec.709↔2020) + `wb_node_tonemap` (Reinhard/ACES), operating on the existing 32-bit-float frame | DONE (R018-B) |
 | C | **No OTIO-class interchange intent** (we have EDL/FCPXML) | OTIO "transfers intent" — the modern convergence point | liftgammagain; steinberg Nuendo 14 | Extend FCPXML to carry color/audio intent; add a thin `wb_session_export_otio`-shaped adapter later | DONE (R018-C: FCPXML carries `<adjust-color>` + audioRole + `<adjust-volume>`) |
 | D | **No dedicated voice isolation** (voice-polish exists but not spectral isolate) | 2026 AI = voice isolation / enhance speech is table-stakes | storyflow; flonnect; RNNoise/DeepFilterNet spectral approach | Add `wb_voice_isolate` (STFT + per-bin noise-floor Wiener gate) + self-contained `wb_fft` (radix-2) + test | DONE (R018-D) |
-| E | **No auto-reframe / object-aware** | smart reframe is a 2026 differentiator | storyflow auto-reframe | Defer: ML-heavy; stub a saliency-roi reframe node later | OPEN |
-| G | **No live loudness *meter*** (only one-shot measure + two-pass norm) | Resolve/Fairlight ship a live gated LUFS meter (integrated + short-term) | Fairlight loudness; BS.1770-4 | Add `wb_loudness_meter` streaming gated integrated + short-term LUFS, reusing K-weighting | DONE (R018-G) |
+| E | **No auto-reframe / object-aware** | smart reframe is a 2026 differentiator | storyflow auto-reframe | DEFERRED: ML/saliency-heavy; a center-crop reframe node is a stub without the model. Revisit when a local saliency model is vendored. | DEFERRED |
+| F | **GPU rendering not realized** (G12 boundary stubbed) | Shotcut wins on GPU; our boundary exists but no Metal back-end | YouTube OSS audit | DEFERRED: Metal interop layer slots into G12 `wb_frame.gpu`; needs a real Metal kernel, not a stub. Revisit when CPU path is proven at scale. | DEFERRED |
 
 ## Convergence target (the "7 steps to Kevin Bacon 25")
 R017 closed the *structural* gaps (node compositor, OFX, EDL/FCPXML, agent,

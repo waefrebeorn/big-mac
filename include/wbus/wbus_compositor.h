@@ -21,12 +21,24 @@
 /* RGBA float pixel */
 typedef struct { float r, g, b, a; } wb_px;
 
-/* A frame: w*h RGBA. roi = region of interest actually filled. */
+/* A frame: w*h RGBA. roi = region of interest actually filled.
+ * `gpu` marks the pixel-buffer ownership boundary (G12): 0 = CPU-owned
+ * (authoritative), 1 = eligible for GPU interop (a Metal layer may wrap the
+ * `px` buffer; CPU path stays the source of truth). */
 typedef struct wb_frame {
     int w, h;
     int roi_x, roi_y, roi_w, roi_h;  /* valid sub-rect */
     wb_px *px;                        /* w*h pixels */
+    int gpu;                          /* G12 backend-ownership flag */
 } wb_frame;
+
+/* G12: render backend (the offload boundary). CPU is authoritative today;
+ * GPU is the future Metal-interop slot — pixel buffers are swappable so a
+ * GPU tile can wrap `wb_px` without changing the node contract. */
+typedef enum {
+    WB_BACKEND_CPU = 0,
+    WB_BACKEND_GPU
+} wb_backend;
 
 typedef enum {
     WB_NODE_SOURCE = 0,   /* wraps a producer (e.g. decoded clip) */
@@ -86,6 +98,14 @@ int  wb_node_add_param_lane(wb_node *n, const char *name, wb_automation_lane *la
 /* Get the animated value of a node param at time t (0 if unset). */
 float wb_node_param_value(const wb_node *n, const char *name, double t);
 
+/* G12: GPU-offload boundary. The CPU path is always authoritative; the
+ * backend flag marks where a future Metal interop layer slots in. Frames
+ * carry a `gpu` ownership flag for the swap boundary. */
+void wb_compositor_set_backend(wb_backend b);
+wb_backend wb_compositor_get_backend(void);
+void wb_frame_set_gpu(wb_frame *f, int gpu);
+int  wb_frame_get_gpu(const wb_frame *f);
+
 /* G1: proxy-scale / quality-of-service dial (0.0 = draft/proxy, 1.0 = full).
  * Drives tile size and proxy-vs-fullres swaps on slow frames (R017 G1,
  * modeled on GStreamer QoS + Resolve render cache). Stored process-globally
@@ -95,6 +115,26 @@ double wb_compositor_get_quality(void);
 /* Effective tile size for the current quality (smaller tiles = cheaper
  * per-pull work on a dual-core machine under load). */
 int  wb_compositor_tile_size(void);
+
+/* G3: two-phase pull. wb_node_pull is the compute (phase 1) entry;
+ * wb_node_pull_request issues a request/prepare pass (phase 0) so slow
+ * decoders can run ahead before the compute pass. VapourSynth-style
+ * arInitial -> arAllFramesReady. */
+void wb_node_pull_request(wb_node *n, double t, int rx, int ry, int rw, int rh);
+
+/* G3: a decode source modeling an async (expensive) frame decoder.
+ * phase 0 schedules the decode; phase 1 completes + returns the frame. */
+wb_node *wb_node_decode_source(float r, float g, float b, float a, int w, int h);
+int wb_node_decode_is_requested(const wb_node *n);
+int wb_node_decode_is_ready(const wb_node *n);
+
+/* G2: auto-insert a bounded LRU cache after every non-source node in the
+ * graph (AVISynth internal caching / Natron per-node hash cache). Returns
+ * the number of caches inserted (idempotent). */
+int wb_graph_auto_cache(wb_node *root, int max_frames);
+wb_node_kind wb_node_get_kind(const wb_node *n);
+/* Report cache occupancy/hits (G2 verification). */
+int wb_node_cache_stats(const wb_node *n, int *hits, int *count);
 
 /* ---- convenience node factories ------------------------------------- */
 /* SOURCE: returns a solid color or a (future) decoded producer.

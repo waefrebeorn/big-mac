@@ -169,6 +169,67 @@ int main(void) {
     wb_node_destroy(fx2);
     wb_automation_lane_destroy(fxlane);
 
+    /* ---- G3: two-phase pull (request vs compute) --------------------- */
+    printf("\n-- G3 two-phase pull --\n");
+    wb_node *dec = wb_node_decode_source(0.3f, 0.6f, 0.9f, 1.0f, 16, 16);
+    CHECK(!wb_node_decode_is_requested(dec) && !wb_node_decode_is_ready(dec),
+          "decode source idle before any pull");
+    wb_node_pull_request(dec, 0.0, 0, 0, 16, 16);   /* phase 0 */
+    CHECK(wb_node_decode_is_requested(dec), "request phase scheduled decode (pending)");
+    CHECK(!wb_node_decode_is_ready(dec), "no frame yet after request phase");
+    wb_frame *df = wb_node_pull(dec, 0.0, 0, 0, 16, 16);  /* phase 1 */
+    CHECK(df != NULL, "compute phase produced a frame");
+    CHECK(wb_node_decode_is_ready(dec), "decode source ready after compute");
+    if (df) { CHECK(fabsf(df->px[5*df->w+5].b - 0.9f) < 1e-5f, "decoded frame correct");
+             wb_frame_free(df); }
+    wb_node_destroy(dec);
+
+    /* ---- G2: auto-insert LRU cache at graph edges -------------------- */
+    printf("\n-- G2 auto-cache --\n");
+    wb_node *s1 = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 32, 32);
+    wb_node *g1 = wb_node_effect(1, 0.5f); g1->inputs[0] = s1;
+    wb_node *g2 = wb_node_effect(1, 0.5f); g2->inputs[0] = g1;   /* chain */
+    wb_node *root = wb_node_composite();
+    wb_composite_add(root, g2);
+    int inserted = wb_graph_auto_cache(root, 4);
+    CHECK(inserted >= 2, "auto-cache wrapped >=2 nodes in the graph");
+    /* pull twice at same (t,roi): second must be a cache hit */
+    wb_frame *c1 = wb_node_pull(root, 0.0, 0, 0, 32, 32);
+    wb_frame *c2 = wb_node_pull(root, 0.0, 0, 0, 32, 32);
+    int hits = 0, cnt = 0;
+    /* walk to find a cache node and read its stats */
+    wb_node *gn = root->inputs[0];   /* should now be a cache wrapping g2 */
+    CHECK(wb_node_get_kind(gn) == WB_NODE_CACHE, "root child auto-wrapped in cache");
+    if (wb_node_get_kind(gn) == WB_NODE_CACHE) wb_node_cache_stats(gn, &hits, &cnt);
+    CHECK(hits >= 1, "second identical pull was a cache hit (memoized)");
+    CHECK(c1 && c2, "auto-cached pulls return frames");
+    if (c1 && c2) {
+        float a = c1->px[3*c1->w+3].r, b = c2->px[3*c2->w+3].r;
+        CHECK(fabsf(a - b) < 1e-6f, "cache hit identical to first pull");
+        /* red(1)*0.5*0.5 = 0.25 */
+        CHECK(fabsf(a - 0.25f) < 1e-3f, "cached result still correct (0.25)");
+        wb_frame_free(c1); wb_frame_free(c2);
+    }
+    wb_node_destroy(root);
+
+    /* ---- G12: GPU-offload boundary ----------------------------------- */
+    printf("\n-- G12 GPU boundary --\n");
+    wb_compositor_set_backend(WB_BACKEND_GPU);
+    CHECK(wb_compositor_get_backend() == WB_BACKEND_GPU, "backend set to GPU");
+    wb_node *gs = wb_node_source_color(0.5f, 0.5f, 0.5f, 1.0f, 16, 16);
+    wb_frame *gf = wb_node_pull(gs, 0.0, 0, 0, 16, 16);
+    CHECK(gf != NULL, "frame produced under GPU backend flag");
+    if (gf) {
+        /* CPU path stays authoritative: pixel values unchanged by backend */
+        CHECK(fabsf(gf->px[3*gf->w+3].r - 0.5f) < 1e-5f, "CPU output correct under GPU flag");
+        wb_frame_set_gpu(gf, 1);
+        CHECK(wb_frame_get_gpu(gf) == 1, "frame marked GPU-eligible for interop");
+        wb_frame_free(gf);
+    }
+    wb_compositor_set_backend(WB_BACKEND_CPU);   /* reset to authoritative */
+    CHECK(wb_compositor_get_backend() == WB_BACKEND_CPU, "backend reset to CPU");
+    wb_node_destroy(gs);
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

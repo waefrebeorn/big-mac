@@ -90,9 +90,6 @@ build/test-clap/bigmac-test.clap: tests/test_clap_plugin.c
 build/wb_test_clap: tools/test_clap.c $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm -lobjc $(LIBS)
 
-build/wb_test_captions: tools/test_captions.c build/src/wb_captions.o build/src/wb_video.o
-	$(CC) $(CFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
-
 test-clap: build/test-clap/bigmac-test.clap build/wb_test_clap
 	./build/wb_test_clap build/test-clap
 
@@ -100,6 +97,9 @@ test-clap: build/test-clap/bigmac-test.clap build/wb_test_clap
 
 test: build/wb_selftest
 	./build/wb_selftest
+
+build/wb_test_captions: build/tools/test_captions.o build/src/wb_captions.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 
 test_captions: build/wb_test_captions
 	./build/wb_test_captions
@@ -151,6 +151,12 @@ build/wb_test_ofx: build/tools/test_ofx.o $(CORE_OBJS)
 
 test_ofx: build/wb_test_ofx
 	./build/wb_test_ofx
+
+build/wb_test_captions: build/tools/test_captions.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_captions: build/wb_test_captions
+	./build/wb_test_captions
 
 build/wb_test_compositor: build/tools/test_compositor.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)

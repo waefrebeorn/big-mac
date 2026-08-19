@@ -287,6 +287,112 @@ int wb_captions_burn(const char *input_path, const char *srt_path,
     return run_cmd(cmd, "caption burn");
 }
 
+/* ---- G10: ASS styled-caption parser + burn --------------------------
+ * Parse Dialogue lines from an ASS file. We support the inline override
+ * tokens the research flagged (T4-7): \b1/\b0, \i1/\i0, \c&HBBGGRR& (note
+ * ASS color is BGR order), \pos(x,y), \move(x1,y1,x2,y2). The burned output
+ * is produced by ffmpeg's subtitles filter, which renders full ASS styling. */
+
+static int ass_time_to_ms(const char *s) {
+    /* H:MM:SS.cc or 0:00:00.00 */
+    int h=0,m=0,sec=0,cc=0;
+    if (sscanf(s, "%d:%d:%d.%d", &h,&m,&sec,&cc) == 4) {}
+    else if (sscanf(s, "%d:%d.%d", &m,&sec,&cc) == 3) {}
+    return ((h*3600 + m*60 + sec)*1000 + cc*10);
+}
+
+/* Parse inline overrides in `text`; mutates *bold/*italic/*color (BGR->RGB),
+ * *px/*py (if \pos). Strips the override tags from the returned text. */
+static void ass_apply_overrides(char *text, int *bold, int *italic,
+                                 int *color, int *px, int *py) {
+    char *out = text;
+    for (char *p = text; *p; ) {
+        if (*p == '\\' && (p[1]=='b' || p[1]=='i' || p[1]=='c' || p[1]=='p' || p[1]=='m')) {
+            if (p[1]=='b') { *bold = (p[2]=='1') ? 1 : 0; p += 3; continue; }
+            if (p[1]=='i') { *italic = (p[2]=='1') ? 1 : 0; p += 3; continue; }
+            if (p[1]=='c' && p[2]=='&' && p[3]=='H') {
+                unsigned int bgr=0; int n=0;
+                sscanf(p+4, "%x%n", &bgr, &n);
+                int bb=(bgr>>16)&0xff, gg=(bgr>>8)&0xff, rr=bgr&0xff;
+                *color = (rr<<16)|(gg<<8)|bb;   /* convert BGR -> RGB */
+                p += 4 + n + 1; /* skip &H......& */
+                continue;
+            }
+            if (p[1]=='p' && p[2]=='o' && p[3]=='s') {
+                int x=0,y=0; sscanf(p+4, "(%d,%d)", &x,&y);
+                *px=x; *py=y; p += 4; while (*p && *p!=')') p++; if (*p==')') p++;
+                continue;
+            }
+            if (p[1]=='m' && p[2]=='o' && p[3]=='v' && p[4]=='e') {
+                int x1=0,y1=0,x2=0,y2=0;
+                sscanf(p+5, "(%d,%d,%d,%d)", &x1,&y1,&x2,&y2);
+                *px=x1; *py=y1; p += 5; while (*p && *p!=')') p++; if (*p==')') p++;
+                continue;
+            }
+        }
+        *out++ = *p++;
+    }
+    *out = '\0';
+}
+
+int wb_ass_extract_dialogue(const char *ass_path, wb_ass_line *out, int max) {
+    if (!ass_path || !out || max <= 0) return -1;
+    char *buf = read_file(ass_path);
+    if (!buf) return -1;
+    int n = 0;
+    char *save_line = NULL;
+    char *line = strtok_r(buf, "\n", &save_line);
+    while (line && n < max) {
+        char *l = line; while (*l==' '||*l=='\r') l++;
+        if (strncmp(l, "Dialogue:", 9) == 0) {
+            char *p = l + 9; if (*p==':') p++;
+            while (*p==' ') p++;
+            /* ASS: 9 metadata fields (Layer,Start,End,Style,Name,MarginL,
+             * MarginR,MarginV,Effect), then Text is EVERYTHING after the
+             * 9th comma — so we must NOT split the text further (it may
+             * contain commas inside overrides like \pos(100,200)). We locate
+             * the comma positions directly and take the tail as text. */
+            int comma[12]; int nc = 0;
+            for (char *q = p; *q && nc < 12; q++) if (*q == ',') comma[nc++] = (int)(q - p);
+            if (nc >= 3) {
+                /* start = field[1] (between comma[0] and comma[1]) */
+                char t0[32], t1[32];
+                int a = (nc >= 1) ? comma[0] + 1 : 0;
+                int b = (nc >= 2) ? comma[1] : (int)strlen(p);
+                snprintf(t0, sizeof(t0), "%.*s", b - a, p + a);
+                a = comma[1] + 1; b = (nc >= 3) ? comma[2] : (int)strlen(p);
+                snprintf(t1, sizeof(t1), "%.*s", b - a, p + a);
+                wb_ass_line *L = &out[n];
+                L->start_ms = ass_time_to_ms(t0);
+                L->end_ms   = ass_time_to_ms(t1);
+                L->bold = 0; L->italic = 0; L->color_rgb = -1;
+                L->pos_x = -1; L->pos_y = -1;
+                /* text = everything after the 9th comma (comma[8]) */
+                const char *txt = (nc >= 9) ? p + comma[8] + 1 : p + comma[nc-1] + 1;
+                strncpy(L->text, txt ? txt : "", sizeof(L->text)-1);
+                L->text[sizeof(L->text)-1] = '\0';
+                ass_apply_overrides(L->text, &L->bold, &L->italic,
+                                    &L->color_rgb, &L->pos_x, &L->pos_y);
+                n++;
+            }
+        }
+        line = strtok_r(NULL, "\n", &save_line);
+    }
+    free(buf);
+    return n;
+}
+
+int wb_captions_burn_ass(const char *input_path, const char *ass_path,
+                         const char *output_path) {
+    if (!input_path || !ass_path || !output_path) return -1;
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" -y -i \"%s\" -vf \"subtitles=%s\" "
+             "-c:a copy -c:v libx264 -preset fast -crf 23 \"%s\" > /dev/null 2>&1",
+             FFmpeg_BIN, input_path, ass_path, output_path);
+    return run_cmd(cmd, "ASS caption burn");
+}
+
 /* Clean up temporary files. */
 void wb_captions_cleanup(wb_captions *c) {
     if (!c) return;

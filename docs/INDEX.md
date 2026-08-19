@@ -68,21 +68,14 @@
 | Voice-polish: **EBUR128 two-pass** (G8) — measure input, linear apply to target | `make test_voice_polish` (input -31.9 → -16.6 LUFS) |
 | Agent API: headless line protocol (G9) import/split/quality/edl/fcpxml/export/polish | `make test_agent` (17/17) |
 | Node compositor: **G11 unified param bus** — FX node params driven by keyframed `wb_param_track` OR session `wb_automation_lane` (same channel) | `make test_compositor` (33/33: keyframed gain animates FX, lane bus clamps, lane→FX binding) |
-
-## Open (next) — recursive-loop gaps (see R017 G1–G12)
-| Capability | Source / why |
-|---|
-| **G11** Bind `wb_param_track` to FX + audio-plugin automation (one param bus) | VST3/CLAP/OFX all share normalized param channel (R017) — cheapest unification, unblocks G4/G6 |
-| **G4** Minimal OFX host runner (RoI/tile + IsIdentity) to load Fusion/Resolve/Nuke effects | OFX `GetRegionOfDefinition`/`GetRegionOfInterest` (R017) |
-| **G1** Proxy-scale QoS dial: `wb_compositor_set_quality` swaps proxy↔full-res + tile size on slow frames | GStreamer QoS, Resolve Render Cache (R017) |
-| **G2** Auto-insert `wb_node_cache` at every graph edge (bounded LRU) | AVISynth internal edge cache (R017) |
-| **G6** Transcript-editable timeline: click word→seek, drag→trim (whisper already done) | Descript wordbar, Hindenburg auto-level (R017) |
-| **G5** EDL/CMX3600/FCPXML import-export (thin adapter; OTIO spine later) | OTIO adapters, CMX3600 reel limits (R017) |
-| **G9** Agent/MCP batch API on `wb_daw` (headless drive) | OpenCut MCP server (R017) |
-| **G3** Two-phase pull (request inputs → compute) for async decode | VapourSynth arInitial→arAllFramesReady (R017) |
-| **G7** Voice-polish as param-track-driven pluggable graph (tunable stages) | FFmpeg composable filter nodes (R017) |
-| **G10** ASS override-token parser + styled burn (currently SRT only) | ASS `Dialogue:` + `\pos \move \b \i` (R017) |
-| **G12** GPU-offload boundary (Metal interop), CPU path authoritative | mpv hwdec-software-fallback (R017) |
+| Node compositor: **G2 auto-insert edge cache** — `wb_graph_auto_cache(root)` wraps every non-source node in a bounded LRU `wb_node_cache` | `make test_compositor` (50/50: ≥2 caches inserted, repeated pull is a memoized hit) |
+| Node compositor: **G3 two-phase pull** — `wb_node_pull_request` (phase 0) schedules decodes; `wb_node_pull` (phase 1) computes; `wb_node_decode_source` models async decode | `make test_compositor` (50/50: request sets pending, no frame; compute returns frame) |
+| Captions: **ASS styled-caption parser + burn** (G10) — `wb_ass_extract_dialogue` parses `\b \i \c&HBBGGRR& \pos \move` (BGR→RGB); `wb_captions_burn_ass` burns via ffmpeg `subtitles=` | `make test_captions` (14/14: times, bold/italic, color, pos, text) |
+| Node compositor: **G12 GPU-offload boundary** — `wb_compositor_set_backend(CPU|GPU)` + `wb_frame.gpu` flag; CPU path authoritative, Metal interop slot | `make test_compositor` (50/50: backend set/get, frame GPU-eligible, CPU output unchanged) |
+## R017 recursive-loop gaps — ALL 12 CLOSED ✅ (G1–G12)
+| Gap | Status |
+|---|---|
+| G1 proxy/QoS dial · G2 auto edge cache · G3 two-phase pull · G4 OFX host · G5 EDL/FCPXML · G6 transcript edit · G7 param-track graph · G8 EBUR128 two-pass · G9 agent API · G10 ASS captions · G11 unified param bus · G12 GPU boundary | ✅ all verified by `make test_*` (see Wired table above) |
 
 ## Research docs
 - `R006-launchpad-ux-research.md` — 7-hop Kevin Bacon (25 sources, 8 domains): convergent truth = one owned surface, scale-locked, color-coded, no menu-diving.

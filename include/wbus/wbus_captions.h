@@ -9,6 +9,10 @@
 #ifndef WUBUS_WBUS_CAPTIONS_H
 #define WUBUS_WBUS_CAPTIONS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -39,6 +43,30 @@ int wb_captions_write_srt(const char *srt_path, const char *text, int duration_m
 int wb_captions_burn(const char *input_path, const char *srt_path,
                      const char *output_path);
 
+/* G10: ASS (SubStation Alpha) styled-caption support. Parses a minimal but
+ * real subset of the ASS Dialogue line (inline overrides \b \i \c&HBBGGRR&
+ * \pos(x,y) \move(x1,y1,x2,y2)) so the editor can read/display styled
+ * captions, and burns an .ass file directly via ffmpeg's subtitles filter
+ * (which renders ASS styling natively). */
+typedef struct wb_ass_line {
+    int   start_ms;
+    int   end_ms;
+    char  text[2048];
+    int   bold;       /* from \b1 / style */
+    int   italic;     /* from \i1 / style */
+    int   color_rgb;  /* 0xRRGGBB, -1 if unset */
+    int   pos_x;      /* -1 if no \pos */
+    int   pos_y;      /* -1 if no \pos */
+} wb_ass_line;
+
+/* Parse an ASS file's Dialogue lines into `out` (capacity `max`).
+ * Returns the number of lines parsed, or -1 on error. */
+int wb_ass_extract_dialogue(const char *ass_path, wb_ass_line *out, int max);
+
+/* Burn an .ass file (with full styling) into a video via ffmpeg. */
+int wb_captions_burn_ass(const char *input_path, const char *ass_path,
+                          const char *output_path);
+
 /* Clean up temporary files from a captions generation. */
 void wb_captions_cleanup(wb_captions *c);
 
@@ -49,5 +77,9 @@ wb_transcript *wb_captions_get_transcript_model(wb_captions *c);
 /* Shared helper: run a shell command, return exit code.
  * Declared here so wb_video.c can call it for proxy generation. */
 int run_cmd(const char *cmd, const char *context);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* WUBUS_WBUS_CAPTIONS_H */

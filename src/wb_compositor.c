@@ -391,6 +391,174 @@ wb_node *wb_node_cache(wb_node *child, int max_frames) {
     return n;
 }
 
+/* R018-B: HDR / wide-gamut color pipeline --------------------------
+ * Two new node kinds model Resolve's moat: a per-pixel ColorSpace/transfer
+ * transform (the two-step CST: camera -> working -> display) and an HDR->SDR
+ * tone map operating in linear light. Frames are already 32-bit float RGBA,
+ * so no pixel-format change is needed — these nodes just remap values. */
+
+/* wb_node_destroy calls n->free(n); free the node-owned user struct (not the
+ * node itself — the destroy fn frees the node). */
+static void cs_free(wb_node *self) { free(self->user); }
+static void tm_free(wb_node *self) { free(self->user); }
+
+/* Transfer / matrix helpers (scalar, linear-light aware). */
+static double cs_gamma_decode(double c) {  /* Rec.709/sRGB EOTF (approx) */
+    c = c < 0 ? 0 : (c > 1 ? 1 : c);
+    if (c <= 0.04045) return c / 12.92;
+    return pow((c + 0.055) / 1.055, 2.4);
+}
+static double cs_gamma_encode(double c) {
+    c = c < 0 ? 0 : (c > 1 ? 1 : c);
+    if (c <= 0.0031308) return 12.92 * c;
+    return 1.055 * pow(c, 1.0/2.4) - 0.055;
+}
+/* HDR10 ST.2084 (PQ): PQ code -> linear (relative to 10000 nit peak). */
+static double cs_pq_decode(double c) {
+    const double m1 = 2610.0/16384.0, m2 = 2523.0/4096.0*128.0;
+    const double c1 = 3424.0/4096.0, c2 = 2413.0/4096.0*32.0, c3 = 2392.0/4096.0*32.0;
+    c = c < 0 ? 0 : (c > 1 ? 1 : c);
+    double xp = pow(c, 1.0/m2);
+    double num = fmax(xp - c1, 0.0);
+    double den = c2 - c3 * xp;
+    return pow(num / den, 1.0/m1);
+}
+static double cs_pq_encode(double c) {
+    const double m1 = 2610.0/16384.0, m2 = 2523.0/4096.0*128.0;
+    const double c1 = 3424.0/4096.0, c2 = 2413.0/4096.0*32.0, c3 = 2392.0/4096.0*32.0;
+    c = c < 0 ? 0 : (c > 1 ? 1 : c);
+    double xp = pow(c, m1);
+    double num = c1 + c2 * xp;
+    double den = 1.0 + c3 * xp;
+    return pow(num / den, m2);
+}
+/* HLG (ARIB STD-B67) OOTF-approx decode (gamma 1/2.2-ish on top of the
+ * hybrid log). Kept simple: invert the HLG non-linearity for display-ref. */
+static double cs_hlg_decode(double c) {
+    c = c < 0 ? 0 : (c > 1 ? 1 : c);
+    const double a = 0.17883277, b = 0.28466892, c0 = 0.55991073;
+    if (c <= 0.5) return (c*c)/3.0;
+    return (exp((c - c0)/a) - b)/12.0;
+}
+static double cs_hlg_encode(double c) {
+    c = c < 0 ? 0 : (c > 1 ? 1 : c);
+    const double a = 0.17883277, b = 0.28466892, c0 = 0.55991073;
+    if (c <= 1.0/12.0) return sqrt(3.0*c);
+    return a*log(12.0*c - b) + c0;
+}
+/* Wide-gamut matrices (Rec.709 <-> Rec.2020, linear). */
+static void cs_mat709to2020(double *r, double *g, double *b) {
+    double R=*r,G=*g,B=*b;
+    *r =  0.6274*R + 0.3293*G + 0.0433*B;
+    *g =  0.0691*R + 0.9195*G + 0.0114*B;
+    *b =  0.0164*R + 0.0880*G + 0.8956*B;
+}
+static void cs_mat2020to709(double *r, double *g, double *b) {
+    double R=*r,G=*g,B=*b;
+    *r =  1.6605*R - 0.5876*G - 0.0728*B;
+    *g = -0.1246*R + 1.1329*G - 0.0083*B;
+    *b = -0.0182*R - 0.1006*G + 1.1187*B;
+}
+
+typedef struct { wb_cs_mode mode; } cs_t;
+
+static wb_frame *cs_pull(wb_node *self, double t,
+                         int rx, int ry, int rw, int rh, int phase) {
+    cs_t *e = self->user;
+    if (self->n_inputs < 1) return NULL;
+    if (phase == 0) { wb_node_pull_request(self->inputs[0], t, rx, ry, rw, rh); return NULL; }
+    wb_frame *in = wb_node_pull(self->inputs[0], t, rx, ry, rw, rh);
+    if (!in) return NULL;
+    wb_frame *out = wb_frame_alloc(in->w, in->h);
+    if (!out) { wb_frame_free(in); return NULL; }
+    out->roi_x = in->roi_x; out->roi_y = in->roi_y;
+    out->roi_w = in->roi_w; out->roi_h = in->roi_h;
+    for (int i = 0; i < in->w*in->h; i++) {
+        double r = in->px[i].r, g = in->px[i].g, b = in->px[i].b, a = in->px[i].a;
+        switch (e->mode) {
+            case WB_CS_SRGB_TO_LINEAR: r=cs_gamma_decode(r); g=cs_gamma_decode(g); b=cs_gamma_decode(b); break;
+            case WB_CS_LINEAR_TO_SRGB: r=cs_gamma_encode(r); g=cs_gamma_encode(g); b=cs_gamma_encode(b); break;
+            case WB_CS_PQ_TO_LINEAR:   r=cs_pq_decode(r);    g=cs_pq_decode(g);    b=cs_pq_decode(b);    break;
+            case WB_CS_LINEAR_TO_PQ:   r=cs_pq_encode(r);    g=cs_pq_encode(g);    b=cs_pq_encode(b);    break;
+            case WB_CS_HLG_TO_LINEAR:  r=cs_hlg_decode(r);   g=cs_hlg_decode(g);   b=cs_hlg_decode(b);   break;
+            case WB_CS_LINEAR_TO_HLG:  r=cs_hlg_encode(r);   g=cs_hlg_encode(g);   b=cs_hlg_encode(b);   break;
+            case WB_CS_REC709_TO_2020: cs_mat709to2020(&r,&g,&b); break;
+            case WB_CS_REC2020_TO_709: cs_mat2020to709(&r,&g,&b); break;
+        }
+        out->px[i].r = (float)r; out->px[i].g = (float)g; out->px[i].b = (float)b; out->px[i].a = (float)a;
+    }
+    wb_frame_free(in);
+    return out;
+}
+
+wb_node *wb_node_colorspace(wb_cs_mode mode) {
+    wb_node *n = wb_node_create(WB_NODE_COLORSPACE, "colorspace");
+    if (!n) return NULL;
+    cs_t *c = calloc(1, sizeof(*c));
+    c->mode = mode;
+    n->user = c;
+    n->pull = cs_pull;
+    n->free = cs_free;
+    n->n_inputs = 1;
+    n->inputs = calloc(1, sizeof(wb_node*));
+    return n;
+}
+
+/* Tone-map curves (module-local, C-compatible — no lambdas). */
+static double tm_reinhard(double c) { c = c < 0 ? 0 : c; return c / (1.0 + c); }
+/* ACES filmic (Narkowicz) — monotonic, maps [0,inf) -> [0,1). The standard
+ * game/motion-picture filmic tone map; preserves highlight roll-off. */
+static double tm_aces(double c) {
+    c = c < 0 ? 0 : c;
+    const double a=2.51, b=0.03, cc=2.43, d=0.59, e=0.14;
+    double num = c * (a*c + b);
+    double den = c * (cc*c + d) + e;
+    double v = num / den;
+    return v < 0 ? 0 : (v > 1 ? 1 : v);
+}
+
+typedef struct { wb_tm_op op; } tm_t;
+
+static wb_frame *tm_pull(wb_node *self, double t,
+                         int rx, int ry, int rw, int rh, int phase) {
+    tm_t *e = self->user;
+    if (self->n_inputs < 1) return NULL;
+    if (phase == 0) { wb_node_pull_request(self->inputs[0], t, rx, ry, rw, rh); return NULL; }
+    wb_frame *in = wb_node_pull(self->inputs[0], t, rx, ry, rw, rh);
+    if (!in) return NULL;
+    wb_frame *out = wb_frame_alloc(in->w, in->h);
+    if (!out) { wb_frame_free(in); return NULL; }
+    out->roi_x = in->roi_x; out->roi_y = in->roi_y;
+    out->roi_w = in->roi_w; out->roi_h = in->roi_h;
+    double (*f)(double) = NULL;
+    switch (e->op) {
+        case WB_TM_REINHARD: f = tm_reinhard; break;
+        case WB_TM_ACES:    f = tm_aces;     break;
+        case WB_TM_NONE: default: break;
+    }
+    for (int i = 0; i < in->w*in->h; i++) {
+        double r = in->px[i].r, g = in->px[i].g, b = in->px[i].b, a = in->px[i].a;
+        if (f) { r=f(r); g=f(g); b=f(b); }
+        r = r<0?0:(r>1?1:r); g = g<0?0:(g>1?1:g); b = b<0?0:(b>1?1:b);
+        out->px[i].r = (float)r; out->px[i].g = (float)g; out->px[i].b = (float)b; out->px[i].a = (float)a;
+    }
+    wb_frame_free(in);
+    return out;
+}
+
+wb_node *wb_node_tonemap(wb_tm_op op) {
+    wb_node *n = wb_node_create(WB_NODE_TONEMAP, "tonemap");
+    if (!n) return NULL;
+    tm_t *c = calloc(1, sizeof(*c));
+    c->op = op;
+    n->user = c;
+    n->pull = tm_pull;
+    n->free = tm_free;
+    n->n_inputs = 1;
+    n->inputs = calloc(1, sizeof(wb_node*));
+    return n;
+}
+
 /* ---- G2: auto-insert edge caches -------------------------------------
  * Walk the graph and wrap every non-source child in a bounded LRU cache node
  * (AVISynth internal caching / Natron per-node hash cache). Idempotent: a

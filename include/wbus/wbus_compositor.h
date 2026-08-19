@@ -44,7 +44,9 @@ typedef enum {
     WB_NODE_SOURCE = 0,   /* wraps a producer (e.g. decoded clip) */
     WB_NODE_EFFECT,       /* applies an op to its input(s) */
     WB_NODE_CACHE,        /* auto-inserted memoization wrapper */
-    WB_NODE_COMPOSITE     /* blends inputs by alpha (layer stack) */
+    WB_NODE_COMPOSITE,    /* blends inputs by alpha (layer stack) */
+    WB_NODE_COLORSPACE,   /* R018-B: color-space / transfer transform (CST) */
+    WB_NODE_TONEMAP       /* R018-B: HDR->SDR tone map (Reinhard/hable) */
 } wb_node_kind;
 
 typedef struct wb_node wb_node;
@@ -152,6 +154,31 @@ wb_node *wb_node_composite(void);
 /* CACHE: wraps a child node; memoizes by hash(time,roi,child-id),
  * bounded LRU (max_frames). */
 wb_node *wb_node_cache(wb_node *child, int max_frames);
+
+/* R018-B: COLORSPACE / transfer transform (the two-step CST of Resolve).
+ * mode selects the transform applied per-pixel in linear-ish space:
+ *   WB_CS_SRGB_TO_LINEAR   decode sRGB/Rec.709 gamma -> linear
+ *   WB_CS_LINEAR_TO_SRGB   encode linear -> sRGB/Rec.709 gamma
+ *   WB_CS_PQ_TO_LINEAR     HDR10 ST.2084 (PQ) decode -> linear (10000 nit)
+ *   WB_CS_LINEAR_TO_PQ     linear -> HDR10 PQ encode
+ *   WB_CS_HLG_TO_LINEAR    HLG (ARIB STD-B67) decode -> linear
+ *   WB_CS_LINEAR_TO_HLG    linear -> HLG encode
+ *   WB_CS_REC709_TO_2020   wide-gamut matrix Rec.709 -> Rec.2020
+ *   WB_CS_REC2020_TO_709   wide-gamut matrix Rec.2020 -> Rec.709 */
+typedef enum {
+    WB_CS_SRGB_TO_LINEAR = 0, WB_CS_LINEAR_TO_SRGB,
+    WB_CS_PQ_TO_LINEAR, WB_CS_LINEAR_TO_PQ,
+    WB_CS_HLG_TO_LINEAR, WB_CS_LINEAR_TO_HLG,
+    WB_CS_REC709_TO_2020, WB_CS_REC2020_TO_709
+} wb_cs_mode;
+wb_node *wb_node_colorspace(wb_cs_mode mode);
+
+/* R018-B: HDR -> SDR tone map (operates in linear light).
+ *   WB_TM_NONE     passthrough (clamp)
+ *   WB_TM_REINHARD Reinhard: c/(1+c) (film-like, preserves highlights softly)
+ *   WB_TM_ACES     ACES filmic (Narkowicz) — monotonic, bounded [0,1) */
+typedef enum { WB_TM_NONE = 0, WB_TM_REINHARD, WB_TM_ACES } wb_tm_op;
+wb_node *wb_node_tonemap(wb_tm_op op);
 
 void wb_node_destroy(wb_node *n);
 

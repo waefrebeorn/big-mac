@@ -230,6 +230,104 @@ int main(void) {
     CHECK(wb_compositor_get_backend() == WB_BACKEND_CPU, "backend reset to CPU");
     wb_node_destroy(gs);
 
+    /* ---- R018-B: HDR / wide-gamut color pipeline -------------------- */
+    printf("\n-- R018-B HDR color pipeline --\n");
+    {
+        /* SRGB<->LINEAR round trip */
+        wb_node *src = wb_node_source_color(0.5f, 0.25f, 0.75f, 1.0f, 8, 8);
+        wb_node *tod = wb_node_colorspace(WB_CS_SRGB_TO_LINEAR); tod->inputs[0] = src;
+        wb_node *back = wb_node_colorspace(WB_CS_LINEAR_TO_SRGB); back->inputs[0] = tod;
+        wb_frame *rt = wb_node_pull(back, 0.0, 0, 0, 8, 8);
+        CHECK(rt != NULL, "colorspace round-trip pull ok");
+        if (rt) {
+            wb_px p = rt->px[3*rt->w+3];
+            CHECK(fabsf(p.r - 0.5f) < 1e-3f && fabsf(p.g - 0.25f) < 1e-3f && fabsf(p.b - 0.75f) < 1e-3f,
+                  "sRGB->linear->sRGB round-trips to original");
+            wb_frame_free(rt);
+        }
+        wb_node_destroy(back); wb_node_destroy(tod); wb_node_destroy(src);
+    }
+    {
+        /* gamma decode of mid-gray is brighter (more linear) than 0.5 */
+        wb_node *src = wb_node_source_color(0.5f, 0.5f, 0.5f, 1.0f, 4, 4);
+        wb_node *tod = wb_node_colorspace(WB_CS_SRGB_TO_LINEAR); tod->inputs[0] = src;
+        wb_frame *f = wb_node_pull(tod, 0.0, 0, 0, 4, 4);
+        CHECK(f != NULL, "gamma decode pull ok");
+        if (f) {
+            CHECK(f->px[1].r > 0.2f && f->px[1].r < 0.23f, "0.5 sRGB gamma-decodes to ~0.214 linear");
+            wb_frame_free(f);
+        }
+        wb_node_destroy(tod); wb_node_destroy(src);
+    }
+    {
+        /* PQ HDR: 1.0 PQ code decodes to a large linear value (>1, HDR) */
+        wb_node *src = wb_node_source_color(1.0f, 1.0f, 1.0f, 1.0f, 4, 4);
+        wb_node *pqd = wb_node_colorspace(WB_CS_PQ_TO_LINEAR); pqd->inputs[0] = src;
+        wb_frame *f = wb_node_pull(pqd, 0.0, 0, 0, 4, 4);
+        CHECK(f != NULL, "PQ decode pull ok");
+        if (f) {
+            CHECK(f->px[0].r > 0.99f && f->px[0].r < 1.01f, "PQ 1.0 decodes to peak (normalized 1.0 @ 10000-nit)");
+            wb_frame_free(f);
+        }
+        wb_node_destroy(pqd); wb_node_destroy(src);
+    }
+    {
+        /* PQ encode then decode round-trips a linear mid value */
+        wb_node *src = wb_node_source_color(0.5f, 0.5f, 0.5f, 1.0f, 4, 4);
+        wb_node *enc = wb_node_colorspace(WB_CS_LINEAR_TO_PQ); enc->inputs[0] = src;
+        wb_node *dec = wb_node_colorspace(WB_CS_PQ_TO_LINEAR); dec->inputs[0] = enc;
+        wb_frame *f = wb_node_pull(dec, 0.0, 0, 0, 4, 4);
+        CHECK(f != NULL, "PQ encode->decode pull ok");
+        if (f) {
+            CHECK(fabsf(f->px[0].r - 0.5f) < 1e-3f, "linear->PQ->linear round-trips");
+            wb_frame_free(f);
+        }
+        wb_node_destroy(dec); wb_node_destroy(enc); wb_node_destroy(src);
+    }
+    {
+        /* Rec.709 -> Rec.2020 -> Rec.709 round trip (wide gamut) */
+        wb_node *src = wb_node_source_color(0.3f, 0.6f, 0.9f, 1.0f, 4, 4);
+        wb_node *to2020 = wb_node_colorspace(WB_CS_REC709_TO_2020); to2020->inputs[0] = src;
+        wb_node *to709  = wb_node_colorspace(WB_CS_REC2020_TO_709); to709->inputs[0] = to2020;
+        wb_frame *f = wb_node_pull(to709, 0.0, 0, 0, 4, 4);
+        CHECK(f != NULL, "gamut round-trip pull ok");
+        if (f) {
+            CHECK(fabsf(f->px[0].r - 0.3f) < 2e-3f && fabsf(f->px[0].g - 0.6f) < 2e-3f
+                  && fabsf(f->px[0].b - 0.9f) < 2e-3f, "709->2020->709 round-trips");
+            wb_frame_free(f);
+        }
+        wb_node_destroy(to709); wb_node_destroy(to2020); wb_node_destroy(src);
+    }
+    {
+        /* HDR->SDR tone map: an HDR (linear>1) input maps into [0,1] */
+        wb_node *src = wb_node_source_color(4.0f, 2.0f, 8.0f, 1.0f, 4, 4);  /* HDR linear */
+        wb_node *tm = wb_node_tonemap(WB_TM_ACES); tm->inputs[0] = src;
+        wb_frame *f = wb_node_pull(tm, 0.0, 0, 0, 4, 4);
+        CHECK(f != NULL, "HDR tonemap pull ok");
+        if (f) {
+            CHECK(f->px[0].r <= 1.0f + 1e-4f && f->px[2].b <= 1.0f + 1e-4f, "HDR values tone-mapped into [0,1]");
+            CHECK(f->px[2].b > 0.5f, "brightest channel still bright after hable (preserves highlights)");
+            wb_frame_free(f);
+        }
+        wb_node_destroy(tm); wb_node_destroy(src);
+    }
+    {
+        /* Reinhard is monotonic: brighter in -> brighter out, all in [0,1] */
+        wb_node *low = wb_node_source_color(0.2f, 0.2f, 0.2f, 1.0f, 4, 4);
+        wb_node *hi  = wb_node_source_color(2.0f, 2.0f, 0.2f, 1.0f, 4, 4);
+        wb_node *tml = wb_node_tonemap(WB_TM_REINHARD); tml->inputs[0] = low;
+        wb_node *tmh = wb_node_tonemap(WB_TM_REINHARD); tmh->inputs[0] = hi;
+        wb_frame *fl = wb_node_pull(tml, 0.0, 0, 0, 4, 4);
+        wb_frame *fh = wb_node_pull(tmh, 0.0, 0, 0, 4, 4);
+        CHECK(fl && fh, "reinhard pulls ok");
+        if (fl && fh) {
+            CHECK(fl->px[0].r < fh->px[0].r, "reinhard monotonic (brighter in -> brighter out)");
+            CHECK(fh->px[0].r <= 1.0f + 1e-4f, "reinhard keeps output in [0,1]");
+            wb_frame_free(fl); wb_frame_free(fh);
+        }
+        wb_node_destroy(tml); wb_node_destroy(tmh); wb_node_destroy(low); wb_node_destroy(hi);
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

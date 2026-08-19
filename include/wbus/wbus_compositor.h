@@ -42,6 +42,9 @@ typedef wb_frame* (*wb_node_pull_fn)(wb_node *self, double t,
                                      int rx, int ry, int rw, int rh, int phase);
 typedef void (*wb_node_free_fn)(wb_node *self);
 
+#include "wbus/wbus_param_track.h"
+#include "wbus/wbus.h"   /* wb_automation_lane bridge (G11 unified bus) */
+
 struct wb_node {
     wb_node_kind kind;
     char id[32];
@@ -52,6 +55,14 @@ struct wb_node {
     wb_node_free_fn free;
     /* identity optimization: set during request-phase to skip compute */
     int is_identity;
+    /* G11: named keyframed parameters on this node (the shared bus).
+     * The compositor pulls param tracks per-frame so FX params animate.
+     * A param slot is fed by EITHER a keyframed track OR a session
+     * automation lane (both are the same unified bus; track overrides lane). */
+    wb_param_track **params;
+    wb_automation_lane **param_lanes;
+    int   n_params;
+    char  param_names[16][32];
 };
 
 wb_frame *wb_frame_alloc(int w, int h);
@@ -62,13 +73,27 @@ int  wb_roi_clip(int w, int h, int *rx, int *ry, int *rw, int *rh);
 /* generic pull entry: handles identity short-circuit + forwarding. */
 wb_frame *wb_node_pull(wb_node *n, double t, int rx, int ry, int rw, int rh);
 
+/* ---- G11 param bus: bind a keyframed track to a named node param ------ */
+/* Returns the param slot index (>=0), or -1. Name stored for debugging. */
+int  wb_node_add_param(wb_node *n, const char *name, wb_param_track *tr);
+
+/* G11 unified bus: bind a session automation LANE directly to a node param.
+ * The node reads wb_automation_value_at(lane, t) each pull, so recorded
+ * audio automation and video-FX params ride the SAME channel. Precedence:
+ * a keyframed track param (if present) overrides the lane. */
+int  wb_node_add_param_lane(wb_node *n, const char *name, wb_automation_lane *lane);
+
+/* Get the animated value of a node param at time t (0 if unset). */
+float wb_node_param_value(const wb_node *n, const char *name, double t);
+
 /* ---- convenience node factories ------------------------------------- */
 /* SOURCE: returns a solid color or a (future) decoded producer.
  * color producer for now (deterministic, testable). */
 wb_node *wb_node_source_color(float r, float g, float b, float a, int w, int h);
 
 /* EFFECT: applies a simple op over its single input.
- * op: 0 = identity(bypass), 1 = brightness*gain, 2 = invert-alpha matte */
+ * op: 0 = identity(bypass), 1 = brightness*gain (gain is keyframable
+ *      via param "gain"), 2 = invert-alpha matte */
 wb_node *wb_node_effect(int op, float gain);
 
 /* COMPOSITE: blends up to 8 inputs (bottom..top) by alpha (over operator). */

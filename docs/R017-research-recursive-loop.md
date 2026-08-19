@@ -44,7 +44,7 @@ close the remaining gaps below.**
 | G8 | Loudness is single-pass measure-then-scale; not **EBUR128 two-pass** | FFmpeg `loudnorm` measure→linear-apply [T2-1] | Add a true two-pass: measure whole buffer, then linear gain (current single-pass is acceptable for v1) | P3 |
 | G9 | No **agent/MCP API** — can't be driven headlessly by AI | OpenCut MCP server for AI agents [T2]; OpenFX passive plugins [T1] | Expose a `--batch` / named-pipe command API on `wb_daw` (already has `wb_e2e_export` pattern) | P2 |
 | G10 | ASS **override-token parser** missing (only SRT burn) | ASS `Dialogue:` + `\pos \move \b \i \c&HBBGGRR&` [T4-7] | Add an ASS burn path feeding lavfi `subtitles=` for styled captions | P3 |
-| G11 | Keyframe tracks exist but **not yet bound to FX/automation** | VST3 `IParamValueQueue`; CLAP `clap_event_param_value` sample-offset [T4-2,3] | Drive compositor node params + audio plugin params from the same `wb_param_track` (unify the bus) | P1 |
+| G11 | ✅ DONE — keyframe `wb_param_track` AND session `wb_automation_lane` both drive compositor FX node params (one bus) | VST3 `IParamValueQueue`; CLAP `clap_event_param_value` sample-offset [T4-2,3] | Unified via `wb_node_add_param` (track) + `wb_node_add_param_lane` (session lane); verified 33/33 checks, animates FX output | P1 |
 | G12 | No **GPU-offload boundary** (CPU-only today) | mpv `--hwdec-software-fallback` [T3-4]; Godot tile memory [T3-8] | Keep CPU path authoritative; design pixel buffers as swappable so a Metal interop layer can slot in later | P3 |
 
 ---
@@ -78,6 +78,9 @@ timeline+export tool but **not yet a Fusion-class node compositor with
 third-party OFX effects, EDL interchange, transcript editing, or an agent API.**
 Those are G4, G5, G6, G9 — the highest-leverage next steps.
 
-**Recommendation for loop N+1:** do G11 (bind keyframe tracks to FX/automation)
-first — it's the cheapest unification and makes G4 (OFX) and G6 (transcript
-editing) fall out naturally, since they all ride the same param bus.
+**Recommendation for loop N+1:** G11 is now CLOSED — the param bus is live
+(compositor FX params ride `wb_param_track` + session `wb_automation_lane`).
+Next highest-leverage: **G4** (minimal OFX host — now trivial since the
+compositor already speaks RoI/tile/identity and params ride the shared bus)
+and **G6** (transcript editing — whisper captions + the lane bus = click-word
+to-seek + drag-to-trim fall out naturally).

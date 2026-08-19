@@ -52,7 +52,48 @@ void wb_node_destroy(wb_node *n) {
             wb_node_destroy(n->inputs[i]);
     }
     free(n->inputs);
+    free(n->params);
+    free(n->param_lanes);
     free(n);
+}
+
+/* ---- G11 param bus ---------------------------------------------------- */
+int wb_node_add_param(wb_node *n, const char *name, wb_param_track *tr) {
+    if (!n || !tr || n->n_params >= 16) return -1;
+    n->params = realloc(n->params, (n->n_params + 1) * sizeof(wb_param_track*));
+    if (!n->params) return -1;
+    n->param_lanes = realloc(n->param_lanes, (n->n_params + 1) * sizeof(wb_automation_lane*));
+    if (!n->param_lanes) return -1;
+    n->params[n->n_params] = tr;
+    n->param_lanes[n->n_params] = NULL;
+    if (name) snprintf(n->param_names[n->n_params], sizeof(n->param_names[0]), "%s", name);
+    else n->param_names[n->n_params][0] = '\0';
+    return n->n_params++;
+}
+
+int wb_node_add_param_lane(wb_node *n, const char *name, wb_automation_lane *lane) {
+    if (!n || !lane || n->n_params >= 16) return -1;
+    n->params = realloc(n->params, (n->n_params + 1) * sizeof(wb_param_track*));
+    if (!n->params) return -1;
+    n->param_lanes = realloc(n->param_lanes, (n->n_params + 1) * sizeof(wb_automation_lane*));
+    if (!n->param_lanes) return -1;
+    n->params[n->n_params] = NULL;
+    n->param_lanes[n->n_params] = lane;
+    if (name) snprintf(n->param_names[n->n_params], sizeof(n->param_names[0]), "%s", name);
+    else n->param_names[n->n_params][0] = '\0';
+    return n->n_params++;
+}
+
+float wb_node_param_value(const wb_node *n, const char *name, double t) {
+    if (!n) return 0.0f;
+    for (int i = 0; i < n->n_params; i++)
+        if (strcmp(n->param_names[i], name) == 0) {
+            /* precedence: keyframed track overrides lane (both are the bus) */
+            if (n->params[i]) return wb_param_track_value_at(n->params[i], t);
+            if (n->param_lanes[i]) return (float)wb_automation_value_at(n->param_lanes[i], t, 0.0);
+            return 0.0f;
+        }
+    return 0.0f;
 }
 
 /* ---- generic pull (identity short-circuit + forwarding) -------------- */
@@ -106,10 +147,14 @@ static wb_frame *eff_pull(wb_node *self, double t,
     wb_frame *in = wb_node_pull(self->inputs[0], t, rx, ry, rw, rh);
     if (!in) return NULL;
     in->roi_x = rx; in->roi_y = ry; in->roi_w = rw; in->roi_h = rh;
+    /* G11: a keyframed "gain" param overrides the static gain (animates) */
+    float gain = e->gain;
+    float kv = wb_node_param_value(self, "gain", t);
+    if (kv != 0.0f || e->gain == 0.0f) gain = kv;  /* track present => use it */
     for (int y = ry; y < ry + rh; y++)
         for (int x = rx; x < rx + rw; x++) {
             wb_px *p = &in->px[y*in->w + x];
-            if (e->op == 1) { p->r*=e->gain; p->g*=e->gain; p->b*=e->gain; }
+            if (e->op == 1) { p->r*=gain; p->g*=gain; p->b*=gain; }
             else if (e->op == 2) { /* invert alpha matte */
                 p->a = 1.0f - p->a;
             }

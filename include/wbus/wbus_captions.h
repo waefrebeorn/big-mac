@@ -13,6 +13,7 @@
 #include <stddef.h>
 
 typedef struct wb_captions wb_captions;
+typedef struct wb_transcript wb_transcript;  /* G6 bridge (see wbus_transcript.h) */
 
 /* Create/free a captions context. */
 wb_captions *wb_captions_create(void);
@@ -40,6 +41,10 @@ int wb_captions_burn(const char *input_path, const char *srt_path,
 
 /* Clean up temporary files from a captions generation. */
 void wb_captions_cleanup(wb_captions *c);
+
+/* G6: get the parsed word-level transcript model (NULL if not generated).
+ * Lazily parses the SRT on first call. */
+wb_transcript *wb_captions_get_transcript_model(wb_captions *c);
 
 /* Shared helper: run a shell command, return exit code.
  * Declared here so wb_video.c can call it for proxy generation. */

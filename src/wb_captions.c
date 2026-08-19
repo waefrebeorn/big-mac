@@ -11,6 +11,7 @@
  */
 
 #include "wbus/wbus_captions.h"
+#include "wbus/wbus_transcript.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +44,7 @@ struct wb_captions {
     char  last_srt[65536];   /* cached SRT content */
     int   has_transcript;
     int   has_srt;
+    wb_transcript *transcript;  /* lazily parsed word model (G6) */
 };
 
 /* ---- helpers ----------------------------------------------------------- */
@@ -132,6 +134,8 @@ wb_captions *wb_captions_create(void) {
 
 void wb_captions_free(wb_captions *c) {
     if (!c) return;
+    wb_transcript *tr = c->transcript;
+    if (tr) wb_transcript_free(tr);
     free(c);
 }
 
@@ -200,6 +204,18 @@ const char *wb_captions_get_transcript(wb_captions *c) {
 const char *wb_captions_get_srt(wb_captions *c) {
     if (!c) return NULL;
     return c->has_srt ? c->last_srt : NULL;
+}
+
+/* G6: lazily parse the generated SRT into an editable word-level transcript
+ * model (click-to-seek / drag-to-trim). Returns NULL until captions exist
+ * or if the SRT cannot be parsed. Caller does NOT free the returned pointer;
+ * it lives as long as the captions context. */
+wb_transcript *wb_captions_get_transcript_model(wb_captions *c) {
+    if (!c || !c->has_srt) return NULL;
+    if (!c->transcript && c->srt_path[0]) {
+        c->transcript = wb_transcript_from_srt(c->srt_path);
+    }
+    return c->transcript;
 }
 
 /* Write SRT from transcript text. Splits into segments of roughly equal length.

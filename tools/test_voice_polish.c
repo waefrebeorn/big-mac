@@ -84,6 +84,50 @@ int main(void) {
 
     free(ref);
     free(buf);
+
+    /* ---- G7: param-track-driven graph -------------------------------- */
+    printf("\n=== G7 param-track voice graph ===\n");
+    {
+        int sr2 = 44100, ch2 = 1, fr2 = 44100; /* 1 s mono */
+        float *a = (float*)malloc((size_t)fr2*ch2*sizeof(float));
+        float *b_sig = (float*)malloc((size_t)fr2*ch2*sizeof(float));
+        make_signal(a, fr2, ch2);
+        make_signal(b_sig, fr2, ch2);
+
+        /* static default run */
+        wb_voice_polish *vp0 = wb_voice_polish_create(sr2, ch2);
+        wb_voice_polish_process(vp0, a, fr2);
+        float peak_static = 0;
+        for (uint32_t i = 0; i < (uint32_t)fr2*ch2; i++)
+            if (fabsf(a[i]) > peak_static) peak_static = fabsf(a[i]);
+        wb_voice_polish_free(vp0);
+
+        /* bind comp_ratio to a keyframe track: 1.0 (none) -> 8.0 (heavy) */
+        wb_param_track *tr = wb_param_track_create();
+        wb_param_track_set(tr, 0.0, 1.0f, WB_KF_LINEAR);
+        wb_param_track_set(tr, 1.0, 8.0f, WB_KF_LINEAR);
+        wb_voice_polish *vp1 = wb_voice_polish_create(sr2, ch2);
+        int ok = wb_voice_polish_bind(vp1, "comp_ratio", tr);
+        CHECK(ok == 0, "bound comp_ratio to keyframe track");
+        CHECK(fabsf(wb_voice_polish_param_at(vp1, "comp_ratio", 0.5) - 4.5f) < 1e-3f,
+              "param_at returns keyframed 4.5 at t=0.5");
+        CHECK(fabsf(wb_voice_polish_param_at(vp1, "comp_ratio", 0.0) - 1.0f) < 1e-3f,
+              "param_at returns keyframed 1.0 at t=0");
+        wb_voice_polish_process(vp1, b_sig, fr2);
+        float peak_kf = 0;
+        for (uint32_t i = 0; i < (uint32_t)fr2*ch2; i++)
+            if (fabsf(b_sig[i]) > peak_kf) peak_kf = fabsf(b_sig[i]);
+        wb_voice_polish_free(vp1);
+        wb_param_track_free(tr);
+        printf("         peak static=%.3f  peak keyframed-ratio=%.3f\n",
+               peak_static, peak_kf);
+        /* heavier compression (ratio ramps to 8) raises average level:
+         * keyframed run should yield different (higher RMS) output */
+        CHECK(fabsf(peak_kf - peak_static) > 1e-3f,
+              "keyframed comp_ratio changed the processed output");
+        free(a); free(b_sig);
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

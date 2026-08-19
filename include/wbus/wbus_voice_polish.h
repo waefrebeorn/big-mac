@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "wbus/wbus_param_track.h"   /* G7: param-track-driven graph */
 
 typedef struct wb_voice_polish wb_voice_polish;
 
@@ -26,6 +27,20 @@ void             wb_voice_polish_free(wb_voice_polish *vp);
 
 /* Reset internal state (call between independent clips). */
 void wb_voice_polish_reset(wb_voice_polish *vp);
+
+/* ---- G7: param-track-driven graph --------------------------------------
+ * Each stage parameter can be bound to a keyframed wb_param_track so the
+ * polish chain animates over time (e.g. compressor ratio ramps up on a
+ * loud section). A bound track overrides the static value. Unbound params
+ * use the static value set via wb_voice_polish_set(). */
+int  wb_voice_polish_bind(wb_voice_polish *vp, const char *param,
+                          wb_param_track *tr);
+float wb_voice_polish_param_at(wb_voice_polish *vp, const char *param, double t);
+
+/* Set a static stage parameter (dB / ratio / LUFS). Names:
+ *   "gate_thresh" (dBFS), "deess_thresh" (dB), "comp_thresh" (dBFS),
+ *   "comp_ratio", "lim_ceiling" (dBFS), "eq_presence" (dB), "target_lufs". */
+void wb_voice_polish_set(wb_voice_polish *vp, const char *param, float value);
 
 /* Process `frames` of interleaved float audio in place.
  * channels must match the create() value. Returns 0 on success. */

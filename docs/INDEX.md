@@ -59,6 +59,7 @@
 | Video editor: auto clip-to-shorts (scene-detect → lossless multi-export) | `make test_video_tools` (3 shorts from test src) |
 | Video editor: transcript model (word-level [start,end,word], click-to-seek, drag-trim, SRT round-trip, captions bridge) (R017 G6) | `make test_transcript` (18/18) |
 | Voice-polish: gate→deesser→comp→EQ→limiter→BS.1770 loudness preset (R015 T1) | `make test_voice_polish` (8/8: -10.7→-16 LUFS, sib -11dB, no clip) |
+| Voice-polish: **param-track-driven graph** (G7) — each stage bindable to keyframed `wb_param_track` via the shared bus | `make test_voice_polish` (12/12: keyframed comp_ratio 1→8 changes output) |
 | Keyframe tracks: hold/linear/bezier + valid-clamp (R016 S2) | `make test_compositor` (shared param bus for FX/automation) |
 | Node compositor: recursive pull(t,roi), RoI→RoD, identity bypass, content-hash LRU edge cache (R013 D1/D3) | `make test_compositor` (18/8: composite/identity/cache-hit) |
 | Node compositor: **G11 unified param bus** — FX node params driven by keyframed `wb_param_track` OR session `wb_automation_lane` (same channel) | `make test_compositor` (33/33: keyframed gain animates FX, lane bus clamps, lane→FX binding) |

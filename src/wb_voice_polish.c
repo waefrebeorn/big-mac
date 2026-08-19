@@ -42,7 +42,17 @@ struct wb_voice_polish {
     float comp_thresh;       /* -dBFS */
     float comp_ratio;
     float lim_ceiling;       /* -dBFS */
+    float eq_presence;       /* dB */
     float target_lufs;
+
+    /* G7: param-track bindings (NULL = use static value above) */
+    wb_param_track *tr_gate_thresh;
+    wb_param_track *tr_deess_thresh;
+    wb_param_track *tr_comp_thresh;
+    wb_param_track *tr_comp_ratio;
+    wb_param_track *tr_lim_ceiling;
+    wb_param_track *tr_eq_presence;
+    wb_param_track *tr_target_lufs;
 };
 
 /* ---- helpers ----------------------------------------------------------- */
@@ -74,13 +84,14 @@ wb_voice_polish *wb_voice_polish_create(float sample_rate, int channels) {
     vp->comp_thresh = -18.0f;
     vp->comp_ratio = 3.0f;
     vp->lim_ceiling = -1.0f;
+    vp->eq_presence = 3.0f;
     vp->target_lufs = -16.0f;
 
     for (int c = 0; c < channels; c++) {
         wb_biquad_init(&vp->ch[c].low_cut, sample_rate);
         wb_biquad_set(&vp->ch[c].low_cut, 1, 80.0f, 0.7f, 0.0f);   /* highpass */
         wb_biquad_init(&vp->ch[c].presence, sample_rate);
-        wb_biquad_set(&vp->ch[c].presence, 3, 3000.0f, 1.0f, 3.0f); /* peaking +3dB */
+        wb_biquad_set(&vp->ch[c].presence, 3, 3000.0f, 1.0f, vp->eq_presence); /* peaking +presence dB */
         wb_biquad_init(&vp->ch[c].deess_band, sample_rate);
         /* bandpass around 6 kHz for sibilance detection */
         wb_biquad_set(&vp->ch[c].deess_band, 2, 6000.0f, 1.2f, 0.0f);
@@ -92,6 +103,57 @@ void wb_voice_polish_free(wb_voice_polish *vp) {
     if (!vp) return;
     free(vp->ch);
     free(vp);
+}
+
+/* ---- G7: param-track binding ------------------------------------------ */
+
+static wb_param_track **vp_track_slot(wb_voice_polish *vp, const char *param) {
+    if (!vp || !param) return NULL;
+    if (strcmp(param, "gate_thresh") == 0)   return &vp->tr_gate_thresh;
+    if (strcmp(param, "deess_thresh") == 0)  return &vp->tr_deess_thresh;
+    if (strcmp(param, "comp_thresh") == 0)   return &vp->tr_comp_thresh;
+    if (strcmp(param, "comp_ratio") == 0)    return &vp->tr_comp_ratio;
+    if (strcmp(param, "lim_ceiling") == 0)   return &vp->tr_lim_ceiling;
+    if (strcmp(param, "eq_presence") == 0)   return &vp->tr_eq_presence;
+    if (strcmp(param, "target_lufs") == 0)   return &vp->tr_target_lufs;
+    return NULL;
+}
+
+static float vp_static_value(wb_voice_polish *vp, const char *param) {
+    if (strcmp(param, "gate_thresh") == 0)   return vp->gate_thresh;
+    if (strcmp(param, "deess_thresh") == 0)  return vp->deess_thresh;
+    if (strcmp(param, "comp_thresh") == 0)   return vp->comp_thresh;
+    if (strcmp(param, "comp_ratio") == 0)    return vp->comp_ratio;
+    if (strcmp(param, "lim_ceiling") == 0)   return vp->lim_ceiling;
+    if (strcmp(param, "eq_presence") == 0)   return vp->eq_presence;
+    if (strcmp(param, "target_lufs") == 0)   return vp->target_lufs;
+    return 0.0f;
+}
+
+int wb_voice_polish_bind(wb_voice_polish *vp, const char *param,
+                         wb_param_track *tr) {
+    wb_param_track **slot = vp_track_slot(vp, param);
+    if (!slot) return -1;
+    *slot = tr;
+    return 0;
+}
+
+float wb_voice_polish_param_at(wb_voice_polish *vp, const char *param, double t) {
+    if (!vp || !param) return 0.0f;
+    wb_param_track **slot = vp_track_slot(vp, param);
+    if (slot && *slot) return wb_param_track_value_at(*slot, t);
+    return vp_static_value(vp, param);
+}
+
+void wb_voice_polish_set(wb_voice_polish *vp, const char *param, float value) {
+    if (!vp || !param) return;
+    if (strcmp(param, "gate_thresh") == 0)   vp->gate_thresh = value;
+    else if (strcmp(param, "deess_thresh") == 0) vp->deess_thresh = value;
+    else if (strcmp(param, "comp_thresh") == 0)  vp->comp_thresh = value;
+    else if (strcmp(param, "comp_ratio") == 0)   vp->comp_ratio = value;
+    else if (strcmp(param, "lim_ceiling") == 0)  vp->lim_ceiling = value;
+    else if (strcmp(param, "eq_presence") == 0)  vp->eq_presence = value;
+    else if (strcmp(param, "target_lufs") == 0)  vp->target_lufs = value;
 }
 
 void wb_voice_polish_reset(wb_voice_polish *vp) {
@@ -109,11 +171,18 @@ void wb_voice_polish_reset(wb_voice_polish *vp) {
 
 /* ---- per-sample processing for one channel ---------------------------- */
 
-static inline float process_chan(vp_chan *s, wb_voice_polish *vp, float x) {
+static inline float process_chan(vp_chan *s, wb_voice_polish *vp, float x, double t) {
+    /* sample stage params (static or keyframed via G7 bus) */
+    float gate_thresh  = wb_voice_polish_param_at(vp, "gate_thresh", t);
+    float deess_thresh = wb_voice_polish_param_at(vp, "deess_thresh", t);
+    float comp_thresh  = wb_voice_polish_param_at(vp, "comp_thresh", t);
+    float comp_ratio   = wb_voice_polish_param_at(vp, "comp_ratio", t);
+    float lim_ceiling  = wb_voice_polish_param_at(vp, "lim_ceiling", t);
+
     /* 1. noise gate: open only when level exceeds threshold */
     float lvl = (float)fabsf(x);
     env_follow(&s->gate_env, lvl, 0.005f, 0.05f, vp->sr);
-    float gt = db_to_lin(vp->gate_thresh);
+    float gt = db_to_lin(gate_thresh);
     int want_open = (s->gate_env > gt) ? 1 : 0;
     /* hysteresis: keep open briefly */
     if (want_open) s->gate_open = 1;
@@ -125,7 +194,7 @@ static inline float process_chan(vp_chan *s, wb_voice_polish *vp, float x) {
     float band = wb_biquad_process(&s->deess_band, x);
     float b_energy = (float)fabsf(band);
     env_follow(&s->deess_env, b_energy, 0.002f, 0.05f, vp->sr);
-    float ds_thr = db_to_lin(vp->deess_thresh);
+    float ds_thr = db_to_lin(deess_thresh);
     float duck = 1.0f;
     if (s->deess_env > ds_thr) {
         float over = s->deess_env / ds_thr;
@@ -138,11 +207,11 @@ static inline float process_chan(vp_chan *s, wb_voice_polish *vp, float x) {
     /* 3. compressor: level-triggered gain reduction */
     float lvl2 = (float)fabsf(x);
     env_follow(&s->comp_env, lvl2, 0.003f, 0.12f, vp->sr);
-    float ct = db_to_lin(vp->comp_thresh);
+    float ct = db_to_lin(comp_thresh);
     float new_gain = 1.0f;
     if (s->comp_env > ct) {
         float over_db = lin_to_db(s->comp_env) - lin_to_db(ct);
-        float red_db = over_db * (1.0f - 1.0f / vp->comp_ratio);
+        float red_db = over_db * (1.0f - 1.0f / comp_ratio);
         new_gain = db_to_lin(-red_db);
     }
     /* smooth gain to avoid zipper noise */
@@ -156,7 +225,7 @@ static inline float process_chan(vp_chan *s, wb_voice_polish *vp, float x) {
     /* 5. limiter: hard ceiling with fast detection */
     float lvl3 = (float)fabsf(x);
     env_follow(&s->lim_env, lvl3, 0.0005f, 0.005f, vp->sr);
-    float ceil = db_to_lin(vp->lim_ceiling);
+    float ceil = db_to_lin(lim_ceiling);
     if (s->lim_env > ceil) {
         float g = ceil / s->lim_env;
         x *= g;
@@ -168,10 +237,12 @@ static inline float process_chan(vp_chan *s, wb_voice_polish *vp, float x) {
 
 int wb_voice_polish_process(wb_voice_polish *vp, float *buf, uint32_t frames) {
     if (!vp || !buf) return -1;
+    double sr = vp->sr;
     for (uint32_t i = 0; i < frames; i++) {
+        double t = (double)i / sr;   /* G7: sample params at this frame time */
         for (int c = 0; c < vp->channels; c++) {
             float *s = buf + (size_t)i * vp->channels + c;
-            *s = process_chan(&vp->ch[c], vp, *s);
+            *s = process_chan(&vp->ch[c], vp, *s, t);
         }
     }
     return 0;
@@ -215,7 +286,8 @@ int wb_voice_polish_apply(float *buf, uint32_t frames, int channels,
     if (!buf || channels <= 0) return -1;
     wb_voice_polish *vp = wb_voice_polish_create(sample_rate, channels);
     if (!vp) return -1;
-    vp->target_lufs = target_lufs;
+    /* target LUFS may be keyframed (G7); use t=0 sample for the global scale */
+    vp->target_lufs = wb_voice_polish_param_at(vp, "target_lufs", 0.0);
     wb_voice_polish_process(vp, buf, frames);
     /* measure post-chain loudness, scale to target */
     float meas = wb_loudness_measure(buf, frames, channels, sample_rate);

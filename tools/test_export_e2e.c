@@ -65,6 +65,45 @@ int main(void) {
 
     wb_engine_destroy(e);
     wb_session_destroy(s);
+
+    /* R018-A: ProRes editorial export (the NLE exchange standard).
+     * Rebuild a session and export a .mov with the ProRes codec. */
+    int prores_fail = 0;
+    wb_session *s2 = wb_session_create();
+    int vt2 = wb_session_add_video_track(s2, "V1");
+    wb_session_add_video_clip(s2, vt2, src, 0.0);
+    wb_track *at2 = wb_session_add_track(s2, "A1", WB_TRACK_KIND_AUDIO);
+    float *b2 = (float*)malloc(44100 * sizeof(float));
+    for (int i = 0; i < 44100; i++) b2[i] = 0.3f * (float)sin(2.0*3.14159*440.0*i/44100.0);
+    wb_session_add_audio_clip(at2, 0.0, 44100.0, b2, 44100, 1);
+    free(b2);
+    wb_engine *e2 = wb_engine_create();
+    wb_engine_set_session(e2, s2);
+
+    const char *pmov = "/tmp/bigmac_e2e_export_prores.mov";
+    remove(pmov);
+    int prc = wb_video_export_codec(s2, e2, pmov, NULL, WB_VIDEO_CODEC_PRORES);
+    printf("wb_video_export_codec(ProRes) rc=%d\n", prc);
+    if (prc != 0) prores_fail++;
+
+    FILE *pm = fopen(pmov, "rb");
+    if (!pm) { fprintf(stderr, "ProRes file NOT created\n"); prores_fail++; }
+    else {
+        fclose(pm);
+        char pcmd[1024];
+        snprintf(pcmd, sizeof(pcmd),
+                 "\"/Users/waefrebeorn/homebrew/bin/ffprobe\" -v error -show_entries "
+                 "stream=codec_name -select_streams v:0 -of csv=p=0 \"%s\"", pmov);
+        FILE *pp = popen(pcmd, "r");
+        char vcodec[32] = "";
+        if (pp) { if (fgets(vcodec, sizeof(vcodec), pp)) { /* keep */ } pclose(pp); }
+        printf("ProRes video codec: '%s'\n", vcodec);
+        if (strstr(vcodec, "prores") == NULL) { fprintf(stderr, "ProRes codec not produced\n"); prores_fail++; }
+    }
+    wb_engine_destroy(e2);
+    wb_session_destroy(s2);
+    if (prores_fail) failures++;
+
     printf("%s\n", failures == 0 ? "E2E_EXPORT_OK" : "E2E_EXPORT_FAIL");
     return failures == 0 ? 0 : 1;
 }

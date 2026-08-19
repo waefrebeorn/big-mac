@@ -266,12 +266,25 @@ int  wb_session_set_video_proxy(wb_session *s, int track, int clip,
  * Returns clip index or -1 if no clip at that position. */
 int  wb_session_video_clip_at(wb_session *s, int track, double timeline_pos);
 
-/* Export the session as a 1080p60 mp4 with optional caption burn.
- * - audio_renderer: our engine renders the full audio track to a WAV
- * - video_sources: full-res video files (swapped from proxies at export)
+/* Export codec selection (R018-A): H.264 for delivery, ProRes for
+ * professional editorial interchange (the standard NLE exchange format). */
+typedef enum {
+    WB_VIDEO_CODEC_H264 = 0,   /* libx264 yuv420p mp4 — delivery */
+    WB_VIDEO_CODEC_PRORES,     /* prores_ks yuv422p10le mov — editorial */
+    WB_VIDEO_CODEC_PRORES_HQ   /* prores_ks profile 3 (HQ) */
+} wb_video_codec;
+
+/* Export the session as a 1080p60 file with optional caption burn.
+ * - codec: select H.264 (mp4) or ProRes (mov) output container
  * - srt_path: optional SRT to burn as subtitles (NULL = no captions)
- * - output_path: final mp4
+ * - output_path: final file (.mp4 for H264, .mov for ProRes)
  * Returns 0 on success. */
+int  wb_video_export_codec(wb_session *s, wb_engine *e,
+                           const char *output_path,
+                           const char *srt_path,
+                           wb_video_codec codec);
+
+/* Legacy H.264 wrapper (delegates to wb_video_export_codec). */
 int  wb_video_export(wb_session *s, wb_engine *e,
                      const char *output_path,
                      const char *srt_path);

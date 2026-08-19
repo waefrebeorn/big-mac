@@ -285,9 +285,12 @@ void wb_video_blit_scaled(SDL_Renderer *ren, SDL_Texture *tex,
  * video source, and burns SRT captions if requested.
  * audio_wav: pre-rendered audio from our engine.
  * srt_path: optional SRT to burn as subtitles (NULL = no captions). */
-int wb_video_export(wb_session *s, wb_engine *e,
-                    const char *output_path,
-                    const char *srt_path) {
+/* R018-A: export with selectable codec (H.264 delivery vs ProRes
+ * editorial). ProRes is the professional NLE exchange standard. */
+int wb_video_export_codec(wb_session *s, wb_engine *e,
+                          const char *output_path,
+                          const char *srt_path,
+                          wb_video_codec codec) {
     if (!s || !e || !output_path) return -1;
 
     /* Find first video track + first video clip. */
@@ -322,6 +325,24 @@ int wb_video_export(wb_session *s, wb_engine *e,
     const char *vid_src = prim->video->source_path;
     const char *ffmpeg = FFmpeg_BIN;
 
+    /* Build the video encoder args per codec. */
+    const char *venc, *vopts;
+    char prof[32] = "";
+    switch (codec) {
+        case WB_VIDEO_CODEC_PRORES_HQ:
+            snprintf(prof, sizeof(prof), " -profile:v 3");
+            /* fallthrough */
+        case WB_VIDEO_CODEC_PRORES:
+            venc  = "prores_ks";
+            vopts = "-pix_fmt yuv422p10le";   /* 10-bit 4:2:2, standard ProRes */
+            break;
+        case WB_VIDEO_CODEC_H264:
+        default:
+            venc  = "libx264";
+            vopts = "-preset fast -crf 20 -pix_fmt yuv420p";
+            break;
+    }
+
     char cmd[4096];
     if (srt_path) {
         snprintf(cmd, sizeof(cmd),
@@ -330,27 +351,35 @@ int wb_video_export(wb_session *s, wb_engine *e,
                  "-i \"%s\" "
                  "-vf \"subtitles=%s:force_style='FontSize=28,FontName=Arial,BorderStyle=3,Outline=1,Shadow=0'\" "
                  "-map 0:v -map 1:a "
-                 "-c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p "
+                 "-c:v %s %s%s "
                  "-r 60 "
                  "-c:a aac -b:a 192k "
                  "-shortest \"%s\" > /dev/null 2>&1",
-                 ffmpeg, vid_src, audio_wav, srt_path, output_path);
+                 ffmpeg, vid_src, audio_wav, srt_path,
+                 venc, vopts, prof, output_path);
     } else {
         snprintf(cmd, sizeof(cmd),
                  "\"%s\" -y "
                  "-i \"%s\" "
                  "-i \"%s\" "
                  "-map 0:v -map 1:a "
-                 "-c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p "
+                 "-c:v %s %s%s "
                  "-r 60 "
                  "-c:a aac -b:a 192k "
                  "-shortest \"%s\" > /dev/null 2>&1",
-                 ffmpeg, vid_src, audio_wav, output_path);
+                 ffmpeg, vid_src, audio_wav,
+                 venc, vopts, prof, output_path);
     }
 
     int rc = system(cmd);
     if (rc != 0) fprintf(stderr, "wb_video_export: ffmpeg failed (exit %d)\n", WEXITSTATUS(rc));
     return rc == 0 ? 0 : -1;
+}
+
+int wb_video_export(wb_session *s, wb_engine *e,
+                    const char *output_path,
+                    const char *srt_path) {
+    return wb_video_export_codec(s, e, output_path, srt_path, WB_VIDEO_CODEC_H264);
 }
 
 /* Quick captions-only step: extract audio, transcribe, produce SRT.

@@ -57,6 +57,7 @@
 | Video editor: DaVinci-style 4-tab UI (MEDIA/EDIT/CAPTIONS/EXPORT) + import/proxy/captions/export keys | `build/wb_daw` (tabs 5–8; ^I import, ^G captions, ^R export, ^S set path, ^B burn) |
 | Video editor: split clip (^X) — one clip → two, source-window preserved | `make test_video_tools` (left+right len == orig, src offset shifts) |
 | Video editor: auto clip-to-shorts (scene-detect → lossless multi-export) | `make test_video_tools` (3 shorts from test src) |
+| Video editor: transcript model (word-level [start,end,word], click-to-seek, drag-trim, SRT round-trip, captions bridge) (R017 G6) | `make test_transcript` (18/18) |
 | Voice-polish: gate→deesser→comp→EQ→limiter→BS.1770 loudness preset (R015 T1) | `make test_voice_polish` (8/8: -10.7→-16 LUFS, sib -11dB, no clip) |
 | Keyframe tracks: hold/linear/bezier + valid-clamp (R016 S2) | `make test_compositor` (shared param bus for FX/automation) |
 | Node compositor: recursive pull(t,roi), RoI→RoD, identity bypass, content-hash LRU edge cache (R013 D1/D3) | `make test_compositor` (18/8: composite/identity/cache-hit) |

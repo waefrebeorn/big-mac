@@ -345,7 +345,9 @@ void wb_clap_plugin_destroy(wb_clap_plugin *p) {
     if (p->plugin) {
         if (p->plugin->stop_processing) p->plugin->stop_processing(p->plugin);
         if (p->plugin->deactivate) p->plugin->deactivate(p->plugin);
-        p->plugin->destroy(p->plugin);
+        /* CLAP spec: destroy() frees plugin_data, host frees the struct */
+        if (p->plugin->destroy) p->plugin->destroy(p->plugin);
+        free((void*)p->plugin);  /* factory_create_plugin allocated it */
     }
     free(p->inL); free(p->inR); free(p->outL); free(p->outR);
     free(p);

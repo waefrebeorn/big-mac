@@ -10,6 +10,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "wbus_midifx.h"
+#include "wbus_video.h"
+#include "wbus_captions.h"
 
 /* Forward declarations for cross-referenced types. */
 typedef struct wb_mod_matrix wb_mod_matrix;
@@ -52,15 +54,17 @@ typedef struct wb_note {
 
 /* ---- clips ------------------------------------------------------------ */
 typedef struct wb_clip {
-    int      type;            /* 0 = MIDI/notes, 1 = audio */
-    double   start;           /* sample position on timeline */
-    double   length;          /* samples */
+    int      type;            /* 0 = MIDI/notes, 1 = audio, 2 = video */
+    double   start;           /* sample position on timeline (audio) or seconds (video) */
+    double   length;          /* samples (audio) or seconds (video) */
     uint32_t note_count;
     wb_note *notes;           /* MIDI clips */
     /* audio clip: owned buffer */
     int      audio_channels;
     uint32_t audio_frames;
     wb_sample *audio_data;
+    /* video clip: FFmpeg-backed */
+    wb_video_clip *video;     /* non-NULL for type==2 */
 } wb_clip;
 
 /* ---- mixer insert (one plugin slot on a track) ------------------------ */
@@ -71,10 +75,16 @@ typedef struct wb_plugin_slot {
     float  wet;               /* per-slot wet mix (0.0 = dry, 1.0 = wet) */
 } wb_plugin_slot;
 
+/* ---- track kinds ------------------------------------------------------ */
+#define WB_TRACK_KIND_INSTR  0   /* MIDI/instrument track */
+#define WB_TRACK_KIND_AUDIO  1   /* audio clip track */
+#define WB_TRACK_KIND_BUS    2   /* bus/group (audio mix bus) */
+#define WB_TRACK_KIND_VIDEO  3   /* video track (FFmpeg-backed, R009) */
+
 /* ---- track ------------------------------------------------------------ */
 typedef struct wb_track {
     char       name[64];
-    int        kind;          /* 0 = instrument, 1 = audio, 2 = bus/group */
+    int        kind;          /* WB_TRACK_KIND_* */
     float      volume;        /* linear gain */
     float      pan;           /* -1..1 */
     int        mute;
@@ -236,6 +246,49 @@ void wb_engine_end_edit(wb_engine *e);
 
 /* Convenience: render the whole session to an interleaved buffer (caller frees). */
 int wb_engine_render_session(wb_engine *e, wb_session *s, wb_sample **out, uint32_t *frames);
+
+/* ---- video editor API (R009/R011) ------------------------------------- */
+
+/* Add a video track to the session. Returns track index or -1 on error. */
+int  wb_session_add_video_track(wb_session *s, const char *name);
+
+/* Add a video clip on a video track. The clip references an FFmpeg-decodable
+ * source file. Proxy is generated automatically at import. Returns clip index
+ * or -1 on error. */
+int  wb_session_add_video_clip(wb_session *s, int track, const char *source_path,
+                               double timeline_pos);
+
+/* Set a proxy path on an existing video clip (UI import, post-proxy-gen). */
+int  wb_session_set_video_proxy(wb_session *s, int track, int clip,
+                                const char *proxy_path);
+
+/* Get the video clip on a track at a given timeline position (seconds).
+ * Returns clip index or -1 if no clip at that position. */
+int  wb_session_video_clip_at(wb_session *s, int track, double timeline_pos);
+
+/* Export the session as a 1080p60 mp4 with optional caption burn.
+ * - audio_renderer: our engine renders the full audio track to a WAV
+ * - video_sources: full-res video files (swapped from proxies at export)
+ * - srt_path: optional SRT to burn as subtitles (NULL = no captions)
+ * - output_path: final mp4
+ * Returns 0 on success. */
+int  wb_video_export(wb_session *s, wb_engine *e,
+                     const char *output_path,
+                     const char *srt_path);
+
+/* Quick captions-only step: extract audio, transcribe, produce SRT.
+ * Used during export or as a standalone feature. */
+int  wb_video_generate_captions(wb_session *s, int video_track,
+                                const char *srt_out_path);
+
+/* Flat wrappers (no context needed) — for wb_daw.c video tab shortcuts */
+int  wb_video_captions_generate(const char *video_path, const char *srt_out_path,
+                                const char *cli_path, const char *model_path);
+int  wb_video_captions_burn(const char *input_path, const char *output_path,
+                            const char *srt_path, const char *ffmpeg_path);
+
+/* Delete a video clip from a track. Returns 0 on success. */
+int  wb_session_remove_video_clip(wb_session *s, int track, int clip);
 
 #ifdef __cplusplus
 }

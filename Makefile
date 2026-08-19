@@ -14,14 +14,17 @@ INC      := -Iinclude -Iinclude/wbus -Ithird_party/SDL2-2.32.10/include \
            -Ithird_party/vst3sdk/pluginterfaces \
            -Ithird_party/vst3sdk/pluginterfaces/base \
            -Ithird_party/vst3sdk/pluginterfaces/vst \
-           -Ithird_party/vst3sdk/public.sdk/source/vst/hosting
+           -Ithird_party/vst3sdk/public.sdk/source/vst/hosting \
+           -I/Users/waefrebeorn/homebrew/include
 LIBS     := third_party/SDL2-2.32.10/build/.libs/libSDL2.a \
-            -lm -lobjc \
+            -lm -lobjc -lz -llzma -lbz2 -liconv \
             -Wl,-framework,CoreAudio -Wl,-framework,AudioToolbox \
             -Wl,-weak_framework,CoreHaptics -Wl,-weak_framework,GameController \
             -Wl,-framework,ForceFeedback -Wl,-framework,CoreVideo \
             -Wl,-framework,Cocoa -Wl,-framework,Carbon -Wl,-framework,IOKit \
-            -Wl,-weak_framework,QuartzCore -Wl,-weak_framework,Metal -Wl,-framework,CoreMIDI -Wl,-framework,CoreFoundation
+            -Wl,-weak_framework,QuartzCore -Wl,-weak_framework,Metal -Wl,-framework,CoreMIDI -Wl,-framework,CoreFoundation \
+            -framework VideoToolbox -framework CoreFoundation -framework CoreMedia -framework CoreServices -framework Security \
+            -L/Users/waefrebeorn/homebrew/lib -lavformat -lavcodec -lswscale -lavutil -lswresample
 
 # Core engine objects
 CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c \
@@ -30,7 +33,7 @@ CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c \
              src/wb_sampler.c src/wb_wav.c src/wb_backend.c \
              src/wb_tuner.c src/wb_ui_font.c src/wb_midi_coremidi.c src/wb_clap.c \
              src/wb_session_file.c src/wb_unit.c src/wb_fm.c src/wb_drums.c \
-             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c src/wb_multiband.c
+             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c
 CXX_SRCS := src/wb_vst3_host.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/module.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/processdata.cpp \
@@ -77,12 +80,17 @@ build/wb_selftest: build/tools/wb_selftest.o $(CORE_OBJS)
 
 # ---- CLAP host + test plugin --------------------------------------------
 
+# Minimal test CLAP plugin dylib (compiled without engine headers)
 build/test-clap/bigmac-test.clap: tests/test_clap_plugin.c
 	@mkdir -p $(dir $@)
 	$(CC) -shared -fPIC -O1 -o $@ $<
 
+# CLAP host test executable (links full engine)
 build/wb_test_clap: tools/test_clap.c $(CORE_OBJS)
-	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ $(LIBS) -ldl
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm -lobjc $(LIBS)
+
+build/wb_test_captions: tools/test_captions.c build/src/wb_captions.o build/src/wb_video.o
+	$(CC) $(CFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 
 test-clap: build/test-clap/bigmac-test.clap build/wb_test_clap
 	./build/wb_test_clap build/test-clap
@@ -91,6 +99,9 @@ test-clap: build/test-clap/bigmac-test.clap build/wb_test_clap
 
 test: build/wb_selftest
 	./build/wb_selftest
+
+test_captions: build/wb_test_captions
+	./build/wb_test_captions
 
 test_launchpad_mk2: build/wb_test_launchpad_mk2
 	./build/wb_test_launchpad_mk2
@@ -106,3 +117,15 @@ clean:
 	rm -rf build
 
 .PHONY: all clean test test_transport test-clap
+
+build/wb_test_video: build/tools/test_video.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+build/wb_e2e_export: tools/test_export_e2e.c $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_video: build/wb_test_video
+	./build/wb_test_video
+
+test_export_e2e: build/wb_e2e_export
+	./build/wb_e2e_export

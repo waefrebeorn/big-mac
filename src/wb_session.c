@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <math.h>
 #include "wbus.h"
+#include "wbus_video.h"
 
 /* ---- create ------------------------------------------------------------- */
 wb_session *wb_session_create(void) {
@@ -292,4 +293,126 @@ wb_session *wb_session_demo(void) {
     }
 
     return s;
+}
+
+/* ---- video clip helpers (R009) ----------------------------------------- */
+
+/* Add a video track to the session. Returns track index or -1 on error. */
+int wb_session_add_video_track(wb_session *s, const char *name) {
+    if (!s || s->track_count >= WB_MAX_TRACKS) return -1;
+    if (!s->tracks) {
+        s->tracks = calloc(WB_MAX_TRACKS, sizeof(wb_track));
+        if (!s->tracks) return -1;
+    }
+    wb_track *tr = &s->tracks[s->track_count++];
+    tr->kind = WB_TRACK_KIND_VIDEO;  /* video track (R009) */
+    tr->volume = 1.0f;
+    tr->pan = 0.0f;
+    tr->mute = 0;
+    tr->solo = 0;
+    tr->route = -1;
+    tr->clip_count = 0;
+    tr->clips = NULL;
+    if (name) snprintf(tr->name, sizeof(tr->name), "%s", name);
+    else      snprintf(tr->name, sizeof(tr->name), "Video");
+    return (int)(s->track_count - 1);
+}
+
+/* Add a video clip on a video track. The clip references an FFmpeg-decodable
+ * source file. Proxy is generated automatically at import. Returns clip index
+ * or -1 on error. */
+int wb_session_add_video_clip(wb_session *s, int track, const char *source_path,
+                               double timeline_pos) {
+    if (!s || track < 0 || track >= (int)s->track_count || !source_path) return -1;
+    wb_track *tr = &s->tracks[track];
+    if (tr->clip_count >= 1024) return -1;  /* sanity cap */
+
+    tr->clips = realloc(tr->clips, (tr->clip_count + 1) * sizeof(wb_clip));
+    if (!tr->clips) return -1;
+    wb_clip *cl = &tr->clips[tr->clip_count++];
+    memset(cl, 0, sizeof(*cl));
+    cl->type = 2;
+    cl->start = timeline_pos;
+    cl->video = calloc(1, sizeof(wb_video_clip));
+    if (!cl->video) { tr->clip_count--; return -1; }
+    wb_video_clip_init(cl->video);
+    snprintf(cl->video->source_path, sizeof(cl->video->source_path), "%s", source_path);
+    cl->video->timeline_pos = timeline_pos;
+
+    /* Set duration + proxy path from the source so the session model (export,
+     * save/load, hit-testing) is self-consistent. The UI pre-generates the
+     * proxy and passes it via the proxy_path member; if absent, fall back to
+     * the source duration via the decoder (used by tests / save-load). */
+    if (cl->video->proxy_path[0]) {
+        cl->video->duration = wb_video_proxy_duration(cl->video->proxy_path);
+    }
+    if (cl->video->duration <= 0.0) {
+        wb_video_decoder *d = wb_video_decoder_open(source_path);
+        if (d) { cl->video->duration = wb_video_decoder_get_duration(d); wb_video_decoder_close(d); }
+    }
+    /* Default clip length = full source duration (UI may trim later). */
+    cl->length = cl->video->duration;
+
+    /* Grow the session's total song length (in samples) to cover this clip,
+     * so wb_engine_render_session (which requires s->length > 0) spans it. */
+    if (cl->video->duration > 0.0) {
+        double clip_end_samples = (cl->start + cl->video->duration) * WB_SAMPLE_RATE;
+        if (clip_end_samples > s->length) s->length = clip_end_samples;
+    }
+    return (int)(tr->clip_count - 1);
+}
+
+/* Set a proxy path on an existing video clip (called by the UI import once the
+ * 480p proxy is generated). Recomputes duration from the proxy. */
+int wb_session_set_video_proxy(wb_session *s, int track, int clip,
+                               const char *proxy_path) {
+    if (!s || track < 0 || track >= (int)s->track_count || !proxy_path) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    wb_clip *cl = &tr->clips[clip];
+    if (!cl->video) return -1;
+    snprintf(cl->video->proxy_path, sizeof(cl->video->proxy_path), "%s", proxy_path);
+    double dur = wb_video_proxy_duration(proxy_path);
+    if (dur > 0.0) { cl->video->duration = dur; cl->length = dur; }
+    return 0;
+}
+
+/* Get the video clip on a track at a given timeline position (seconds).
+ * Returns clip index or -1 if no clip at that position. */
+int wb_session_video_clip_at(wb_session *s, int track, double timeline_pos) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    for (uint32_t c = 0; c < tr->clip_count; c++) {
+        wb_clip *cl = &tr->clips[c];
+        if (cl->type != 2) continue;
+        double dur = cl->video ? cl->video->duration : 0.0;
+        double end = cl->start + (cl->length > 0 ? cl->length : dur);
+        if (timeline_pos >= cl->start && timeline_pos < end)
+            return (int)c;
+    }
+    return -1;
+}
+
+/* Remove a video clip from a track. Returns 0 on success. */
+int wb_session_remove_video_clip(wb_session *s, int track, int clip) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    wb_clip *cl = &tr->clips[clip];
+    if (cl->type != 2 || !cl->video) return -1;
+
+    wb_video_clip_free(cl->video);
+    free(cl->video);
+    cl->video = NULL;
+
+    /* Compact the track's clip array (preserve order of remaining clips). */
+    for (uint32_t c = (uint32_t)clip; c + 1 < tr->clip_count; c++) {
+        tr->clips[c] = tr->clips[c + 1];
+    }
+    tr->clip_count--;
+    if (tr->clip_count == 0) {
+        free(tr->clips);
+        tr->clips = NULL;
+    }
+    return 0;
 }

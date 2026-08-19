@@ -12,26 +12,40 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <unistd.h>
 #include <SDL.h>
 
 #include "wbus.h"
 #include "wbus_backend.h"
 #include "wbus_midi.h"
 #include "wbus_vst3.h"
+#include "wbus_video.h"
+#include "wbus_captions.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
+
+/* 480p proxy dimensions — mirror wb_video.c */
+#ifndef PROXY_SCALE_W
+#define PROXY_SCALE_W 854
+#endif
+#ifndef PROXY_SCALE_H
+#define PROXY_SCALE_H 480
+#endif
 
 /* ---- helpers ----------------------------------------------------------- */
 
 static const char *tab_name(int t) {
-    static const char *names[] = {"KEYS", "PAD", "STEP", "SESSION"};
-    return (t >= 0 && t < 4) ? names[t] : "KEYS";
+    static const char *names[] = {
+        "KEYS", "PAD", "STEP", "SESSION",
+        "MEDIA", "EDIT", "CAPTIONS", "EXPORT"
+    };
+    return (t >= 0 && t < 8) ? names[t] : "KEYS";
 }
 
 static const char *scale_name(int root, int type) {
-    static const char *names[] = {"major", "natural minor", "dorian", "mixolydian", "chromatic"};
     static const char *roots[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-    return (type >= 0 && type < 5) ? roots[root] : "C";
+    (void)type;
+    return roots[root % 12];
 }
 
 /* ---- geometry --------------------------------------------------------- */
@@ -75,12 +89,33 @@ typedef struct app {
     int param_drag;          /* -1 = none, else param index being dragged */
     int param_drag_x;        /* x where the drag began */
 
-    /* tabbed view (R006/R007: KEYS / PAD / STEP / SESSION) */
-    int tab;                 /* 0=KEYS 1=PAD 2=STEP 3=SESSION */
+    /* tabbed view (R006/R007: KEYS / PAD / STEP / SESSION)
+     * video editor tabs (R009: MEDIA / EDIT / CAPTIONS / EXPORT) */
+    int tab;                 /* 0=KEYS 1=PAD 2=STEP 3=SESSION
+                               * 4=MEDIA 5=EDIT 6=CAPTIONS 7=EXPORT */
     int scale_root;          /* 0..11 MIDI root */
     int scale_type;          /* 0=major 1=minor 2=dorian 3=mixolydian 4=chromatic */
     int last_lp_row;         /* last Mk2 grid row lit (for release dim) */
     int last_lp_col;
+
+    /* video editor state (DaVinci-style tabs) */
+    int vid_has_clip;        /* 1 when a video clip is loaded */
+    int vid_track;           /* track index of the video track */
+    int vid_clip;            /* clip index on the video track */
+    double vid_tl_start;     /* timeline position where clip starts (sec) */
+    double vid_tl_end;       /* timeline position where clip ends (sec) */
+    double vid_dur;          /* source clip duration (seconds) */
+    char vid_source[512];    /* path to source video file */
+    char vid_proxy[512];     /* path to 480p proxy */
+    char vid_export[512];    /* path for exported output */
+    char vid_srt[512];       /* path to SRT captions file */
+    int vid_captions_ready;  /* 1 when SRT has been generated */
+    SDL_Texture *vid_preview_tex; /* cached preview frame */
+
+    /* tool paths */
+    char ffmpeg_path[256];
+    char whisper_cli_path[256];
+    char whisper_model_path[256];
 
     char project_path[512];  /* current .wbus file, "" = unsaved */
 } app;
@@ -455,18 +490,328 @@ static void draw_param_editor(app *a) {
     }
 }
 
+/* forward declarations for video editor tab functions (defined after render) */
+static void draw_tab_bar(app *a);
+static void draw_video_preview(app *a);
+static void draw_video_timeline(app *a);
+static void draw_video_tab_panel(app *a);
+
 static void render(app *a) {
     wb_engine_get_transport(a->engine, &a->t);
     setc(a->ren, C_BG); SDL_RenderClear(a->ren);
     draw_transport(a);
-    draw_ruler(a);
-    draw_arrangement(a);
-    draw_mixer(a);
-    draw_param_editor(a);
+    if (a->tab >= 4 && a->tab <= 7) {
+        draw_tab_bar(a);
+        draw_video_preview(a);
+        draw_video_timeline(a);
+        draw_video_tab_panel(a);
+    } else {
+        draw_tab_bar(a);
+        draw_ruler(a);
+        draw_arrangement(a);
+        draw_mixer(a);
+        draw_param_editor(a);
+    }
     SDL_RenderPresent(a->ren);
 }
 
-/* ---- input ------------------------------------------------------------ */
+/* ---- video editor functions (DaVinci-style tabs) ---- */
+
+static void draw_tab_bar(app *a) {
+    int bar_y = TRANSPORT_H + RULER_H;
+    int tab_w = (WIN_W - MIXER_W) / 8;
+    for (int i = 0; i < 8; i++) {
+        int x = GUTTER_W + i * tab_w;
+        int active = (i == a->tab);
+        setc(a->ren, active ? C_ACCENT : C_PANEL2);
+        SDL_Rect tb = { x, bar_y, tab_w - 2, 22 };
+        SDL_RenderFillRect(a->ren, &tb);
+        setc(a->ren, active ? C_BG : C_TEXT_DIM);
+        wb_ui_draw_text(a->ren, x + 4, bar_y + 4, tab_name(i), 1, active ? C_BG : C_TEXT_DIM);
+    }
+    setc(a->ren, C_BG);
+    SDL_Rect sep = { GUTTER_W, bar_y + 23, WIN_W - MIXER_W - GUTTER_W, 1 };
+    SDL_RenderFillRect(a->ren, &sep);
+}
+
+static SDL_Rect video_preview_rect(app *a) {
+    SDL_Rect r;
+    r.x = GUTTER_W;
+    r.y = TRANSPORT_H + RULER_H + 26;
+    r.w = WIN_W - MIXER_W - GUTTER_W - 540;
+    r.h = 300;
+    return r;
+}
+
+static SDL_Rect video_timeline_rect(app *a) {
+    SDL_Rect r;
+    SDL_Rect prev = video_preview_rect(a);
+    r.x = GUTTER_W;
+    r.y = prev.y + prev.h + 8;
+    r.w = WIN_W - MIXER_W - GUTTER_W - 540;
+    r.h = 40;
+    return r;
+}
+
+static void draw_video_preview(app *a) {
+    SDL_Rect prev = video_preview_rect(a);
+    SDL_Rect tl   = video_timeline_rect(a);
+    setc(a->ren, C_PANEL2);
+    SDL_Rect bg = { prev.x, prev.y, prev.w, tl.y - prev.y - 4 };
+    SDL_RenderFillRect(a->ren, &bg);
+    setc(a->ren, C_BG);
+    SDL_RenderDrawRect(a->ren, &bg);
+    if (!a->vid_has_clip) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "  [no video loaded]\n  press ^I to import (MEDIA tab)");
+        wb_ui_draw_text(a->ren, prev.x + 20, prev.y + prev.h/2 - 20, msg, 1, C_TEXT_DIM);
+        return;
+    }
+    double clip_time = a->t.song_pos / WB_SAMPLE_RATE - a->vid_tl_start;
+    if (clip_time < 0) clip_time = 0;
+    if (clip_time > a->vid_dur) clip_time = a->vid_dur;
+    wb_video_decoder *vd = wb_video_decoder_open(a->vid_source);
+    if (vd) {
+        uint8_t *rgba = calloc(PROXY_SCALE_W * PROXY_SCALE_H, 4);
+        int out_w = PROXY_SCALE_W, out_h = PROXY_SCALE_H;
+        if (wb_video_decoder_seek(vd, clip_time) == 0 &&
+            wb_video_decoder_decode_frame(vd, rgba, &out_w, &out_h) == 0) {
+            SDL_Texture *tex = wb_video_frame_to_texture(a->ren, rgba, out_w, out_h);
+            if (tex) {
+                SDL_Rect dst = { prev.x + 10, prev.y + 10,
+                                (int)(prev.w - 20), (int)(prev.h - 20) };
+                wb_video_blit_scaled(a->ren, tex, &dst);
+                SDL_DestroyTexture(tex);
+            }
+        }
+        free(rgba);
+        wb_video_decoder_close(vd);
+    }
+    if (!a->vid_preview_tex) {
+        double sec = a->t.song_pos / WB_SAMPLE_RATE;
+        int m = (int)(sec/60), s = (int)(fmod(sec, 60.0)), cs = (int)((sec-(int)sec)*100);
+        char tc[32]; snprintf(tc, sizeof(tc), "%02d:%02d.%02d", m, s, cs);
+        wb_ui_draw_text(a->ren, prev.x + 20, prev.y + prev.h/2 - 8, tc, 2, C_TEXT);
+    }
+}
+
+static void draw_video_timeline(app *a) {
+    SDL_Rect tl = video_timeline_rect(a);
+    setc(a->ren, C_PANEL);
+    SDL_RenderFillRect(a->ren, &tl);
+    setc(a->ren, C_BG);
+    SDL_RenderDrawRect(a->ren, &tl);
+    wb_ui_draw_text(a->ren, tl.x + 8, tl.y + 6, "TIMELINE", 1, C_TEXT_DIM);
+    if (!a->vid_has_clip) return;
+    double px_per_sec = (tl.w - 60) / (a->vid_dur > 0 ? a->vid_dur : 1.0);
+    int bar_x = tl.x + 30 + (int)(a->vid_tl_start * px_per_sec);
+    int bar_w = (int)(a->vid_dur * px_per_sec);
+    SDL_Rect bar = { bar_x, tl.y + 18, bar_w, 14 };
+    setc(a->ren, C_ACCENT);
+    SDL_RenderFillRect(a->ren, &bar);
+    setc(a->ren, C_BG);
+    SDL_RenderDrawRect(a->ren, &bar);
+    double ph_time = a->t.song_pos / WB_SAMPLE_RATE - a->vid_tl_start;
+    if (ph_time < 0) ph_time = 0;
+    if (ph_time > a->vid_dur) ph_time = a->vid_dur;
+    int phx = tl.x + 30 + (int)(ph_time * px_per_sec);
+    setc(a->ren, C_PLAY);
+    SDL_RenderDrawLine(a->ren, phx, tl.y + 2, phx, tl.y + tl.h - 2);
+    SDL_Rect head = { phx - 4, tl.y + tl.h - 10, 8, 8 };
+    SDL_RenderFillRect(a->ren, &head);
+    SDL_Rect play_btn = { tl.x + tl.w - 150, tl.y + 8, 30, 22 };
+    setc(a->ren, a->t.playing ? C_MUTE : C_ACCENT);
+    SDL_RenderFillRect(a->ren, &play_btn);
+    setc(a->ren, C_BG);
+    SDL_RenderDrawLine(a->ren, play_btn.x+8, play_btn.y+4, play_btn.x+8, play_btn.y+18);
+    SDL_RenderDrawLine(a->ren, play_btn.x+8, play_btn.y+4, play_btn.x+20, play_btn.y+10);
+    SDL_RenderDrawLine(a->ren, play_btn.x+8, play_btn.y+18, play_btn.x+20, play_btn.y+10);
+    wb_ui_draw_text(a->ren, play_btn.x + 34, play_btn.y + 4, "play", 1, C_TEXT_DIM);
+    double sec = a->t.song_pos / WB_SAMPLE_RATE;
+    int m = (int)(sec/60), s = (int)(fmod(sec, 60.0)), cs = (int)((sec-(int)sec)*100);
+    char tc[32]; snprintf(tc, sizeof(tc), "%02d:%02d.%02d", m, s, cs);
+    wb_ui_draw_text(a->ren, tl.x + tl.w - 80, tl.y + 8, tc, 1, C_ACCENT);
+}
+
+static void draw_video_tab_panel(app *a) {
+    int px = WIN_W - MIXER_W + 4;
+    int py = TRANSPORT_H + RULER_H + 26;
+    int pw = MIXER_W - 8;
+    int ph = WIN_H - TRANSPORT_H - RULER_H - 26;
+    SDL_Rect panel = { px, py, pw, ph };
+    setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &panel);
+    setc(a->ren, C_ACCENT);
+    SDL_Rect title = { px, py, pw, 22 };
+    SDL_RenderFillRect(a->ren, &title);
+    setc(a->ren, C_BG);
+    wb_ui_draw_text(a->ren, px + 6, py + 4, tab_name(a->tab), 1, C_BG);
+    char buf[256];
+    int yy = py + 30;
+    switch (a->tab) {
+    case 4: /* MEDIA */
+        snprintf(buf, sizeof(buf), "Import video (DaVinci-style)");
+        wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 20;
+        wb_ui_draw_text(a->ren, px + 6, yy, "Press ^I to import a video file.", 1, C_TEXT_DIM); yy += 18;
+        wb_ui_draw_text(a->ren, px + 6, yy, "Video decoded to 480p proxy for preview.", 1, C_TEXT_DIM); yy += 20;
+        if (a->vid_has_clip) {
+            setc(a->ren, C_ACCENT);
+            SDL_Rect box = { px + 6, yy, pw - 12, 14 };
+            SDL_RenderFillRect(a->ren, &box);
+            setc(a->ren, C_BG);
+            snprintf(buf, sizeof(buf), "Loaded: %s", a->vid_source);
+            wb_ui_draw_text(a->ren, px + 8, yy + 2, buf, 1, C_BG);
+            yy += 20;
+            snprintf(buf, sizeof(buf), "Duration: %.1f s", a->vid_dur);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 16;
+            snprintf(buf, sizeof(buf), "Timeline start: %.1f s", a->vid_tl_start);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 16;
+            snprintf(buf, sizeof(buf), "Timeline end: %.1f s", a->vid_tl_end);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 20;
+        }
+        wb_ui_draw_text(a->ren, px + 6, yy, "Shortcuts:", 1, C_TEXT); yy += 16;
+        wb_ui_draw_text(a->ren, px + 6, yy, "^I  import  ^G  captions  ^R  export", 1, C_TEXT_DIM);
+        break;
+    case 5: /* EDIT */
+        snprintf(buf, sizeof(buf), "Clip editor");
+        wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 20;
+        if (a->vid_has_clip) {
+            snprintf(buf, sizeof(buf), "Source: %s", a->vid_source);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT_DIM); yy += 16;
+            snprintf(buf, sizeof(buf), "Duration: %.2f s", a->vid_dur);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 14;
+            snprintf(buf, sizeof(buf), "In: %.2f s  Out: %.2f s", a->vid_tl_start, a->vid_tl_end);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 20;
+            wb_ui_draw_text(a->ren, px + 6, yy, "Edit shortcuts:", 1, C_TEXT); yy += 16;
+            wb_ui_draw_text(a->ren, px + 6, yy, "^T trim start  ^E trim end", 1, C_TEXT_DIM); yy += 14;
+            wb_ui_draw_text(a->ren, px + 6, yy, "^X split  ^D delete", 1, C_TEXT_DIM);
+        } else {
+            wb_ui_draw_text(a->ren, px + 6, yy, "No clip. Import a video first.", 1, C_TEXT_DIM);
+        }
+        break;
+    case 6: /* CAPTIONS */
+        snprintf(buf, sizeof(buf), "Auto Captions (whisper.cpp)");
+        wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 18;
+        wb_ui_draw_text(a->ren, px + 6, yy, "Extract audio -> transcribe -> SRT.", 1, C_TEXT_DIM); yy += 16;
+        wb_ui_draw_text(a->ren, px + 6, yy, "Burn SRT into video via FFmpeg.", 1, C_TEXT_DIM); yy += 20;
+        if (a->vid_captions_ready) {
+            snprintf(buf, sizeof(buf), "SRT: %s", a->vid_srt);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_ACCENT); yy += 16;
+            setc(a->ren, 40, 180, 40);
+            SDL_Rect check = { px + 6, yy, 12, 12 };
+            SDL_RenderFillRect(a->ren, &check);
+            setc(a->ren, C_BG);
+            snprintf(buf, sizeof(buf), "Burn captions: enabled");
+            wb_ui_draw_text(a->ren, px + 24, yy + 1, buf, 1, C_ACCENT);
+            yy += 20;
+        } else {
+            wb_ui_draw_text(a->ren, px + 6, yy, "SRT: not generated yet", 1, C_TEXT_DIM); yy += 16;
+            wb_ui_draw_text(a->ren, px + 6, yy, "Burn captions: disabled", 1, C_TEXT_DIM); yy += 18;
+        }
+        wb_ui_draw_text(a->ren, px + 6, yy, "Shortcuts:", 1, C_TEXT); yy += 16;
+        wb_ui_draw_text(a->ren, px + 6, yy, "^G generate  ^B burn", 1, C_TEXT_DIM);
+        break;
+    case 7: /* EXPORT */
+        snprintf(buf, sizeof(buf), "Export / Deliver");
+        wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 18;
+        wb_ui_draw_text(a->ren, px + 6, yy, "Export video with optional", 1, C_TEXT_DIM); yy += 14;
+        wb_ui_draw_text(a->ren, px + 6, yy, "caption burn-in via FFmpeg.", 1, C_TEXT_DIM); yy += 20;
+        if (a->vid_has_clip) {
+            snprintf(buf, sizeof(buf), "Source: %s", a->vid_source);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT_DIM); yy += 14;
+            snprintf(buf, sizeof(buf), "Proxy: %s", a->vid_source);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT_DIM); yy += 16;
+        }
+        if (a->vid_export[0]) {
+            setc(a->ren, C_ACCENT);
+            SDL_Rect box = { px + 6, yy, pw - 12, 14 };
+            SDL_RenderFillRect(a->ren, &box);
+            setc(a->ren, C_BG);
+            snprintf(buf, sizeof(buf), "Output: %s", a->vid_export);
+            wb_ui_draw_text(a->ren, px + 8, yy + 2, buf, 1, C_BG);
+            yy += 20;
+        } else {
+            wb_ui_draw_text(a->ren, px + 6, yy, "Output: not set", 1, C_TEXT_DIM); yy += 18;
+        }
+        wb_ui_draw_text(a->ren, px + 6, yy, "Format: MP4 H.264 + AAC", 1, C_TEXT); yy += 14;
+        wb_ui_draw_text(a->ren, px + 6, yy, "Resolution: 1920x1080", 1, C_TEXT); yy += 20;
+        wb_ui_draw_text(a->ren, px + 6, yy, "Shortcuts:", 1, C_TEXT); yy += 16;
+        wb_ui_draw_text(a->ren, px + 6, yy, "^R render  ^S set path", 1, C_TEXT_DIM);
+        break;
+    }
+}
+
+static int video_import(app *a, const char *path) {
+    if (!path || !path[0]) return -1;
+    if (access(path, R_OK) != 0) { fprintf(stderr, "video: cannot read %s\n", path); return -1; }
+    snprintf(a->vid_source, sizeof(a->vid_source), "%s", path);
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "\"%s\" -i \"%s\" 2>&1 | grep Duration | head -1",
+             a->ffmpeg_path[0] ? a->ffmpeg_path : "/Users/waefrebeorn/.local/bin/ffmpeg", path);
+    FILE *f = popen(cmd, "r");
+    char line[256];
+    a->vid_dur = 0.0;
+    if (f) {
+        if (fgets(line, sizeof(line), f)) {
+            char *p = strstr(line, "Duration: ");
+            if (p) { p += 10; int h, m, s;
+                if (sscanf(p, "%d:%d:%d", &h, &m, &s) == 3)
+                    a->vid_dur = h * 3600.0 + m * 60.0 + s;
+            }
+        }
+        pclose(f);
+    }
+    if (a->vid_dur <= 0) { fprintf(stderr, "video: cannot determine duration of %s\n", path); return -1; }
+    char proxy_path[512];
+    snprintf(proxy_path, sizeof(proxy_path), "/tmp/bigmac_proxy_%d.mp4", (int)(a->vid_dur * 100));
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" -y -i \"%s\" -vf \"scale=854:480:force_original_aspect_ratio=decrease,pad=854:480:-1:-1:black\" "
+             "-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 64k \"%s\" > /dev/null 2>&1",
+             a->ffmpeg_path[0] ? a->ffmpeg_path : "/Users/waefrebeorn/.local/bin/ffmpeg",
+             path, proxy_path);
+    if (system(cmd) != 0) { fprintf(stderr, "video: proxy generation failed for %s\n", path); return -1; }
+    snprintf(a->vid_proxy, sizeof(a->vid_proxy), "%s", proxy_path);
+    if (!a->session) { a->session = wb_session_create(); wb_engine_set_session(a->engine, a->session); }
+    int vt = -1;
+    for (uint32_t ti = 0; ti < a->session->track_count; ti++) {
+        for (uint32_t c = 0; c < a->session->tracks[ti].clip_count; c++) {
+            if (a->session->tracks[ti].clips[c].type == 2) { vt = (int)ti; break; }
+        }
+        if (vt >= 0) break;
+    }
+    if (vt < 0) {
+        if (a->session->track_count >= WB_MAX_TRACKS) { fprintf(stderr, "video: max tracks\n"); return -1; }
+        vt = (int)a->session->track_count;
+        wb_track *tr = &a->session->tracks[vt];
+        tr->volume = 1.0f;
+        snprintf(tr->name, sizeof(tr->name), "Video");
+        a->session->track_count++;
+    }
+    int ci = wb_session_add_video_clip(a->session, vt, path, 0.0);
+    if (ci < 0) { fprintf(stderr, "video: failed to add clip\n"); return -1; }
+    wb_session_set_video_proxy(a->session, vt, ci, proxy_path);
+    a->vid_track = vt;
+    a->vid_clip = ci;
+    a->vid_tl_start = 0.0;
+    a->vid_tl_end = a->vid_dur;
+    a->vid_has_clip = 1;
+    printf("video: imported %s (%.1f s, proxy: %s)\n", path, a->vid_dur, proxy_path);
+    return 0;
+}
+
+static void video_tab_enter(app *a) {
+    if (a->vid_preview_tex) { SDL_DestroyTexture(a->vid_preview_tex); a->vid_preview_tex = NULL; }
+    a->vid_has_clip = 0; a->vid_track = -1; a->vid_clip = -1;
+    a->vid_tl_start = 0.0; a->vid_tl_end = 0.0; a->vid_dur = 0.0;
+    a->vid_source[0] = 0; a->vid_proxy[0] = 0;
+    a->vid_export[0] = 0; a->vid_srt[0] = 0; a->vid_captions_ready = 0;
+    snprintf(a->ffmpeg_path, sizeof(a->ffmpeg_path), "/Users/waefrebeorn/.local/bin/ffmpeg");
+    snprintf(a->whisper_cli_path, sizeof(a->whisper_cli_path),
+             "/Users/waefrebeorn/whisper.cpp/build/bin/whisper-cli");
+    snprintf(a->whisper_model_path, sizeof(a->whisper_model_path),
+             "/Users/waefrebeorn/whisper.cpp/models/ggml-tiny.en-q5_1.bin");
+}
+
+
 /* MIDI callback: push controller notes into the engine's lock-free queue.
  * Called from CoreMIDI's receive thread — only touches the queue (RT-safe). */
 static void midi_cb(wb_midi_event ev, void *userdata) {
@@ -714,7 +1059,21 @@ static void handle_key(app *a, SDL_Keycode k) {
         break;
     case SDLK_RIGHT: wb_engine_seek(a->engine, a->t.song_pos + WB_SAMPLE_RATE/4); break;
     case SDLK_LEFT:  wb_engine_seek(a->engine, a->t.song_pos - WB_SAMPLE_RATE/4); break;
-    case SDLK_b:     wb_engine_set_bpm(a->engine, a->t.bpm - 1.0); break;
+    case SDLK_b:
+        if (a->tab == 6 && a->vid_has_clip && a->vid_captions_ready && (mod & KMOD_CTRL)) {
+            /* Ctrl+B: burn captions (CAPTIONS tab) */
+            char burned_path[512];
+            snprintf(burned_path, sizeof(burned_path), "/tmp/bigmac_burned_%d.mp4",
+                     (int)(a->t.song_pos / WB_SAMPLE_RATE * 100));
+            if (a->ffmpeg_path[0]) {
+                int rc = wb_video_captions_burn(a->vid_source, burned_path,
+                                                a->vid_srt, a->ffmpeg_path);
+                printf("captions: burned %s -> %s (rc=%d)\n", a->vid_source, burned_path, rc);
+            }
+        } else {
+            wb_engine_set_bpm(a->engine, a->t.bpm - 1.0);
+        }
+        break;
     case SDLK_n:
         if (ctrl) {  /* Ctrl+N: new (empty) project */
             wb_session *s = wb_session_create();
@@ -731,6 +1090,12 @@ static void handle_key(app *a, SDL_Keycode k) {
         break;
     case SDLK_s:
         if (ctrl) save_project(a, NULL);  /* Ctrl+S: save current project */
+        else if (a->tab == 7) {  /* EXPORT tab: set output path */
+            snprintf(a->vid_export, sizeof(a->vid_export),
+                     "/tmp/bigmac_export_%d.mp4",
+                     (int)(a->t.song_pos / WB_SAMPLE_RATE * 100));
+            printf("video: export path set -> %s\n", a->vid_export);
+        }
         break;
     case SDLK_o:
         if (ctrl) load_project(a, "/tmp/bigmac_proj.wbus"); /* Ctrl+O: open demo project */
@@ -762,11 +1127,17 @@ static void handle_key(app *a, SDL_Keycode k) {
     case SDLK_2: a->tab = 1; break;
     case SDLK_3: a->tab = 2; break;
     case SDLK_4: a->tab = 3; break;
+    case SDLK_5: a->tab = 4; break;
+    case SDLK_6: a->tab = 5; break;
+    case SDLK_7: a->tab = 6; break;
+    case SDLK_8: a->tab = 7; break;
     case SDLK_TAB:
-        a->tab = (a->tab + 1) % 4;
+        a->tab = (a->tab + 1) % 8;
         a->param_drag = -1;
-        printf("tab: %s (track %d, scale %s)\n",
-               tab_name(a->tab), a->selected_track, scale_name(a->scale_root, a->scale_type));
+        if (a->tab >= 4 && a->tab <= 7) video_tab_enter(a);
+        printf("tab: %s (track %d, %s)\n",
+               tab_name(a->tab), a->selected_track,
+               (a->tab < 4) ? scale_name(a->scale_root, a->scale_type) : "video editor");
         break;
     case SDLK_h:
         /* cycle scale type (major->minor->dorian->mixolydian->chromatic->major) */
@@ -775,16 +1146,90 @@ static void handle_key(app *a, SDL_Keycode k) {
         printf("scale: %s (root %d)\n", scale_name(a->scale_root, a->scale_type), a->scale_root);
         break;
     case SDLK_r:
-        /* cycle scale root up */
-        a->scale_root = (a->scale_root + 1) % 12;
-        a->param_drag = -1;
-        printf("scale: %s (root %d)\n", scale_name(a->scale_root, a->scale_type), a->scale_root);
+        if (a->tab == 7 && a->vid_has_clip && a->session) {  /* EXPORT tab: render */
+            if (!a->vid_export[0]) {
+                snprintf(a->vid_export, sizeof(a->vid_export),
+                         "/tmp/bigmac_export_%d.mp4",
+                         (int)(a->t.song_pos / WB_SAMPLE_RATE * 100));
+            }
+            printf("video: exporting -> %s ...\n", a->vid_export);
+            fflush(stdout);
+            int rc = wb_video_export(a->session, a->engine, a->vid_export,
+                                     a->vid_captions_ready ? a->vid_srt : NULL);
+            printf("video: export rc=%d (%s)\n", rc, rc == 0 ? "ok" : "failed");
+        } else {  /* audio-editor: cycle scale root up */
+            a->scale_root = (a->scale_root + 1) % 12;
+            a->param_drag = -1;
+            printf("scale: %s (root %d)\n", scale_name(a->scale_root, a->scale_type), a->scale_root);
+        }
         break;
     case SDLK_l:
         /* cycle scale root down */
         a->scale_root = (a->scale_root + 11) % 12;
         a->param_drag = -1;
         printf("scale: %s (root %d)\n", scale_name(a->scale_root, a->scale_type), a->scale_root);
+        break;
+    case SDLK_i:
+        if (a->tab >= 4 && a->tab <= 7) {
+            const char *dv = "/Users/waefrebeorn/Documents/big-mac/test_media/demo.mp4";
+            if (access(dv, F_OK) != 0) dv = "/Users/waefrebeorn/Videos/demo.mp4";
+            if (access(dv, F_OK) != 0) {
+                fprintf(stderr, "video: no demo video found\n");
+                printf("video: ^I — place a .mp4 and restart, or use --file\n");
+            } else {
+                video_import(a, dv);
+            }
+        }
+        break;
+    case SDLK_g:
+        if (a->tab == 6 && a->vid_has_clip) {
+            char srt_path[512];
+            snprintf(srt_path, sizeof(srt_path), "/tmp/bigmac_captions_%d.srt",
+                     (int)(a->t.song_pos / WB_SAMPLE_RATE * 100));
+            if (a->whisper_cli_path[0] && a->whisper_model_path[0]) {
+                int rc = wb_video_captions_generate(a->vid_source, srt_path,
+                                                     a->whisper_cli_path,
+                                                     a->whisper_model_path);
+                if (rc == 0) {
+                    snprintf(a->vid_srt, sizeof(a->vid_srt), "%s", srt_path);
+                    a->vid_captions_ready = 1;
+                    printf("captions: generated %s\n", srt_path);
+                }
+            }
+        }
+        break;
+    case SDLK_d:  /* delete clip (EDIT tab) */
+        if (a->tab == 5 && a->vid_has_clip && a->session) {
+            wb_session_remove_video_clip(a->session, a->vid_track, a->vid_clip);
+            a->vid_has_clip = 0;
+            printf("video: clip deleted\n");
+        }
+        break;
+    case SDLK_t:  /* trim start to playhead (EDIT tab) */
+        if (a->tab == 5 && a->vid_has_clip) {
+            double ph = a->t.song_pos / WB_SAMPLE_RATE;
+            if (ph > a->vid_tl_start && ph < a->vid_tl_end) {
+                a->vid_tl_start = ph;
+                printf("video: trim start -> %.2f s\n", ph);
+            }
+        }
+        break;
+    case SDLK_e:  /* trim end to playhead (EDIT tab) */
+        if (a->tab == 5 && a->vid_has_clip) {
+            double ph = a->t.song_pos / WB_SAMPLE_RATE;
+            if (ph > a->vid_tl_start && ph < a->vid_tl_end) {
+                a->vid_tl_end = ph;
+                printf("video: trim end -> %.2f s\n", ph);
+            }
+        }
+        break;
+    case SDLK_x:  /* split clip at playhead (EDIT tab) */
+        if (a->tab == 5 && a->vid_has_clip) {
+            double ph = a->t.song_pos / WB_SAMPLE_RATE;
+            if (ph > a->vid_tl_start && ph < a->vid_tl_end) {
+                printf("video: split at %.2f s (TODO)\n", ph);
+            }
+        }
         break;
     default: break;
     }
@@ -834,6 +1279,14 @@ int main(int argc, char **argv) {
     a->scale_type   = 1;   /* natural minor */
     a->last_lp_row  = -1;
     a->last_lp_col  = -1;
+
+    /* video tool paths (FFmpeg + whisper-cli) — set once at startup */
+    snprintf(a->ffmpeg_path, sizeof(a->ffmpeg_path),
+             "/Users/waefrebeorn/.local/bin/ffmpeg");
+    snprintf(a->whisper_cli_path, sizeof(a->whisper_cli_path),
+             "/Users/waefrebeorn/whisper.cpp/build/bin/whisper-cli");
+    snprintf(a->whisper_model_path, sizeof(a->whisper_model_path),
+             "/Users/waefrebeorn/whisper.cpp/models/ggml-tiny.en-q5_1.bin");
 
     a->win = SDL_CreateWindow("Big Mac DAW", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                               WIN_W, WIN_H, SDL_WINDOW_SHOWN);

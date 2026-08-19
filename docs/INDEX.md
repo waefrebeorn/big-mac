@@ -5,11 +5,33 @@
   library. **The only third-party; everything else is ours.** Chosen for
   portable windowing + portable audio across macOS/Linux/Windows.
 
-## Reference sources studied (R002)
+## Reference sources studied
 - `~/ref/ardour/` — Ardour (`libs/ardour/audioengine.cc`, `graph.cc`)
 - `~/ref/lmms/` — LMMS (`src/core/AudioEngine.cpp`, `midi/MidiApple.cpp`)
-Lessons applied: staged render (schedule→instruments→effects), Xrun
-try-lock, DAG worker model.
+  Lessons applied (R002): staged render (schedule→instruments→effects), Xrun
+  try-lock, DAG worker model.
+- `~/ref/natron/` — Natron `main` (shallow, 82M). Open-source node compositor
+  (Fusion/Nuke-class). Engine: `EffectInstance.cpp` (pull `getImagePlane`,
+  `resolveRoIForGetImage` RoI/RoD), `TreeRender.h` (render coordinate),
+  `ImageCacheKey.h` (tile cache). Studied for R013 — the "Fusion sauce".
+- `~/ref/openfx/` — OpenFX SDK `main` (shallow, 24M). `include/` (spec headers:
+  ofxCore.h, ofxImageEffect.h), `HostSupport/examples/hostDemo*` (reference
+  host), `Examples/Invert|Basic` (reference plugins). The plugin standard
+  Fusion/Resolve/Nuke all implement; SLERM target for `wb_ofx_host`.
+- `third_party/SDL2-2.32.10/` — SDL2 2.32.10 vendored source (101M). Design:
+  thin cross-platform abstraction over native media APIs (cocoa/coreaudio/...).
+  Studied in place for R014 P2/P10.
+- `~/ref/olive/` — Olive video editor `master` (shallow, 50M). C++/Qt, **node-based
+  compositing** + timeline. `app/node/` (pull `NodeTraverser`), `app/render/
+  framehashcache.h` (per-time frame cache — validates R013 D3), `precachetask.h`.
+  Studied for R015 — confirms/extends the node direction.
+- `~/ref/olive/` (R015/R016), `~/ref/opencut/` (R015/R016), `~/ref/lossless-cut/` (R016,
+  ✅ source-read: `-c copy` concat trim + scene/black/silence detect),
+  plus 16 more acquired (read pending): `shotcut`, `kdenlive`, `openshot-qt`,
+  `flowblade`, `vidcutter`, `moviepy`, `editly`, `FFCreator`, `openshorts`,
+  `audacity`, `tenacity`, `pyJianYingDraft` (and prior `ardour`, `lmms`, `natron`,
+  `openfx`). **19 reference repos total in `~/ref/`, all outside the repo.** Study
+  + SLERM to C11; never link/vendor their code.
 
 ## Wired (verified by `make test`)
 | Capability | Verify |
@@ -29,6 +51,10 @@ try-lock, DAG worker model.
 || Per-slot bypass toggle + wet/dry mix on every insert slot (track & bus) | `make test` (test_bypass_wet + test_compressor_sidechain verify per-slot state + parallel wet signals + key-input ducking) |
 | CoreMIDI input (enumerate + open by name) | launched, opened "Launchpad MK2" |
 | Text UI (5×7 bitmap font: labels/numbers) | `build/wb_daw` shows time/BPM/dB |
+| Video editor: session video track/clip model (add track/clip, set proxy, hit-test, remove) | `make test_video` (28 checks: track-kind, clip lifecycle, duration resolve, hit-test, remove) |
+| Video editor: lossless keyframe trim + segment detect (scene/black/silence) | `make test_video` (concat demuxer `-c copy`, pure-ffmpeg detect) |
+| Video editor: end-to-end export (engine audio render → ffmpeg mux → mp4 w/ video+audio) | `make test_export_e2e` (E2E_EXPORT_OK, ffprobe: video+audio streams) |
+| Video editor: DaVinci-style 4-tab UI (MEDIA/EDIT/CAPTIONS/EXPORT) + import/proxy/captions/export keys | `build/wb_daw` (tabs 5–8; ^I import, ^G captions, ^R export, ^S set path, ^B burn) |
 
 ## Open (next)
 | Capability |
@@ -44,5 +70,12 @@ try-lock, DAG worker model.
 ## Research docs
 - `R006-launchpad-ux-research.md` — 7-hop Kevin Bacon (25 sources, 8 domains): convergent truth = one owned surface, scale-locked, color-coded, no menu-diving.
 - `R007-launchpad-mk2-driver-and-tabs.md` — applied spec: Mk2 byte-exact protocol, C11 driver API, tabbed UI, scale lock, verification plan, build order.
+- `R008-video-editor-research.md` — 7-hop: Sony-Vegas-style assembly editor on FFmpeg + our audio engine; 480p proxy; auto-captions via FFmpeg Whisper; 1080p60 export.
+- `R009-video-editor-design.md` — implementation spec: video track/clip model, FFmpeg C-API decode, proxy, captions, export, SDL2 UI, build order.
+- `R010`–`R012` — whisper model selection + C11 ASR slot + SLERM-whisper design.
+- `R013-fusion-equivalent-compositor-sauce.md` — **DaVinci Resolve / Fusion source is PROPRIETARY (not downloadable).** Recovered the real sauce via Natron (open Fusion-twin) + OpenFX SDK: pull-based RoI/RoD node graph, tile cache, OFX host/plugin action contract. Gives the build order to lift the video editor to Fusion/Resolve standard (D1–D6).
+- `R014-design-principles.md` — consolidated design language across SDL + DAW + video editor + compositor: P1–P12 (staged/non-blocking, device-independence, pull eval, RoI/RoD, tile cache, render coordinate, passive plugins, user-owned graph, one-surface/color=state, local-first/SLERM, seconds-vs-samples boundary, verify-by-running).
+- `R015-editor-landscape-research.md` — 7-hop Kevin Bacon across the editor landscape: Olive (node graph + frame hash cache), OpenCut (CapCut twin), Shotcut (native/no-import), Kdenlive (proxy+VST), LosslessCut (-c copy trim), Descript (transcript editing), Hindenburg (voice polish), Reaper (routing matrix), Bitwig (modular), Opus/Riverside/CapCut (AI auto-clip/reframe). Convergent truth: the best editors ELIMINATE a manual translation step. Adoption matrix + 3-tier "make ours the best" roadmap.
+- `R016-editor-landscape-source-digest.md` — acquire the FULL landscape as local source in `~/ref/` (language-agnostic; SLERM to C11): olive, opencut, lossless-cut (source-read) + 13 more acquired. Sauce from source: Olive typed-input pull graph + keyframe tracks (lin/hold/bezier+valid-clamp) + frame hash cache; LosslessCut concat-demuxer `-c copy` trim + scene/black/silence detect; OpenCut plugin-first + MCP/agent API. Convergent: pull node graph + lossless trim + agent-API is THE standard. Concrete C11 SLERM target table.
 
 Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done — next is the mixing topology above, not more RT-pattern work. Research R006/R007 scopes the Launchpad Mk2 + tabbed-UI push.

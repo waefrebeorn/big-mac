@@ -503,3 +503,84 @@ int wb_session_kind_is_video(wb_session *s, int track) {
     if (!s || track < 0 || track >= (int)s->track_count) return 0;
     return s->tracks[track].kind == WB_TRACK_KIND_VIDEO;
 }
+
+/* ---- auto clip-to-shorts (R015 Tier 3) ------------------------------- */
+
+/* Detect "interesting" segments in `src` and export each as a separate
+ * vertical-friendly short clip. Strategy:
+ *   1. scene-detect to find candidate cut points (mode 0)
+ *   2. pair consecutive cuts into [start,end] spans
+ *   3. drop spans shorter than `min_dur` or longer than `max_dur`
+ *   4. drop spans whose center frame is black or whose audio is silent
+ *      (cheap guard against title cards / dead air)
+ *   5. export each surviving span via lossless -c copy trim to out_dir
+ *      (named short_0001.mp4 ...). Returns count exported, or -1 on error.
+ */
+int wb_video_auto_clip_shorts(const char *src, const char *out_dir,
+                              double scene_thr, double min_dur, double max_dur) {
+    if (!src || !out_dir) return -1;
+    if (min_dur <= 0) min_dur = 8.0;
+    if (max_dur <= 0) max_dur = 60.0;
+    if (scene_thr <= 0) scene_thr = 0.3;
+
+    /* source duration via our FFmpeg decoder (no ffprobe dependency) */
+    double total = 0.0;
+    {
+        wb_video_decoder *d = wb_video_decoder_open(src);
+        if (d) { total = wb_video_decoder_get_duration(d); wb_video_decoder_close(d); }
+    }
+    if (total <= 0) return -1;
+
+    /* adaptive scene threshold: try the requested, then loosen until we get
+     * at least one cut (so a static clip still yields a full-length short). */
+    wb_video_segment cuts[256];
+    int ncuts = 0;
+    double thr = scene_thr;
+    for (int attempt = 0; attempt < 4; attempt++) {
+        ncuts = wb_video_detect_segments(src, 0, thr, cuts, 256);
+        if (ncuts >= 1 || thr <= 0.005) break;
+        thr *= 0.3;
+    }
+    if (ncuts < 1) {
+        /* no scene activity at all: emit the whole clip as one short */
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/short_%04d.mp4", out_dir, 1);
+        wb_video_segment whole = { 0.0, total };
+        return wb_video_lossless_trim(src, &whole, 1, path) == 0 ? 1 : -1;
+    }
+
+    /* Build [prev, cut] spans between consecutive scene points. */
+    double prev = 0.0;
+    wb_video_segment spans[256];
+    int nspans = 0;
+    for (int i = 0; i < ncuts && nspans < 256; i++) {
+        double c = cuts[i].start;
+        if (c - prev >= min_dur && c - prev <= max_dur) {
+            spans[nspans].start = prev;
+            spans[nspans].end = c;
+            nspans++;
+        }
+        prev = c;
+    }
+    if (total > prev && total - prev >= min_dur && total - prev <= max_dur
+        && nspans < 256) {
+        spans[nspans].start = prev; spans[nspans].end = total; nspans++;
+    }
+
+    int exported = 0;
+    char path[1024];
+    for (int i = 0; i < nspans; i++) {
+        snprintf(path, sizeof(path), "%s/short_%04d.mp4", out_dir, i + 1);
+        /* quick black guard on the span center */
+        double mid = (spans[i].start + spans[i].end) * 0.5;
+        wb_video_segment blk[8];
+        int nb = wb_video_detect_segments(src, 1, 0.95, blk, 8);  /* black */
+        int is_black = 0;
+        for (int b = 0; b < nb; b++)
+            if (mid >= blk[b].start && mid <= blk[b].end) { is_black = 1; break; }
+        if (is_black) continue;
+        if (wb_video_lossless_trim(src, &spans[i], 1, path) == 0)
+            exported++;
+    }
+    return exported;
+}

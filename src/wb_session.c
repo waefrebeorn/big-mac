@@ -416,3 +416,53 @@ int wb_session_remove_video_clip(wb_session *s, int track, int clip) {
     }
     return 0;
 }
+
+/* Split a video clip at a timeline position into two clips (A = [start,split),
+ * B = [split,end)). Returns the index of the NEW (right) clip, or -1 on error.
+ * Preserves the source window via start_in_source + duration. */
+int wb_session_split_video_clip(wb_session *s, int track, int clip, double split_pos) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    wb_clip *cl = &tr->clips[clip];
+    if (cl->type != 2 || !cl->video) return -1;
+
+    double clip_start = cl->start;
+    double clip_end = cl->start + (cl->length > 0 ? cl->length : cl->video->duration);
+    /* split must be strictly inside the clip */
+    if (split_pos <= clip_start + 1e-4 || split_pos >= clip_end - 1e-4) return -1;
+
+    /* left keeps [clip_start, split_pos] */
+    double left_len = split_pos - clip_start;
+    cl->length = left_len;
+
+    /* right clip: [split_pos, clip_end] */
+    double right_len = clip_end - split_pos;
+    tr->clips = realloc(tr->clips, (tr->clip_count + 1) * sizeof(wb_clip));
+    if (!tr->clips) return -1;
+    /* shift everything right of `clip` by one to open a slot */
+    for (uint32_t c = tr->clip_count; c > (uint32_t)(clip + 1); c--)
+        tr->clips[c] = tr->clips[c - 1];
+    wb_clip *r = &tr->clips[clip + 1];
+    memset(r, 0, sizeof(*r));
+    r->type = 2;
+    r->start = split_pos;
+    r->length = right_len;
+    r->video = calloc(1, sizeof(wb_video_clip));
+    if (!r->video) { tr->clip_count = clip + 1; return -1; }
+    wb_video_clip_init(r->video);
+    snprintf(r->video->source_path, sizeof(r->video->source_path), "%s",
+             cl->video->source_path);
+    snprintf(r->video->proxy_path, sizeof(r->video->proxy_path), "%s",
+             cl->video->proxy_path);
+    /* right's source window starts where the split falls */
+    double split_offset = split_pos - clip_start;
+    double base_in = cl->video->start_in_source;
+    if (base_in < 0.0) base_in = 0.0;   /* unset default -> 0 */
+    r->video->start_in_source = base_in + split_offset;
+    r->video->duration = cl->video->duration - split_offset;
+    r->video->timeline_pos = split_pos;
+
+    tr->clip_count++;
+    return clip + 1;
+}

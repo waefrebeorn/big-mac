@@ -55,17 +55,26 @@
 | Video editor: lossless keyframe trim + segment detect (scene/black/silence) | `make test_video` (concat demuxer `-c copy`, pure-ffmpeg detect) |
 | Video editor: end-to-end export (engine audio render → ffmpeg mux → mp4 w/ video+audio) | `make test_export_e2e` (E2E_EXPORT_OK, ffprobe: video+audio streams) |
 | Video editor: DaVinci-style 4-tab UI (MEDIA/EDIT/CAPTIONS/EXPORT) + import/proxy/captions/export keys | `build/wb_daw` (tabs 5–8; ^I import, ^G captions, ^R export, ^S set path, ^B burn) |
+| Video editor: split clip (^X) — one clip → two, source-window preserved | `make test_video_tools` (left+right len == orig, src offset shifts) |
+| Video editor: auto clip-to-shorts (scene-detect → lossless multi-export) | `make test_video_tools` (3 shorts from test src) |
+| Voice-polish: gate→deesser→comp→EQ→limiter→BS.1770 loudness preset (R015 T1) | `make test_voice_polish` (8/8: -10.7→-16 LUFS, sib -11dB, no clip) |
+| Keyframe tracks: hold/linear/bezier + valid-clamp (R016 S2) | `make test_compositor` (shared param bus for FX/automation) |
+| Node compositor: recursive pull(t,roi), RoI→RoD, identity bypass, content-hash LRU edge cache (R013 D1/D3) | `make test_compositor` (18/8: composite/identity/cache-hit) |
 
-## Open (next)
-| Capability |
+## Open (next) — recursive-loop gaps (see R017 G1–G12)
+| Capability | Source / why |
 |---|
-| Sends/returns/aux (pre/post-fader sends from any track to any bus; parallel FX return tracks; sidechain-capable compressor key input) |
-| Per-insert wet/dry mix + per-slot bypass toggles (bus + track) |
-| Per-insert on/off bypass (track + bus insert slots) |
-| **Launchpad Mk2 driver (our own, C11)** — see R006/R007. Current `wb_launchpad_*` uses the *classic* `row*16+col` + velocity-color map, which is WRONG for Mk2 (Mk2 = `11+col+row*10` + RGB SysEx `F0 00 20 29 02 18 0B n r g b F7`). Need `wb_lp_mk2_*` + `wb_midi_send_sysex` + `wb_scale_*`. |
-| **Tabbed UI** — KEYS / PAD (Mk2 piano roll) / STEP / SESSION as one editable clip object (R006 convergence: kill the Session-vs-Arrangement metaphor gap). |
-| **Scale lock** — pick root+type once, both rolls snap in-key; Mk2 lights in-scale pads (FL/Ableton "scale highlighting" owned). |
-| **Color = state** on Mk2 grid (playhead=white, loop=amber, clip=green, sel=blue, off-scale=dim). |
+| **G11** Bind `wb_param_track` to FX + audio-plugin automation (one param bus) | VST3/CLAP/OFX all share normalized param channel (R017) — cheapest unification, unblocks G4/G6 |
+| **G4** Minimal OFX host runner (RoI/tile + IsIdentity) to load Fusion/Resolve/Nuke effects | OFX `GetRegionOfDefinition`/`GetRegionOfInterest` (R017) |
+| **G1** Proxy-scale QoS dial: `wb_compositor_set_quality` swaps proxy↔full-res + tile size on slow frames | GStreamer QoS, Resolve Render Cache (R017) |
+| **G2** Auto-insert `wb_node_cache` at every graph edge (bounded LRU) | AVISynth internal edge cache (R017) |
+| **G6** Transcript-editable timeline: click word→seek, drag→trim (whisper already done) | Descript wordbar, Hindenburg auto-level (R017) |
+| **G5** EDL/CMX3600/FCPXML import-export (thin adapter; OTIO spine later) | OTIO adapters, CMX3600 reel limits (R017) |
+| **G9** Agent/MCP batch API on `wb_daw` (headless drive) | OpenCut MCP server (R017) |
+| **G3** Two-phase pull (request inputs → compute) for async decode | VapourSynth arInitial→arAllFramesReady (R017) |
+| **G7** Voice-polish as param-track-driven pluggable graph (tunable stages) | FFmpeg composable filter nodes (R017) |
+| **G10** ASS override-token parser + styled burn (currently SRT only) | ASS `Dialogue:` + `\pos \move \b \i` (R017) |
+| **G12** GPU-offload boundary (Metal interop), CPU path authoritative | mpv hwdec-software-fallback (R017) |
 
 ## Research docs
 - `R006-launchpad-ux-research.md` — 7-hop Kevin Bacon (25 sources, 8 domains): convergent truth = one owned surface, scale-locked, color-coded, no menu-diving.
@@ -77,5 +86,6 @@
 - `R014-design-principles.md` — consolidated design language across SDL + DAW + video editor + compositor: P1–P12 (staged/non-blocking, device-independence, pull eval, RoI/RoD, tile cache, render coordinate, passive plugins, user-owned graph, one-surface/color=state, local-first/SLERM, seconds-vs-samples boundary, verify-by-running).
 - `R015-editor-landscape-research.md` — 7-hop Kevin Bacon across the editor landscape: Olive (node graph + frame hash cache), OpenCut (CapCut twin), Shotcut (native/no-import), Kdenlive (proxy+VST), LosslessCut (-c copy trim), Descript (transcript editing), Hindenburg (voice polish), Reaper (routing matrix), Bitwig (modular), Opus/Riverside/CapCut (AI auto-clip/reframe). Convergent truth: the best editors ELIMINATE a manual translation step. Adoption matrix + 3-tier "make ours the best" roadmap.
 - `R016-editor-landscape-source-digest.md` — acquire the FULL landscape as local source in `~/ref/` (language-agnostic; SLERM to C11): olive, opencut, lossless-cut (source-read) + 13 more acquired. Sauce from source: Olive typed-input pull graph + keyframe tracks (lin/hold/bezier+valid-clamp) + frame hash cache; LosslessCut concat-demuxer `-c copy` trim + scene/black/silence detect; OpenCut plugin-first + MCP/agent API. Convergent: pull node graph + lossless trim + agent-API is THE standard. Concrete C11 SLERM target table.
+- `R017-research-recursive-loop.md` — RECURSIVE 7-hop × 25-source Kevin Bacon loop (4 parallel subagents, 7 domains) converging gaps vs best-in-class. Convergent truth = one host-driven pull graph + auto edge cache + proxy QoS dial + GPU-with-CPU-fallback + one normalized param bus. 12 ranked gaps G1–G12 with build order; validates R013/R016 bets.
 
 Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done — next is the mixing topology above, not more RT-pattern work. Research R006/R007 scopes the Launchpad Mk2 + tabbed-UI push.

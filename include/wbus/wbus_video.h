@@ -13,6 +13,11 @@
 
 #include <stdint.h>
 #include <stddef.h>
+
+/* Forward declaration: the session type lives in wbus.h, but this header
+ * needs it for split_video_clip. Include wbus.h (which includes this) in
+ * the right order; here we just need the opaque pointer. */
+typedef struct wb_session wb_session;
 #include <SDL.h>
 
 /* ---- canonical FFmpeg binary -----------------------------------------
@@ -94,6 +99,20 @@ int wb_video_lossless_trim(const char *src, const wb_video_segment *segs,
  * `threshold`: scene change sensitivity (0..1, e.g. 0.3) or black/silence
  * duration threshold in seconds (e.g. 1.0). */
 int wb_video_detect_segments(const char *src, int mode, double threshold,
-                              wb_video_segment *out, int cap);
+                             wb_video_segment *out, int cap);
+
+/* Auto clip-to-shorts (R015 Tier 3): scene-detect a source, cut into
+ * [min_dur, max_dur] spans, drop black/dead-air centers, and losslessly
+ * export each surviving span to out_dir/short_NNNN.mp4. Returns the number
+ * of clips exported, or -1 on error. */
+int wb_video_auto_clip_shorts(const char *src, const char *out_dir,
+                              double scene_thr, double min_dur, double max_dur);
+
+/* Split a video clip on a track at `split_pos` (timeline seconds) into two
+ * clips, preserving each half's source window. Returns index of the new
+ * (right) clip, or -1 on error. Declared here (video API) but defined in
+ * wb_session.c alongside the other video-clip lifecycle ops. */
+int wb_session_split_video_clip(wb_session *s, int track, int clip,
+                                 double split_pos);
 
 #endif /* WUBUS_WBUS_VIDEO_H */

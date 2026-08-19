@@ -1227,7 +1227,15 @@ static void handle_key(app *a, SDL_Keycode k) {
         if (a->tab == 5 && a->vid_has_clip) {
             double ph = a->t.song_pos / WB_SAMPLE_RATE;
             if (ph > a->vid_tl_start && ph < a->vid_tl_end) {
-                printf("video: split at %.2f s (TODO)\n", ph);
+                int r = wb_session_split_video_clip(a->session,
+                                                    a->vid_track, a->vid_clip, ph);
+                if (r >= 0) {
+                    printf("video: split at %.2f s -> new clip #%d\n", ph, r);
+                    /* keep selection on the left half */
+                    a->vid_tl_end = ph;
+                } else {
+                    printf("video: split failed (bounds)\n");
+                }
             }
         }
         break;

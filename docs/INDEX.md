@@ -72,6 +72,8 @@
 | Node compositor: **G3 two-phase pull** — `wb_node_pull_request` (phase 0) schedules decodes; `wb_node_pull` (phase 1) computes; `wb_node_decode_source` models async decode | `make test_compositor` (50/50: request sets pending, no frame; compute returns frame) |
 | Captions: **ASS styled-caption parser + burn** (G10) — `wb_ass_extract_dialogue` parses `\b \i \c&HBBGGRR& \pos \move` (BGR→RGB); `wb_captions_burn_ass` burns via ffmpeg `subtitles=` | `make test_captions` (14/14: times, bold/italic, color, pos, text) |
 | Node compositor: **G12 GPU-offload boundary** — `wb_compositor_set_backend(CPU|GPU)` + `wb_frame.gpu` flag; CPU path authoritative, Metal interop slot | `make test_compositor` (50/50: backend set/get, frame GPU-eligible, CPU output unchanged) |
+| Video: **ProRes editorial export** (R018-A) — `wb_video_export_codec` with `WB_VIDEO_CODEC_PRORES(_HQ)` (prores_ks 10-bit 4:2:2) for NLE interchange | `make test_export_e2e` (ProRes .mov reports `prores` codec via ffprobe) |
+| Voice: **spectral voice isolation** (R018-D) — `wb_voice_isolate` STFT + per-bin noise-floor Wiener gate (RNNoise-style, no ML weights); self-contained `wb_fft` radix-2 | `make test_voice_isolate` (8/8: FFT round-trip, noise RMS reduced, tone preserved, no NaN) |
 ## R017 recursive-loop gaps — ALL 12 CLOSED ✅ (G1–G12)
 | Gap | Status |
 |---|---|

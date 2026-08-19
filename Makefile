@@ -10,6 +10,7 @@ CXX      := clang++
 CFLAGS   := -std=c11 -O2 -Wall -Wextra -g -D_THREAD_SAFE
 CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -g -D_THREAD_SAFE
 INC      := -Iinclude -Iinclude/wbus -Ithird_party/SDL2-2.32.10/include \
+           -Ithird_party/openfx/include \
            -Ithird_party/vst3sdk \
            -Ithird_party/vst3sdk/pluginterfaces \
            -Ithird_party/vst3sdk/pluginterfaces/base \
@@ -33,7 +34,7 @@ CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c \
              src/wb_sampler.c src/wb_wav.c src/wb_backend.c \
              src/wb_tuner.c src/wb_ui_font.c src/wb_midi_coremidi.c src/wb_clap.c \
              src/wb_session_file.c src/wb_unit.c src/wb_fm.c src/wb_drums.c \
-             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c src/wb_voice_polish.c src/wb_param_track.c src/wb_compositor.c src/wb_transcript.c
+             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c src/wb_voice_polish.c src/wb_param_track.c src/wb_compositor.c src/wb_transcript.c src/wb_ofx.c src/wb_ofx_plugin_builtin.c
 CXX_SRCS := src/wb_vst3_host.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/module.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/processdata.cpp \
@@ -138,6 +139,12 @@ build/wb_test_transcript: build/tools/test_transcript.o $(CORE_OBJS)
 
 test_transcript: build/wb_test_transcript
 	./build/wb_test_transcript
+
+build/wb_test_ofx: build/tools/test_ofx.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_ofx: build/wb_test_ofx
+	./build/wb_test_ofx
 
 build/wb_test_compositor: build/tools/test_compositor.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)

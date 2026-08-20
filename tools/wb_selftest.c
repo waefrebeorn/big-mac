@@ -842,6 +842,49 @@ static void test_comp_region(void) {
 
     wb_session_destroy(s);
 }
+static void test_comp_region_midi(void) {
+    printf("test_comp_region_midi\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 176400.0;
+    wb_track *tr = wb_session_add_track(s, "Keys", 0);
+    tr->active_lane = 0;
+    tr->clips = calloc(1, sizeof(wb_clip));
+    wb_clip *cl = &tr->clips[tr->clip_count++];
+    memset(cl, 0, sizeof(*cl));
+    cl->type = 0; cl->start = 0; cl->length = 176400;
+    cl->lane = 1;
+    wb_session_add_note(tr, 0.0,        44100.0, 60, 100);
+    wb_session_add_note(tr, 44100.0,    44100.0, 64, 100);
+    wb_session_add_note(tr, 88200.0,    44100.0, 67, 100);
+
+    int made = wb_session_comp_region(s, 0, 1, 0.5*44100.0, 1.5*44100.0);
+    CHECK(made == 1, "MIDI comp_region created one comp clip");
+
+    int n0 = 0, n1 = 0; wb_clip *comp = NULL, *src = NULL;
+    for (uint32_t c = 0; c < tr->clip_count; c++) {
+        if (tr->clips[c].lane == 0) { n0++; comp = &tr->clips[c]; }
+        if (tr->clips[c].lane == 1) { n1++; src = &tr->clips[c]; }
+    }
+    CHECK(n0 == 1, "one comp clip on lane 0");
+    CHECK(comp && comp->note_count == 2, "comp has 2 notes (A-split + B)");
+    CHECK(src && src->note_count == 3, "source keeps 3 notes (A-left + B-right + C)");
+    int in_window = 1;
+    for (uint32_t i = 0; i < comp->note_count; i++) {
+        double ns = comp->start + comp->notes[i].start;
+        double ne = ns + comp->notes[i].dur;
+        if (ns < 0.499*44100.0 || ne > 1.501*44100.0) in_window = 0;
+    }
+    CHECK(in_window, "all comp notes lie within the comped window");
+    int has_c = 0;
+    for (uint32_t i = 0; i < src->note_count; i++) {
+        double ns = src->start + src->notes[i].start;
+        if (fabs(ns - 2.0*44100.0) < 1.0) has_c = 1;
+    }
+    CHECK(has_c, "source still has the outside note C @2s");
+    printf("         comp_notes=%u src_notes=%u\n", comp?comp->note_count:0, src?src->note_count:0);
+
+    wb_session_destroy(s);
+}
 static void test_video_edit(void) {
     printf("test_video_edit\n");
     wb_session *s = wb_session_create();
@@ -1340,6 +1383,7 @@ int main(void) {
     test_contrast();
     test_take_lanes();
     test_comp_region();
+    test_comp_region_midi();
     test_video_edit();
     test_video_export_edit();
     test_preview_seek();

@@ -40,3 +40,31 @@ void wb_transport_schedule_notes(wb_track *track, double block_start, uint32_t n
         }
     }
 }
+
+/* R037: schedule notes for a LAUNCHED clip, played from its own looping
+ * clock (launch_pos) independent of the arrangement transport. The clip loops
+ * over its length; notes whose clip-local time falls in the current window
+ * [launch_pos, launch_pos+n) — including the wrapped copy when the window
+ * straddles the loop point — are triggered. */
+void wb_transport_schedule_launched(wb_clip *clip, double launch_pos, double len,
+                                    uint32_t n,
+                                    void (*note_on)(void*, int, int),
+                                    void *voice) {
+    if (!clip || clip->type != 0 || len <= 0) return;
+    for (uint32_t k = 0; k < clip->note_count; k++) {
+        wb_note *nt = &clip->notes[k];
+        double ns = fmod(nt->start, len);   /* clip-local, looped */
+        if (ns < 0) ns += len;
+        double ne = ns + nt->dur;
+        /* check both the primary window and the wrapped window (lp-len..) */
+        for (int w = 0; w < 2; w++) {
+            double base = (w == 0) ? launch_pos : launch_pos - len;
+            if (ns >= base && ns < base + n) {
+                if (note_on && voice) note_on(voice, nt->pitch, nt->vel);
+            }
+            if (ne >= base && ne < base + n) {
+                if (note_on && voice) note_on(voice, nt->pitch, 0);
+            }
+        }
+    }
+}

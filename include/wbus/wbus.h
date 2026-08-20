@@ -242,6 +242,13 @@ void wb_engine_get_transport(wb_engine *e, wb_transport *out);
 /* ---- parameter/note injection from UI (thread-safe) ------------------- */
 void wb_engine_set_track_volume(wb_engine *e, int track, float vol);
 void wb_engine_note(wb_engine *e, int track, uint8_t pitch, uint8_t vel);
+/* R037: SESSION-view clip launching (transport-independent loop playback).
+ * wb_engine_launch toggles a clip playing from its start; passing the already-
+ * launched clip index stops it. wb_engine_launched_clip returns the index or
+ * -1. */
+void wb_engine_launch(wb_engine *e, int track, int clip_idx);
+void wb_engine_stop_launch(wb_engine *e, int track);
+int  wb_engine_launched_clip(wb_engine *e, int track);
 void wb_engine_set_insert_param(wb_engine *e, int track, int slot, int param, float value);
 /* Returns the engine's modulation matrix (may be NULL if engine uninitialized). */
 wb_mod_matrix *wb_engine_get_mod_matrix(wb_engine *e);

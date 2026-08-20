@@ -963,6 +963,47 @@ static void test_step_commit(void) {
     free(buf); wb_engine_destroy(e); wb_session_destroy(s);
 }
 
+/* ---- test: R037 SESSION launch = transport-independent loop playback -- */
+static void test_session_launch(void) {
+    printf("test_session_launch\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Seq", 0);   /* kind 0 instrument */
+    double step_smp = ((60.0/120.0)/4.0) * WB_SAMPLE_RATE;
+    for (int st = 0; st < 16; st += 2)   /* one-bar pattern on lane 0 */
+        wb_session_add_note(tr, st*step_smp, step_smp*0.9, 60, 100);
+    tr->clips[0].lane = 0;
+    tr->clips[0].length = 16 * step_smp;
+
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    wb_engine_stop(e);                    /* TRANSPORT STOPPED the whole time */
+    CHECK(wb_engine_launched_clip(e, 0) == -1, "no clip launched initially");
+
+    wb_engine_launch(e, 0, 0);            /* launch clip 0 (transport-independent) */
+    CHECK(wb_engine_launched_clip(e, 0) == 0, "clip 0 is now launched");
+
+    /* render several blocks; the launched clip must produce audio even though
+     * the arrangement transport is stopped (real session behavior) */
+    int frames = 16 * 4096;
+    wb_sample *buf = calloc((size_t)frames*2, sizeof(wb_sample));
+    double peak_launch = 0;
+    int done = 0;
+    while (done < frames) {
+        int n = frames - done; if (n > 4096) n = 4096;
+        wb_engine_render(e, buf + done, n);
+        done += n;
+    }
+    for (int i=0;i<frames;i++){ double a=fabs(buf[i]); if(a>peak_launch)peak_launch=a; }
+    CHECK(peak_launch > 0.01, "launched clip plays audio with transport STOPPED");
+
+    wb_engine_stop_launch(e, 0);
+    CHECK(wb_engine_launched_clip(e, 0) == -1, "launch cleared after stop");
+    printf("         peak_launch=%.3f\n", peak_launch);
+
+    free(buf); wb_engine_destroy(e); wb_session_destroy(s);
+}
+
 static void test_video_edit(void) {
     printf("test_video_edit\n");
     wb_session *s = wb_session_create();
@@ -1465,6 +1506,7 @@ int main(void) {
     test_comp_region_midi();
     test_comp_ownership();
     test_step_commit();
+    test_session_launch();
     test_video_edit();
     test_video_export_edit();
     test_preview_seek();

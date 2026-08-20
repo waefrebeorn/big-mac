@@ -86,6 +86,13 @@ struct wb_engine {
 
     /* ---- Modulation matrix (unified modulation; m1) --------------------- */
     wb_mod_matrix *mod;
+
+    /* R037: SESSION-view clip launching. launch_clip[t] = index of the clip
+     * currently launched on track t (-1 = none). launch_pos[t] is the sample
+     * position *within* the launched clip, looping over its length — this is a
+     * transport-independent playhead (Ableton session launch). */
+    int      launch_clip[WB_MAX_TRACKS];
+    double   launch_pos[WB_MAX_TRACKS];
 };
 
 /* forward a note event through a track's MIDI FX chain, then to the voice */
@@ -165,6 +172,11 @@ static void engine_process_cmds(wb_engine *e) {
     }
 }
 
+/* forward decl: launched-clip scheduler (R037), defined in wb_transport.c */
+void wb_transport_schedule_launched(wb_clip *clip, double launch_pos, double len,
+                                    uint32_t n,
+                                    void (*note_on)(void*, int, int), void *voice);
+
 /* ---- STAGE 1: schedule (spawn/retire notes from the timeline) -------- */
 static void stage_schedule(wb_engine *e, uint32_t frames) {
     if (!e->session || !e->rtracks) return;
@@ -181,6 +193,19 @@ static void stage_schedule(wb_engine *e, uint32_t frames) {
         else
             wb_transport_schedule_notes(tk, e->t.song_pos, frames,
                                         wb_synth_note, tr->voice);
+        /* R037: launched clip plays from its own looping clock, transport-
+         * independent (Ableton session launch). Runs even when stopped. */
+        int lc = e->launch_clip[t];
+        if (lc >= 0 && lc < (int)tk->clip_count) {
+            wb_clip *cl = &tk->clips[lc];
+            double len = cl->length > 0 ? cl->length : 1.0;
+            void (*cb)(void*, int, int) =
+                (strcmp(tr->voice_unit_id,"drum")==0) ? wb_drum_note :
+                (strcmp(tr->voice_unit_id,"fm")==0)   ? wb_fm_note  : wb_synth_note;
+            wb_transport_schedule_launched(cl, e->launch_pos[t], len, frames, cb, tr->voice);
+            e->launch_pos[t] += (double)frames;
+            while (e->launch_pos[t] >= len) e->launch_pos[t] -= len;
+        }
     }
 }
 
@@ -514,6 +539,7 @@ wb_engine *wb_engine_create(void) {
         e->lock_initialized = 1;
     wb_unit_ensure_all();   /* register built-in FX + instruments */
     e->mod = wb_mod_matrix_create();
+    for (int i = 0; i < WB_MAX_TRACKS; i++) { e->launch_clip[i] = -1; e->launch_pos[i] = 0; }
     return e;
 }
 
@@ -645,6 +671,28 @@ void wb_engine_seek(wb_engine *e, double p) { wb_cmd c = { .type = WB_CMD_SEEK, 
 void wb_engine_set_bpm(wb_engine *e, double bpm) { wb_cmd c = { .type = WB_CMD_SET_BPM, .f0 = bpm }; wb_cmd_push(&e->queue, c); }
 void wb_engine_set_clap_host(wb_engine *e, struct wb_clap_host *h) { if (e) e->clap_host = h; }
 void wb_engine_get_transport(wb_engine *e, wb_transport *out) { if (out) *out = e->t; }
+
+/* R037: SESSION-view clip launching. Launch = play the clip from its start,
+ * looping, transport-independent. Launching the same clip again stops it. */
+void wb_engine_launch(wb_engine *e, int track, int clip_idx) {
+    if (!e || track < 0 || track >= WB_MAX_TRACKS) return;
+    if (e->launch_clip[track] == clip_idx) {   /* toggle off */
+        e->launch_clip[track] = -1;
+        e->launch_pos[track] = 0;
+    } else {
+        e->launch_clip[track] = clip_idx;
+        e->launch_pos[track] = 0;
+    }
+}
+void wb_engine_stop_launch(wb_engine *e, int track) {
+    if (!e || track < 0 || track >= WB_MAX_TRACKS) return;
+    e->launch_clip[track] = -1;
+    e->launch_pos[track] = 0;
+}
+int wb_engine_launched_clip(wb_engine *e, int track) {
+    if (!e || track < 0 || track >= WB_MAX_TRACKS) return -1;
+    return e->launch_clip[track];
+}
 void wb_engine_set_track_volume(wb_engine *e, int track, float vol) {
     wb_cmd c = { .type = WB_CMD_SET_TRACK_VOL, .i0 = track, .f0 = vol };
     wb_cmd_push(&e->queue, c);

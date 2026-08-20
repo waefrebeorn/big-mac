@@ -172,6 +172,18 @@ static void setc(SDL_Renderer *r, Uint8 cr, Uint8 cg, Uint8 cb) {
     SDL_SetRenderDrawColor(r, cr, cg, cb, 255);
 }
 
+/* R039: per-track color palette (clips/markers colored by track, Ableton-style) */
+typedef struct { Uint8 r, g, b; } rgb;
+static const rgb TRACK_PALETTE[16] = {
+    { 96,155,235}, {235,150, 96}, {150,235,140}, {235,140,200},
+    {140,200,235}, {235,205,120}, {170,150,235}, {140,235,200},
+    {235,140,140}, {200,235,140}, {140,170,235}, {235,170,140},
+    {160,235,170}, {200,140,235}, {235,180,160}, {150,180,235},
+};
+static rgb track_rgb(int ti) {
+    return TRACK_PALETTE[((ti % 16) + 16) % 16];
+}
+
 /* ---- UI button registry (one source of truth: drawn + hit-tested) ----- */
 enum {
     BTN_PLAY, BTN_REWIND, BTN_STOP, BTN_RECORD, BTN_LOOP, BTN_SAVE,
@@ -558,35 +570,43 @@ static void draw_step(app *a) {
     }
 }
 
-/* ---- R035: SESSION clip-launcher grid (tracks x scenes) ------------- */
+/* ---- R035/R039: SESSION clip-launcher grid (tracks x scenes) -------- */
 static void draw_session(app *a) {
     wb_ui_draw_text(a->ren, GUTTER_W, MAIN_Y+RULER_H+6,
-        "SESSION — click a cell to launch that scene (lane) on the track", 1, C_TEXT);
+        "SESSION — click a cell to launch that clip; right column launches a whole scene", 1, C_TEXT);
     int x0 = GUTTER_W, y0 = MAIN_Y + RULER_H + 28;
     int scenes = 4, pad = 6;
-    int cw = (ARRANG_W - pad*(scenes+1)) / scenes;
+    int scenes_w = 70;   /* scene-launch column width on the right */
+    int cw = (ARRANG_W - 120 - pad*(scenes+1) - scenes_w - pad) / scenes;
     int rh = 40;
     if (!a->session) return;
     for (uint32_t t = 0; t < a->session->track_count; t++) {
         int py = y0 + t*(rh+pad);
         setc(a->ren, C_PANEL); SDL_Rect g = { x0, py, ARRANG_W, rh }; SDL_RenderFillRect(a->ren, &g);
-        setc(a->ren, C_TEXT); wb_ui_draw_text(a->ren, x0+4, py+12, a->session->tracks[t].name, 1, C_TEXT);
+        rgb tc = track_rgb((int)t);
+        setc(a->ren, tc.r, tc.g, tc.b); wb_ui_draw_text(a->ren, x0+4, py+12, a->session->tracks[t].name, 1, tc.r, tc.g, tc.b);
         for (int sc = 0; sc < scenes; sc++) {
             int px = x0 + 120 + pad + sc*(cw+pad);
-            /* R037: a cell is "lit" when its clip (lane == sc) is the launched
-             * one for this track (transport-independent playback running). */
             int ci = -1;
             for (uint32_t c = 0; c < a->session->tracks[t].clip_count; c++)
                 if (a->session->tracks[t].clips[c].lane == sc) { ci = (int)c; break; }
             int launched = (ci >= 0) && (wb_engine_launched_clip(a->engine, (int)t) == ci);
-            if (launched) setc(a->ren, C_ACCENT);
-            else setc(a->ren, C_LANE_B);
+            if (launched) setc(a->ren, tc.r, tc.g, tc.b);
+            else { setc(a->ren, C_LANE_B); }
             SDL_Rect cell = { px, py+6, cw, rh-12 };
             SDL_RenderFillRect(a->ren, &cell);
-            setc(a->ren, C_TEXT_DIM);
+            setc(a->ren, launched ? 20 : C_TEXT_DIM);
             char l[8]; snprintf(l, sizeof(l), "S%d", sc);
-            wb_ui_draw_text(a->ren, px+4, py+18, l, 1, C_TEXT_DIM);
+            wb_ui_draw_text(a->ren, px+4, py+18, l, 1, launched ? 20 : C_TEXT_DIM);
         }
+    }
+    /* R039: scene-launch column header + buttons (launch all tracks' clip on that scene) */
+    int sx = x0 + 120 + pad + scenes*(cw+pad) + pad;
+    setc(a->ren, C_PANEL2); SDL_Rect sh = { sx, y0-22, scenes_w, 16 }; SDL_RenderFillRect(a->ren, &sh);
+    wb_ui_draw_text(a->ren, sx+6, y0-20, "SCENE", 1, C_TEXT_DIM);
+    for (int sc = 0; sc < scenes; sc++) {
+        int py = y0 + sc*(rh+pad);
+        ui_button(a->ren, 3000+sc, sx, py, scenes_w, rh, "LAUNCH", 0);
     }
 }
 
@@ -1564,6 +1584,14 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                             a->session->tracks[ti].solo = !a->session->tracks[ti].solo;
                             wb_engine_set_session(a->engine, a->session);
                         }
+                    } else if (id >= 3000 && id < 4000) {  /* scene-launch column (launch all tracks' clip on that scene) */
+                        int sc = id - 3000;
+                        for (uint32_t t = 0; t < a->session->track_count; t++) {
+                            wb_track *tk = &a->session->tracks[t];
+                            for (uint32_t c = 0; c < tk->clip_count; c++)
+                                if (tk->clips[c].lane == sc) { wb_engine_launch(a->engine, (int)t, (int)c); break; }
+                        }
+                        printf("session: launch scene %d (all tracks)\n", sc);
                     }
                     break;
                 }

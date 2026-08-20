@@ -8,6 +8,7 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "wbus.h"
 #include "wbus_midi.h"
@@ -698,7 +699,7 @@ static void test_meter(void) {
 static void test_video_edit(void) {
     printf("test_video_edit\n");
     wb_session *s = wb_session_create();
-    wb_track *tr = wb_session_add_track(s, "Vid", 2);   /* video track */
+    wb_track *tr = wb_session_add_track(s, "Vid", 3);   /* video track (kind 3) */
     /* build 3 back-to-back clips manually (no ffmpeg needed for the math) */
     double pos = 0.0;
     for (int i = 0; i < 3; i++) {
@@ -742,6 +743,62 @@ static void test_video_edit(void) {
     CHECK(fabs(total1 - 4.0) < 1e-6, "roll kept total timeline duration at 4s");
 
     for (uint32_t c = 0; c < tr->clip_count; c++) { wb_video_clip_free(tr->clips[c].video); free(tr->clips[c].video); }
+    wb_session_destroy(s);
+}
+
+/* ---- test: R026 export HONORS the edit model (trim + concat) ----------- */
+static void test_video_export_edit(void) {
+    printf("test_video_export_edit\n");
+    const char *ff = "/Users/waefrebeorn/.local/bin/ffmpeg";
+    const char *fp = "/Users/waefrebeorn/homebrew/bin/ffprobe";
+    if (access(ff, X_OK) != 0) { printf("         (skip: ffmpeg not present)\n"); return; }
+
+    /* 6s test source with a burned-in seconds counter so frames are identifiable */
+    const char *src = "/tmp/bigmac_edit_src.mp4";
+    char mk[1024];
+    snprintf(mk, sizeof(mk),
+        "\"%s\" -y -f lavfi -i color=c=blue:s=320x180:d=6 "
+        "-vf \"drawtext=text='%%{pts\\:hms}':fontcolor=white:fontsize=24\" "
+        "-c:v libx264 -preset ultrafast \"%s\" >/dev/null 2>&1", ff, src);
+    if (system(mk) != 0) { printf("         (skip: source gen failed)\n"); return; }
+
+    wb_session *s = wb_session_create();
+    wb_track *tr = wb_session_add_track(s, "Vid", 3);   /* video track (kind 3) */
+    /* clip0: source in=2s dur=1s ; clip1: source in=4s dur=1s -> 2s timeline */
+    tr->clips = realloc(tr->clips, 2*sizeof(wb_clip));
+    for (int i = 0; i < 2; i++) {
+        wb_clip *cl = &tr->clips[i];
+        memset(cl, 0, sizeof(*cl));
+        cl->type = 2; cl->start = i * 1.0;
+        cl->video = calloc(1, sizeof(wb_video_clip));
+        wb_video_clip_init(cl->video);
+        snprintf(cl->video->source_path, sizeof(cl->video->source_path), "%s", src);
+        cl->video->start_in_source = (i == 0) ? 2.0 : 4.0;
+        cl->video->duration = 1.0;
+        cl->video->timeline_pos = cl->start;
+        cl->length = 1.0;
+        tr->clip_count++;
+    }
+    s->length = 44100.0 * 2.0;   /* 2 seconds, in samples (codebase contract) */
+
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+
+    const char *out = "/tmp/bigmac_edit_out.mp4";
+    int rc = wb_video_export(s, e, out, NULL);
+    CHECK(rc == 0, "video export with trimmed clips succeeds");
+
+    /* probe exported duration — must be ~2s (trim+concat), NOT the 6s source */
+    char pr[512];
+    snprintf(pr, sizeof(pr),
+        "\"%s\" -v error -show_entries format=duration -of csv=p=0 \"%s\"", fp, out);
+    FILE *p = popen(pr, "r");
+    double dur = 0; if (p) { fscanf(p, "%lf", &dur); pclose(p); }
+    printf("         exported duration=%.3f s (source was 6.0 s)\n", dur);
+    CHECK(dur > 1.5 && dur < 2.5, "export honors trim: output ~2s, not full 6s source");
+
+    for (uint32_t c = 0; c < tr->clip_count; c++) { wb_video_clip_free(tr->clips[c].video); free(tr->clips[c].video); }
+    wb_engine_destroy(e);
     wb_session_destroy(s);
 }
 
@@ -1103,6 +1160,7 @@ int main(void) {
     test_velocity();
     test_meter();
     test_video_edit();
+    test_video_export_edit();
     test_bus_routing();
     test_undo();
     test_remove_note();

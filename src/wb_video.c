@@ -300,12 +300,6 @@ int wb_video_export_codec(wb_session *s, wb_engine *e,
     }
     if (vt < 0) { fprintf(stderr, "wb_video_export: no video track\n"); return -1; }
 
-    wb_clip *prim = NULL;
-    for (uint32_t c = 0; c < s->tracks[vt].clip_count; c++) {
-        if (s->tracks[vt].clips[c].type == 2) { prim = &s->tracks[vt].clips[c]; break; }
-    }
-    if (!prim || !prim->video) { fprintf(stderr, "wb_video_export: no video clip\n"); return -1; }
-
     /* Render the audio side of the session through our engine. */
     const char *audio_wav = "/tmp/bigmac_export_audio.wav";
     wb_sample *audio = NULL;
@@ -321,9 +315,18 @@ int wb_video_export_codec(wb_session *s, wb_engine *e,
     }
     free(audio);
 
-    /* Use the full-res source (not the proxy) on export. */
-    const char *vid_src = prim->video->source_path;
+    /* R026: export HONORS the edit model — each clip's source window
+     * (start_in_source + duration) and timeline order (ripple/roll/slip all
+     * reduce to these). Previously the exporter dumped the whole source file
+     * and ignored every edit op. Now we trim per-clip and concat in order. */
     const char *ffmpeg = FFmpeg_BIN;
+
+    /* Gather video clips on the track, in timeline order. */
+    int n = 0;
+    int order[256];
+    for (uint32_t c = 0; c < s->tracks[vt].clip_count && n < 256; c++)
+        if (s->tracks[vt].clips[c].type == 2) order[n++] = (int)c;
+    if (n == 0) { fprintf(stderr, "wb_video_export: no video clip\n"); return -1; }
 
     /* Build the video encoder args per codec. */
     const char *venc, *vopts;
@@ -343,33 +346,46 @@ int wb_video_export_codec(wb_session *s, wb_engine *e,
             break;
     }
 
-    char cmd[4096];
-    if (srt_path) {
-        snprintf(cmd, sizeof(cmd),
-                 "\"%s\" -y "
-                 "-i \"%s\" "
-                 "-i \"%s\" "
-                 "-vf \"subtitles=%s:force_style='FontSize=28,FontName=Arial,BorderStyle=3,Outline=1,Shadow=0'\" "
-                 "-map 0:v -map 1:a "
-                 "-c:v %s %s%s "
-                 "-r 60 "
-                 "-c:a aac -b:a 192k "
-                 "-shortest \"%s\" > /dev/null 2>&1",
-                 ffmpeg, vid_src, audio_wav, srt_path,
-                 venc, vopts, prof, output_path);
-    } else {
-        snprintf(cmd, sizeof(cmd),
-                 "\"%s\" -y "
-                 "-i \"%s\" "
-                 "-i \"%s\" "
-                 "-map 0:v -map 1:a "
-                 "-c:v %s %s%s "
-                 "-r 60 "
-                 "-c:a aac -b:a 192k "
-                 "-shortest \"%s\" > /dev/null 2>&1",
-                 ffmpeg, vid_src, audio_wav,
-                 venc, vopts, prof, output_path);
+    char cmd[8192];
+    int off = 0;
+    off += snprintf(cmd + off, sizeof(cmd) - off, "\"%s\" -y ", ffmpeg);
+
+    /* One input per video clip, each trimmed to its source window. */
+    for (int i = 0; i < n; i++) {
+        wb_clip *cl = &s->tracks[vt].clips[order[i]];
+        double sin = cl->video->start_in_source < 0 ? 0 : cl->video->start_in_source;
+        double dur = cl->length > 0 ? cl->length : cl->video->duration;
+        off += snprintf(cmd + off, sizeof(cmd) - off,
+                        "-ss %.4f -t %.4f -i \"%s\" ", sin, dur, cl->video->source_path);
     }
+    /* The mixed audio (already rendered by the engine over the session). */
+    off += snprintf(cmd + off, sizeof(cmd) - off, "-i \"%s\" ", audio_wav);
+
+    /* Concat the trimmed video segments in timeline order (SRT overlay if set). */
+    if (n == 1) {
+        off += snprintf(cmd + off, sizeof(cmd) - off, "-map 0:v -map %d:a ", n);
+        if (srt_path)
+            off += snprintf(cmd + off, sizeof(cmd) - off,
+                "-vf \"subtitles=%s:force_style='FontSize=28,FontName=Arial,BorderStyle=3,Outline=1,Shadow=0'\" ",
+                srt_path);
+    } else {
+        char fc[2048]; int fo = 0;
+        fo += snprintf(fc + fo, sizeof(fc) - fo, "\"");
+        for (int i = 0; i < n; i++)
+            fo += snprintf(fc + fo, sizeof(fc) - fo, "[%d:v]", i);
+        if (srt_path)
+            fo += snprintf(fc + fo, sizeof(fc) - fo,
+                "concat=n=%d:v=1[a];[a]subtitles=%s:force_style='FontSize=28,FontName=Arial,BorderStyle=3,Outline=1,Shadow=0'[a]\"",
+                n, srt_path);
+        else
+            fo += snprintf(fc + fo, sizeof(fc) - fo, "concat=n=%d:v=1[a]\"", n);
+        off += snprintf(cmd + off, sizeof(cmd) - off,
+                        "-filter_complex %s -map \"[a]\" -map %d:a ", fc, n);
+    }
+
+    off += snprintf(cmd + off, sizeof(cmd) - off,
+                    "-c:v %s %s%s -r 60 -c:a aac -b:a 192k -shortest \"%s\" >/dev/null 2>&1",
+                    venc, vopts, prof, output_path);
 
     int rc = system(cmd);
     if (rc != 0) fprintf(stderr, "wb_video_export: ffmpeg failed (exit %d)\n", WEXITSTATUS(rc));

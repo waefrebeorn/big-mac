@@ -335,6 +335,14 @@ int  wb_video_captions_burn(const char *input_path, const char *output_path,
 /* Delete a video clip from a track. Returns 0 on success. */
 int  wb_session_remove_video_clip(wb_session *s, int track, int clip);
 
+/* R025: real video-edit operations (Premiere-equivalent semantics). */
+/* Ripple delete: remove clip, shift later clips left, timeline shrinks. */
+int  wb_session_ripple_delete_video_clip(wb_session *s, int track, int clip);
+/* Slip: slide clip's source in-point without moving it on the timeline. */
+int  wb_session_slip_video_clip(wb_session *s, int track, int clip, double delta);
+/* Roll: slide the cut between clip and the next clip (total duration fixed). */
+int  wb_session_roll_video_clip(wb_session *s, int track, int clip, double delta);
+
 #ifdef __cplusplus
 }
 #endif

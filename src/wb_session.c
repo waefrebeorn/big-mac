@@ -443,6 +443,87 @@ int wb_session_remove_video_clip(wb_session *s, int track, int clip) {
     return 0;
 }
 
+/* R025: ripple delete — remove a video clip and shift every later clip on the
+ * track left by the removed clip's duration, closing the gap (timeline length
+ * shrinks, exactly like Premiere's Shift+Delete / Ripple Delete). */
+int wb_session_ripple_delete_video_clip(wb_session *s, int track, int clip) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    wb_clip *cl = &tr->clips[clip];
+    if (cl->type != 2 || !cl->video) return -1;
+
+    double removed = cl->length > 0 ? cl->length : cl->video->duration;
+
+    /* remove the clip (frees its video struct) */
+    wb_video_clip_free(cl->video);
+    free(cl->video);
+    cl->video = NULL;
+    for (uint32_t c = (uint32_t)clip; c + 1 < tr->clip_count; c++)
+        tr->clips[c] = tr->clips[c + 1];
+    tr->clip_count--;
+
+    /* shift every later clip left by `removed` */
+    for (uint32_t c = (uint32_t)clip; c < tr->clip_count; c++)
+        tr->clips[c].start -= removed;
+
+    /* recompute session length from the remaining clips' ends (rippled left) */
+    if (s->length > 0) {
+        double end = 0;
+        for (uint32_t c = 0; c < tr->clip_count; c++) {
+            double ce = tr->clips[c].start + (tr->clips[c].length > 0 ? tr->clips[c].length : 0);
+            if (ce > end) end = ce;
+        }
+        if (end < s->length) s->length = end;
+    }
+    return 0;
+}
+
+/* R025: slip — move the clip's source in-point (start_in_source) by `delta`
+ * seconds WITHOUT changing its timeline position or duration. The visible
+ * content slides under a fixed window (Premiere Slip, Y). Clamped to the
+ * available source so the window never runs past the media end. */
+int wb_session_slip_video_clip(wb_session *s, int track, int clip, double delta) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    wb_clip *cl = &tr->clips[clip];
+    if (cl->type != 2 || !cl->video) return -1;
+
+    double dur = cl->length > 0 ? cl->length : cl->video->duration;
+    double src_dur = wb_video_proxy_duration(cl->video->proxy_path);
+    if (src_dur <= 0) src_dur = cl->video->start_in_source + dur + 1.0; /* fall back */
+    double nin = cl->video->start_in_source + delta;
+    if (nin < 0) nin = 0;
+    if (nin + dur > src_dur) nin = src_dur - dur;   /* don't run past media end */
+    if (nin < 0) nin = 0;
+    cl->video->start_in_source = nin;
+    return 0;
+}
+
+/* R025: roll — adjust the cut between clip `clip` and the next clip on the
+ * track: extend clip[clip] by `delta` and shrink clip[clip+1] by the same,
+ * sliding clip[clip+1]'s source in-point so total timeline duration is
+ * UNCHANGED (Premiere Roll, N). Clamped so neither clip goes negative. */
+int wb_session_roll_video_clip(wb_session *s, int track, int clip, double delta) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip + 1 >= tr->clip_count) return -1;
+    wb_clip *a = &tr->clips[clip];
+    wb_clip *b = &tr->clips[clip + 1];
+    if (a->type != 2 || !a->video || b->type != 2 || !b->video) return -1;
+
+    double a_dur = a->length > 0 ? a->length : a->video->duration;
+    double b_dur = b->length > 0 ? b->length : b->video->duration;
+    if (delta > b_dur - 0.05) delta = b_dur - 0.05;     /* can't shrink b below ~0 */
+    if (delta < -a_dur + 0.05) delta = -a_dur + 0.05;   /* can't shrink a below ~0 */
+
+    a->length = a_dur + delta;
+    b->start += delta;                                  /* cut point slides */
+    b->length = b_dur - delta;
+    b->video->start_in_source -= delta;                 /* same content, new window */
+    return 0;
+}
 /* Split a video clip at a timeline position into two clips (A = [start,split),
  * B = [split,end)). Returns the index of the NEW (right) clip, or -1 on error.
  * Preserves the source window via start_in_source + duration. */

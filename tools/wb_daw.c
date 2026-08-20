@@ -768,13 +768,16 @@ static void draw_video_tab_panel(app *a) {
             snprintf(buf, sizeof(buf), "Duration: %.2f s", a->vid_dur);
             wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 14;
             snprintf(buf, sizeof(buf), "In: %.2f s  Out: %.2f s", a->vid_tl_start, a->vid_tl_end);
-            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 20;
-            wb_ui_draw_text(a->ren, px + 6, yy, "Edit shortcuts:", 1, C_TEXT); yy += 16;
-            wb_ui_draw_text(a->ren, px + 6, yy, "^T trim start  ^E trim end", 1, C_TEXT_DIM); yy += 14;
-            wb_ui_draw_text(a->ren, px + 6, yy, "^X split  ^D delete", 1, C_TEXT_DIM);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 18;
         } else {
-            wb_ui_draw_text(a->ren, px + 6, yy, "No clip. Import a video first.", 1, C_TEXT_DIM);
+            wb_ui_draw_text(a->ren, px + 6, yy, "No clip selected. Import in MEDIA tab.", 1, C_TEXT_DIM); yy += 18;
         }
+        /* R025: edit-tool shortcuts are ALWAYS visible (tools must be discoverable) */
+        wb_ui_draw_text(a->ren, px + 6, yy, "Edit tools:", 1, C_TEXT); yy += 16;
+        wb_ui_draw_text(a->ren, px + 6, yy, "^T trim start  ^E trim end", 1, C_TEXT_DIM); yy += 14;
+        wb_ui_draw_text(a->ren, px + 6, yy, "^X split  ^D delete (lift)", 1, C_TEXT_DIM); yy += 14;
+        wb_ui_draw_text(a->ren, px + 6, yy, "Shift+Del RIPPLE delete (close gap)", 1, C_ACCENT); yy += 14;
+        wb_ui_draw_text(a->ren, px + 6, yy, "Y slip in-point  M roll cut", 1, C_ACCENT); yy += 14;
         break;
     case 6: /* CAPTIONS */
         snprintf(buf, sizeof(buf), "Auto Captions (whisper.cpp)");
@@ -1375,6 +1378,35 @@ static void handle_key(app *a, SDL_Keycode k) {
                 } else {
                     printf("video: split failed (bounds)\n");
                 }
+            }
+        }
+        break;
+    case SDLK_y:  /* R025: slip selected clip +1s (Shift = -1s) in EDIT tab */
+        if (a->tab == 5 && a->vid_has_clip && a->session) {
+            double d = (mod & KMOD_SHIFT) ? -1.0 : 1.0;
+            int r = wb_session_slip_video_clip(a->session, a->vid_track, a->vid_clip, d);
+            printf("video: slip %+.1fs -> rc=%d (in=%.2f)\n", d, r,
+                   a->session->tracks[a->vid_track].clips[a->vid_clip].video->start_in_source);
+        }
+        break;
+    case SDLK_m:  /* R025: roll cut +0.5s (Shift = -0.5s) in EDIT tab */
+        if (a->tab == 5 && a->vid_has_clip && a->session) {
+            double d = (mod & KMOD_SHIFT) ? -0.5 : 0.5;
+            int r = wb_session_roll_video_clip(a->session, a->vid_track, a->vid_clip, d);
+            printf("video: roll %+.1fs -> rc=%d\n", d, r);
+        }
+        break;
+    case SDLK_DELETE:
+    case SDLK_BACKSPACE:  /* R025: ripple delete (Shift) or plain delete (lift) */
+        if (a->tab == 5 && a->vid_has_clip && a->session) {
+            if (mod & KMOD_SHIFT) {
+                int r = wb_session_ripple_delete_video_clip(a->session, a->vid_track, a->vid_clip);
+                a->vid_has_clip = 0;
+                printf("video: RIPPLE delete -> rc=%d\n", r);
+            } else {
+                wb_session_remove_video_clip(a->session, a->vid_track, a->vid_clip);
+                a->vid_has_clip = 0;
+                printf("video: clip lifted (no ripple)\n");
             }
         }
         break;

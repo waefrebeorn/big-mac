@@ -694,6 +694,57 @@ static void test_meter(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: R025 real video edit ops (ripple / slip / roll) ------------ */
+static void test_video_edit(void) {
+    printf("test_video_edit\n");
+    wb_session *s = wb_session_create();
+    wb_track *tr = wb_session_add_track(s, "Vid", 2);   /* video track */
+    /* build 3 back-to-back clips manually (no ffmpeg needed for the math) */
+    double pos = 0.0;
+    for (int i = 0; i < 3; i++) {
+        tr->clips = realloc(tr->clips, (tr->clip_count+1)*sizeof(wb_clip));
+        wb_clip *cl = &tr->clips[tr->clip_count++];
+        memset(cl, 0, sizeof(*cl));
+        cl->type = 2; cl->start = pos;
+        cl->video = calloc(1, sizeof(wb_video_clip));
+        wb_video_clip_init(cl->video);
+        cl->video->start_in_source = 0.0;
+        cl->video->duration = 2.0;
+        cl->video->timeline_pos = pos;
+        cl->length = 2.0;
+        pos += 2.0;
+    }
+    s->length = 6.0;
+
+    /* ripple delete clip 0 -> clips 1,2 shift left by 2s, session now 4s */
+    CHECK(wb_session_ripple_delete_video_clip(s, 0, 0) == 0, "ripple delete clip 0");
+    CHECK(tr->clip_count == 2, "ripple leaves 2 clips");
+    CHECK(fabs(tr->clips[0].start - 0.0) < 1e-6, "clip1 now at 0s after ripple");
+    CHECK(fabs(tr->clips[1].start - 2.0) < 1e-6, "clip2 shifted to 2s after ripple");
+    CHECK(fabs(s->length - 4.0) < 1e-6, "timeline shrank to 4s after ripple");
+
+    /* slip clip 0 by +1.0s -> in-point moves, timeline_pos unchanged */
+    double tpos = tr->clips[0].start;
+    double nin0 = tr->clips[0].video->start_in_source;
+    CHECK(wb_session_slip_video_clip(s, 0, 0, 1.0) == 0, "slip clip 0 +1s");
+    CHECK(fabs(tr->clips[0].video->start_in_source - (nin0+1.0)) < 1e-6, "slip moved in-point +1s");
+    CHECK(fabs(tr->clips[0].start - tpos) < 1e-6, "slip did NOT move clip on timeline");
+
+    /* roll clip 0 by +0.5s -> clip0 length 2.5, clip1 start 2.5, total still 4s */
+    double total0 = tr->clips[0].start + tr->clips[0].length
+                  + (tr->clips[1].start + tr->clips[1].length - tr->clips[1].start);
+    CHECK(wb_session_roll_video_clip(s, 0, 0, 0.5) == 0, "roll cut +0.5s");
+    CHECK(fabs(tr->clips[0].length - 2.5) < 1e-6, "roll extended clip0 to 2.5s");
+    CHECK(fabs(tr->clips[1].start - 2.5) < 1e-6, "roll slid clip1 start to 2.5s");
+    CHECK(fabs(tr->clips[1].length - 1.5) < 1e-6, "roll shrank clip1 to 1.5s");
+    double total1 = tr->clips[0].start + tr->clips[0].length
+                  + (tr->clips[1].start + tr->clips[1].length - tr->clips[1].start);
+    CHECK(fabs(total1 - 4.0) < 1e-6, "roll kept total timeline duration at 4s");
+
+    for (uint32_t c = 0; c < tr->clip_count; c++) { wb_video_clip_free(tr->clips[c].video); free(tr->clips[c].video); }
+    wb_session_destroy(s);
+}
+
 /* ---- test: undo/redo via session snapshots ------------------------------ */
 static void test_undo(void) {
     printf("test_undo\n");
@@ -1051,6 +1102,7 @@ int main(void) {
     test_clip_gain();
     test_velocity();
     test_meter();
+    test_video_edit();
     test_bus_routing();
     test_undo();
     test_remove_note();

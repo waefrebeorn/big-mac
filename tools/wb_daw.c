@@ -98,6 +98,7 @@ typedef struct app {
 
     /* R024: VU ballistics — displayed meter lags the raw peak slightly */
     float meter_disp[WB_MAX_TRACKS];
+    float master_meter_disp;   /* R028: master bus VU ballistics */
 
     /* tabbed view (R006/R007: KEYS / PAD / STEP / SESSION)
      * video editor tabs (R009: MEDIA / EDIT / CAPTIONS / EXPORT) */
@@ -517,6 +518,45 @@ static void draw_mixer(app *a) {
             if (!any)
                 wb_ui_draw_text(a->ren, x+2, iy, "  (no inserts)", 1, C_TEXT_DIM);
         }
+    }
+
+    /* R028: master bus VU meter — far-right strip of the mixer, driven by the
+     * engine's REAL post-master-volume output (what you actually hear). */
+    {
+        int mwx = mx + MIXER_W - 30;
+        int fy_top = TRANSPORT_H + 40;
+        int fy_bot = fy_top + (int)fader_h;
+        float pk = 0.0f, rms = 0.0f;
+        wb_engine_get_master_meter(a->engine, &pk, &rms);
+        float disp = a->master_meter_disp;
+        if (pk > disp) disp = pk;                  /* fast attack */
+        else disp = disp * 0.82f + pk * 0.18f;     /* ~300ms decay */
+        a->master_meter_disp = disp;
+        float mdb = disp > 0.0001f ? 20*log10f(disp) : -60.0f;
+        float mf = (mdb - (-60.0f)) / 60.0f; if (mf<0) mf=0; if (mf>1) mf=1;
+        int mw = 14, mxk = mwx;
+        SDL_Rect mtrk = { mxk, fy_top, mw, (int)fader_h };
+        setc(a->ren, C_LANE_A); SDL_RenderFillRect(a->ren, &mtrk);
+        /* RMS (dimmer, shows average level) */
+        float rdb = rms > 0.0001f ? 20*log10f(rms) : -60.0f;
+        float rf = (rdb - (-60.0f)) / 60.0f; if (rf<0) rf=0; if (rf>1) rf=1;
+        int rh = (int)(rf * fader_h);
+        SDL_Rect rfill = { mxk, fy_bot - rh, mw, rh };
+        setc(a->ren, 60, 120, 90); SDL_RenderFillRect(a->ren, &rfill);
+        /* peak (bright, shows transient/clipping) */
+        int mh = (int)(mf * fader_h);
+        SDL_Rect mfill = { mxk, fy_bot - mh, mw, mh };
+        if (disp > 0.99f)     setc(a->ren, 220, 60, 60);
+        else if (mdb > -6.0f) setc(a->ren, 220, 200, 60);
+        else                  setc(a->ren, 80, 200, 110);
+        SDL_RenderFillRect(a->ren, &mfill);
+        /* 0 dB line marker */
+        int zy = fy_bot - (int)(1.0 * fader_h);
+        setc(a->ren, 90, 90, 90); SDL_RenderDrawLine(a->ren, mxk-2, zy, mxk+mw+2, zy);
+        /* label + dB readout */
+        wb_ui_draw_text(a->ren, mxk-4, fy_top-16, "MASTER", 1, C_TEXT);
+        char mdbuf[16]; snprintf(mdbuf, sizeof(mdbuf), "%.1f", mdb);
+        wb_ui_draw_text(a->ren, mxk-2, fy_bot+8, mdbuf, 1, C_ACCENT);
     }
 }
 

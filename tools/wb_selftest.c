@@ -695,6 +695,35 @@ static void test_meter(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: R028 master bus VU meter is real (post master-volume) ------ */
+static void test_master_meter(void) {
+    printf("test_master_meter\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Met", 0);
+    tr->volume = 1.0f;
+    wb_session_add_note(tr, 0, 44100.0, 69, 100);
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    wb_sample out[4096*2];
+    wb_engine_render(e, out, 4096);
+    float pk = 0.0f, rms = 0.0f;
+    wb_engine_get_master_meter(e, &pk, &rms);
+    CHECK(pk > 0.0f, "master meter shows signal while playing");
+    CHECK(rms > 0.0f && rms <= pk + 1e-3f, "master RMS is sane (0..peak)");
+    printf("         master peak=%.3f rms=%.3f\n", pk, rms);
+
+    /* mute everything -> master output must fall to ~0 */
+    s->tracks[0].mute = 1;
+    wb_engine_render(e, out, 4096);
+    wb_engine_get_master_meter(e, &pk, &rms);
+    CHECK(pk < 0.05f, "master meter falls to ~0 when all tracks muted");
+
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
+
 /* ---- test: R025 real video edit ops (ripple / slip / roll) ------------ */
 static void test_video_edit(void) {
     printf("test_video_edit\n");
@@ -1190,6 +1219,7 @@ int main(void) {
     test_clip_gain();
     test_velocity();
     test_meter();
+    test_master_meter();
     test_video_edit();
     test_video_export_edit();
     test_preview_seek();

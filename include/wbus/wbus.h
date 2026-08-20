@@ -232,6 +232,9 @@ void wb_engine_note(wb_engine *e, int track, uint8_t pitch, uint8_t vel);
 void wb_engine_set_insert_param(wb_engine *e, int track, int slot, int param, float value);
 /* Returns the engine's modulation matrix (may be NULL if engine uninitialized). */
 wb_mod_matrix *wb_engine_get_mod_matrix(wb_engine *e);
+/* R028: master bus output meters (post master-volume, pre-dac). peak/rms are
+ * linear 0..N amplitudes; pass NULL for either to ignore. */
+void wb_engine_get_master_meter(wb_engine *e, float *peak, float *rms);
 /* Per-insert slot bypass + wet mix (thread-safe via cmd queue). */
 void wb_engine_set_insert_bypass(wb_engine *e, int track, int slot, int on);
 void wb_engine_set_insert_wet(wb_engine *e, int track, int slot, float wet);

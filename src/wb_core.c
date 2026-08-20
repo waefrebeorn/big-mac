@@ -69,6 +69,8 @@ struct wb_engine {
     wb_sample *accL, *accR;          /* master accumulation scratch */
     uint32_t   acc_cap;
     float      master_volume;
+    float      master_peak;      /* R028: master bus output peak (post master vol) */
+    float      master_rms;       /* R028: master bus output RMS */
     float cpu_load;
 
     /* R002: Xrun detection via process try-lock */
@@ -453,15 +455,20 @@ static void stage_effects(wb_engine *e, uint32_t frames) {
 /* ---- master mix + sum ------------------------------------------------ */
 static void stage_mix(wb_engine *e, uint32_t n, wb_sample *out) {
     int any_solo = 0;
-    if (e->session && e->rtracks)
+    if (e->session)
         for (uint32_t t = 0; t < e->session->track_count; t++)
-            if (e->rtracks[t].solo) any_solo = 1;
+            if (e->session->tracks[t].solo) any_solo = 1;
 
     if (e->session && e->rtracks) {
         for (uint32_t t = 0; t < e->session->track_count; t++) {
+            /* R028: mute/solo are edited on the SESSION by the UI (the source of
+             * truth) — read them there, not the duplicate rtracks, or mute would
+             * be purely cosmetic (sound would still play). */
+            int mute = e->session->tracks[t].mute;
+            int solo = e->session->tracks[t].solo;
             wb_track_runtime *tr = &e->rtracks[t];
-            if (!tr->active || tr->mute) continue;
-            if (any_solo && !tr->solo) continue;
+            if (!tr->active || mute) continue;
+            if (any_solo && !solo) continue;
             /* a track routed to a bus is summed into that bus already (its
              * signal reaches the master only through the bus); skip it here. */
             if (tr->kind != 2 && tr->route >= 0) continue;
@@ -476,7 +483,17 @@ static void stage_mix(wb_engine *e, uint32_t n, wb_sample *out) {
     }
     /* apply master volume automation / fader */
     float mv = e->master_volume;
-    for (uint32_t i = 0; i < (n * 2); i++) out[i] *= mv;
+    float pk = 0.0f, sumsq = 0.0f;
+    for (uint32_t i = 0; i < (n * 2); i++) {
+        out[i] *= mv;
+        float a = fabsf(out[i]);
+        if (a > pk) pk = a;
+        sumsq += out[i] * out[i];
+    }
+    /* R028: master bus meter (post master-volume, pre-dac) — what the user
+     * actually hears, so it must reflect the final output, not any one fader. */
+    e->master_peak = pk;
+    e->master_rms  = sqrtf(sumsq / (n * 2));
 }
 
 wb_engine *wb_engine_create(void) {
@@ -729,6 +746,12 @@ void wb_engine_set_insert_param(wb_engine *e, int track, int slot, int param, fl
 
 wb_mod_matrix *wb_engine_get_mod_matrix(wb_engine *e) {
     return e ? e->mod : NULL;
+}
+
+void wb_engine_get_master_meter(wb_engine *e, float *peak, float *rms) {
+    if (!e) { if (peak) *peak = 0; if (rms) *rms = 0; return; }
+    if (peak) *peak = e->master_peak;
+    if (rms)  *rms  = e->master_rms;
 }
 
 void wb_engine_set_insert_bypass(wb_engine *e, int track, int slot, int on) {

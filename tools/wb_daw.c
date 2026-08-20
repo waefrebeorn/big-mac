@@ -84,6 +84,14 @@ typedef struct app {
     double sel_t0, sel_t1;
     int sel_lane;
 
+    /* R035: distinct performance views for tabs 1/2/3 (PAD / STEP / SESSION)
+     * instead of all three cloning the arrangement. STEP holds a 16-step
+     * pattern per track (one pitch per active step); SESSION holds which
+     * scene (lane) is launched per track. */
+    int step_pitch[WB_MAX_TRACKS][16];   /* active pitch per step, -1 = off */
+    int session_scene[WB_MAX_TRACKS];    /* launched scene/lane, -1 = none */
+    int pad_flash[32];                   /* R035: PAD pad flash decay counters */
+    int last_step;                       /* R035: last fired STEP step (playback) */
 
     /* zoom / scroll (arrangement navigation) */
     double view_start;       /* timeline sample at left edge of arrangement */
@@ -450,6 +458,85 @@ static void draw_arrangement(app *a) {
     SDL_RenderFillRect(a->ren, &head);
 }
 
+/* ---- R035: PAD performance view (8x4 pad grid) ----------------------- */
+static void draw_pad(app *a) {
+    int x0 = GUTTER_W, y0 = TRANSPORT_H + RULER_H + 28;
+    int cols = 8, rows = 4, pad = 6;
+    int pw = (ARRANG_W - pad*(cols+1)) / cols;
+    int ph = (ARRANG_H - 60 - pad*(rows+1)) / rows;
+    wb_ui_draw_text(a->ren, x0, TRANSPORT_H+RULER_H+6, "PAD  — click a pad to audition (selected track's instrument)", 1, C_TEXT);
+    for (int r = 0; r < rows; r++) for (int c = 0; c < cols; c++) {
+        int idx = r*cols + c;          /* 0..31 */
+        int px = x0 + pad + c*(pw+pad);
+        int py = y0 + r*(ph+pad);
+        int pitch = 36 + idx;          /* C2.. */
+        int flash = a->pad_flash[idx] > 0;
+        if (flash) setc(a->ren, C_ACCENT);
+        else if (idx % 2) setc(a->ren, C_LANE_A);
+        else setc(a->ren, C_LANE_B);
+        SDL_Rect pr = { px, py, pw, ph };
+        SDL_RenderFillRect(a->ren, &pr);
+        setc(a->ren, C_TEXT_DIM);
+        char lbl[16]; snprintf(lbl, sizeof(lbl), "%d", pitch);
+        wb_ui_draw_text(a->ren, px+4, py+4, lbl, 1, C_TEXT_DIM);
+    }
+}
+
+/* ---- R035: STEP sequencer (16 steps x 8 pitches) -------------------- */
+static void draw_step(app *a) {
+    int ti = a->selected_track;
+    wb_ui_draw_text(a->ren, GUTTER_W, TRANSPORT_H+RULER_H+6,
+        "STEP — 16-step sequencer for the selected track (click to toggle)", 1, C_TEXT);
+    int x0 = GUTTER_W, y0 = TRANSPORT_H + RULER_H + 28;
+    int steps = 16, rows = 8, pad = 4;
+    int cw = (ARRANG_W - pad*(steps+1)) / steps;
+    int rh = (ARRANG_H - 60 - pad*(rows+1)) / rows;
+    /* current step from transport (16th notes) */
+    double bpm = a->t.bpm > 0 ? a->t.bpm : 120.0;
+    double spb = 60.0/bpm, spstep = spb/4.0;   /* 16th-note duration (s) */
+    int cur = (int)(a->t.song_pos / WB_SAMPLE_RATE / spstep) % steps;
+    for (int s = 0; s < steps; s++) {
+        for (int r = 0; r < rows; r++) {
+            int px = x0 + pad + s*(cw+pad);
+            int py = y0 + r*(rh+pad);
+            int pitch = (ti>=0) ? a->step_pitch[ti][s] : -1;
+            int on = (pitch >= 0) && (7 - r) == (pitch % rows);  /* map pitch to a row */
+            if (s == cur) setc(a->ren, C_ACCENT);
+            else if (on) setc(a->ren, C_NOTE2);
+            else setc(a->ren, C_LANE_B);
+            SDL_Rect cr = { px, py, cw, rh };
+            SDL_RenderFillRect(a->ren, &cr);
+        }
+    }
+}
+
+/* ---- R035: SESSION clip-launcher grid (tracks x scenes) ------------- */
+static void draw_session(app *a) {
+    wb_ui_draw_text(a->ren, GUTTER_W, TRANSPORT_H+RULER_H+6,
+        "SESSION — click a cell to launch that scene (lane) on the track", 1, C_TEXT);
+    int x0 = GUTTER_W, y0 = TRANSPORT_H + RULER_H + 28;
+    int scenes = 4, pad = 6;
+    int cw = (ARRANG_W - pad*(scenes+1)) / scenes;
+    int rh = 40;
+    if (!a->session) return;
+    for (uint32_t t = 0; t < a->session->track_count; t++) {
+        int py = y0 + t*(rh+pad);
+        setc(a->ren, C_PANEL); SDL_Rect g = { x0, py, ARRANG_W, rh }; SDL_RenderFillRect(a->ren, &g);
+        setc(a->ren, C_TEXT); wb_ui_draw_text(a->ren, x0+4, py+12, a->session->tracks[t].name, 1, C_TEXT);
+        for (int sc = 0; sc < scenes; sc++) {
+            int px = x0 + 120 + pad + sc*(cw+pad);
+            int launched = a->session_scene[t] == sc;
+            if (launched) setc(a->ren, C_ACCENT);
+            else setc(a->ren, C_LANE_B);
+            SDL_Rect cell = { px, py+6, cw, rh-12 };
+            SDL_RenderFillRect(a->ren, &cell);
+            setc(a->ren, C_TEXT_DIM);
+            char l[8]; snprintf(l, sizeof(l), "S%d", sc);
+            wb_ui_draw_text(a->ren, px+4, py+18, l, 1, C_TEXT_DIM);
+        }
+    }
+}
+
 /* ---- mixer ------------------------------------------------------------ */
 static void draw_mixer(app *a) {
     int mx = WIN_W - MIXER_W;
@@ -656,17 +743,31 @@ static void render(app *a) {
     wb_engine_get_transport(a->engine, &a->t);
     setc(a->ren, C_BG); SDL_RenderClear(a->ren);
     draw_transport(a);
-    if (a->tab >= 4 && a->tab <= 7) {
-        draw_tab_bar(a);
-        draw_video_preview(a);
-        draw_video_timeline(a);
-        draw_video_tab_panel(a);
-    } else {
-        draw_tab_bar(a);
+    draw_tab_bar(a);
+    switch (a->tab) {
+    case 0:  /* KEYS: linear arrangement (Ableton Arrangement View) */
         draw_ruler(a);
         draw_arrangement(a);
         draw_mixer(a);
         draw_param_editor(a);
+        break;
+    case 1:  /* PAD: performance pad grid (R035) */
+        draw_pad(a);
+        draw_mixer(a);
+        break;
+    case 2:  /* STEP: step sequencer (R035) */
+        draw_step(a);
+        draw_mixer(a);
+        break;
+    case 3:  /* SESSION: clip launcher grid (R035) */
+        draw_session(a);
+        draw_mixer(a);
+        break;
+    default:  /* video editor tabs 4..7 */
+        draw_video_preview(a);
+        draw_video_timeline(a);
+        draw_video_tab_panel(a);
+        break;
     }
     SDL_RenderPresent(a->ren);
 }
@@ -1138,6 +1239,79 @@ static int note_under(app *a, int ti, int x, int y) {
     return -1;
 }
 
+/* ---- R035: click handlers for the performance views ------------------ */
+static void pad_click(app *a, int x, int y) {
+    int x0 = GUTTER_W, y0 = TRANSPORT_H + RULER_H + 28;
+    int cols = 8, rows = 4, pad = 6;
+    int pw = (ARRANG_W - pad*(cols+1)) / cols;
+    int ph = (ARRANG_H - 60 - pad*(rows+1)) / rows;
+    for (int r = 0; r < rows; r++) for (int c = 0; c < cols; c++) {
+        int px = x0 + pad + c*(pw+pad), py = y0 + r*(ph+pad);
+        if (x >= px && x < px+pw && y >= py && y < py+ph) {
+            int idx = r*cols + c, pitch = 36 + idx;
+            a->pad_flash[idx] = 8;
+            if (a->selected_track >= 0)
+                wb_engine_note(a->engine, a->selected_track, (uint8_t)pitch, 100);
+            printf("pad: track %d pitch %d\n", a->selected_track, pitch);
+            return;
+        }
+    }
+}
+static void step_click(app *a, int x, int y) {
+    int ti = a->selected_track; if (ti < 0) return;
+    int x0 = GUTTER_W, y0 = TRANSPORT_H + RULER_H + 28;
+    int steps = 16, rows = 8, pad = 4;
+    int cw = (ARRANG_W - pad*(steps+1)) / steps;
+    int rh = (ARRANG_H - 60 - pad*(rows+1)) / rows;
+    for (int s = 0; s < steps; s++) for (int r = 0; r < rows; r++) {
+        int px = x0 + pad + s*(cw+pad), py = y0 + r*(rh+pad);
+        if (x >= px && x < px+cw && y >= py && y < py+rh) {
+            int pitch = 60 - r;
+            if (a->step_pitch[ti][s] == pitch) a->step_pitch[ti][s] = -1;
+            else { a->step_pitch[ti][s] = pitch;
+                   wb_engine_note(a->engine, ti, (uint8_t)pitch, 100); }
+            return;
+        }
+    }
+}
+static void session_click(app *a, int x, int y) {
+    if (!a->session) return;
+    int x0 = GUTTER_W, y0 = TRANSPORT_H + RULER_H + 28;
+    int scenes = 4, pad = 6, rh = 40;
+    for (uint32_t t = 0; t < a->session->track_count; t++) {
+        int py = y0 + t*(rh+pad);
+        if (y < py || y > py+rh) continue;
+        int cw = (ARRANG_W - pad*(scenes+1)) / scenes;
+        for (int sc = 0; sc < scenes; sc++) {
+            int px = x0 + 120 + pad + sc*(cw+pad);
+            if (x >= px && x < px+cw) {
+                a->session_scene[t] = sc;
+                wb_session_set_active_lane(a->session, (int)t, sc);
+                printf("session: track %d launch scene %d\n", t, sc);
+                return;
+            }
+        }
+    }
+}
+
+/* ---- R035: per-frame performance tick (STEP playback + PAD flash) ---- */
+static void perf_tick(app *a) {
+    /* decay PAD flash counters */
+    for (int i = 0; i < 32; i++) if (a->pad_flash[i] > 0) a->pad_flash[i]--;
+    /* STEP sequencer: fire the selected track's active steps on each 16th */
+    if (a->tab == 2 && a->selected_track >= 0 && a->session) {
+        double bpm = a->t.bpm > 0 ? a->t.bpm : 120.0;
+        double spstep = (60.0/bpm)/4.0;   /* 16th-note seconds */
+        int cur = (int)(a->t.song_pos / WB_SAMPLE_RATE / spstep) % 16;
+        if (cur != a->last_step) {
+            a->last_step = cur;
+            int ti = a->selected_track;
+            int p = a->step_pitch[ti][cur];
+            if (p >= 0) wb_engine_note(a->engine, ti, (uint8_t)p, 100);
+        }
+    }
+}
+
 static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
     /* If the VST3 param editor is open and the click lands on a slider row,
      * arm that parameter for dragging (motion handler does the rest). */
@@ -1169,6 +1343,10 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
 
     Uint32 btn = b.button;
     if (btn == SDL_BUTTON_LEFT) {
+        /* R035: PAD / STEP / SESSION are distinct performance views */
+        if (a->tab == 1) { pad_click(a, b.x, b.y); return; }
+        if (a->tab == 2) { step_click(a, b.x, b.y); return; }
+        if (a->tab == 3) { session_click(a, b.x, b.y); return; }
         /* seek playhead to click position (scrub-on-click) */
         double pos = x_to_sample(a, b.x);
         wb_engine_seek(a->engine, pos);
@@ -1696,6 +1874,7 @@ int main(int argc, char **argv) {
             else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; }
         }
         render(a);
+        perf_tick(a);
         SDL_Delay(16);
     }
 

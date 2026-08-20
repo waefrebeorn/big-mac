@@ -275,6 +275,21 @@ static void draw_arrangement(app *a) {
         SDL_RenderDrawLine(a->ren, x, TRANSPORT_H+RULER_H, x, TRANSPORT_H+RULER_H+ARRANG_H);
     }
 
+    /* R022: arrangement-marker ruler — song-section labels (Intro/Verse/..) */
+    if (a->session->marker_count > 0) {
+        int my = TRANSPORT_H + RULER_H - 12;
+        for (uint32_t mi = 0; mi < a->session->marker_count; mi++) {
+            const wb_marker *mk = &a->session->markers[mi];
+            int mx = arr_x(a, mk->pos);
+            if (mx < GUTTER_W) continue;
+            setc(a->ren, mk->kind ? C_ACCENT : C_SOLO);   /* section vs cue */
+            SDL_Rect band = { mx, my, 3, RULER_H };
+            SDL_RenderFillRect(a->ren, &band);
+            wb_ui_draw_text(a->ren, mx + 4, TRANSPORT_H + 2, mk->label, 1,
+                            mk->kind ? C_ACCENT : C_SOLO);
+        }
+    }
+
     for (int ti=0;ti<n;ti++) {
         wb_track *tr = &a->session->tracks[ti];
         int y = TRANSPORT_H + RULER_H + (int)(ti*track_h);
@@ -332,6 +347,11 @@ static void draw_arrangement(app *a) {
                 /* clip border */
                 setc(a->ren, C_GRID);
                 SDL_RenderDrawRect(a->ren, &clipbox);
+                /* R022: clip (region) gain readout — pre-fader, like Pro Tools */
+                if (cl->clip_gain > 1.001f || cl->clip_gain < 0.999f) {
+                    char gb[16]; snprintf(gb, sizeof(gb), "g%.2f", cl->clip_gain);
+                    wb_ui_draw_text(a->ren, clipbox.x+3, clipbox.y+3, gb, 1, C_ACCENT);
+                }
                 continue;
             }
             for (uint32_t k=0;k<cl->note_count;k++) {

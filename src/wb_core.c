@@ -239,8 +239,10 @@ static void stage_instruments(wb_engine *e, uint32_t frames) {
                     if (idx >= cl->audio_frames) continue;
                     float vL = cl->audio_data[idx*ch];
                     float vR = ch > 1 ? cl->audio_data[idx*ch+1] : vL;
-                    tr->bufL[i] += vL;
-                    tr->bufR[i] += vR;
+                    /* R022: clip (region) gain — pre-fader, before track vol */
+                    float cg = cl->clip_gain > 0.0001f ? cl->clip_gain : 1.0f;
+                    tr->bufL[i] += vL * cg;
+                    tr->bufR[i] += vR * cg;
                 }
             }
         } else if (tr->kind == 0 && tr->voice) {

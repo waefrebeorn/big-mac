@@ -79,7 +79,7 @@ int wb_session_save(const wb_session *s, const char *path) {
         }
         for (uint32_t c = 0; c < tk->clip_count; c++) {
             const wb_clip *cl = &tk->clips[c];
-            fprintf(f, "  clip %u start %.3f length %.3f\n", c, cl->start, cl->length);
+            fprintf(f, "  clip %u start %.3f length %.3f gain %.4f\n", c, cl->start, cl->length, cl->clip_gain);
             for (uint32_t n = 0; n < cl->note_count; n++)
                 fprintf(f, "    note %d %.3f %.3f %d\n",
                         cl->notes[n].pitch, cl->notes[n].start, cl->notes[n].dur, cl->notes[n].vel);
@@ -96,6 +96,9 @@ int wb_session_save(const wb_session *s, const char *path) {
                     al->points[p].time, al->points[p].value, al->points[p].curve);
         fprintf(f, "end_automation\n");
     }
+    /* R022: arrangement markers */
+    for (uint32_t m = 0; m < s->marker_count; m++)
+        fprintf(f, "marker %.3f %d %s\n", s->markers[m].pos, s->markers[m].kind, s->markers[m].label);
     fclose(f);
     return 0;
 }
@@ -183,7 +186,10 @@ wb_session *wb_session_load(const char *path) {
                     /* parse notes until end_clips */
                     while ((tok = next_tok(&ts)) != NULL) {
                         if (strcmp(tok,"end_clips")==0) break;
-                        if (strcmp(tok,"note")==0) {
+                        if (strcmp(tok,"gain")==0) {
+                            tok=next_tok(&ts); if(tok) cl->clip_gain=(float)atof(tok);
+                        }
+                        else if (strcmp(tok,"note")==0) {
                             wb_note no = {0,0,0,100};
                             tok=next_tok(&ts); no.pitch = tok?(uint8_t)atoi(tok):0;
                             tok=next_tok(&ts); no.start = tok?atof(tok):0;
@@ -218,6 +224,15 @@ wb_session *wb_session_load(const char *path) {
                     wb_automation_add_point(al, t, v, c);
                 }
             }
+            continue;
+        }
+        if (strcmp(tok,"marker")==0) {
+            tok=next_tok(&ts); double mpos = tok?atof(tok):0;
+            tok=next_tok(&ts); int mkind = tok?atoi(tok):0;
+            tok=next_tok(&ts); /* label (may contain spaces) */
+            char mlabel[32] = {0};
+            if (tok) strncpy(mlabel, tok, sizeof(mlabel)-1);
+            wb_session_add_marker(s, mpos, mlabel, mkind);
             continue;
         }
         /* unknown top-level token: skip its value if it follows a key */

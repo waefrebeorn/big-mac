@@ -261,6 +261,10 @@ static void test_session_io(void) {
     /* track 2 is the audio pad clip */
     CHECK(s->tracks[2].kind == 1, "demo track 2 is audio");
     CHECK(s->tracks[2].clips[0].audio_frames > 0, "audio clip has samples");
+    /* R022: demo song carries song-section arrangement markers */
+    CHECK(s->marker_count == 4, "demo has 4 arrangement markers");
+    CHECK(strcmp(s->markers[0].label, "Intro") == 0, "marker 0 is Intro");
+    CHECK(strcmp(s->markers[2].label, "Chorus") == 0, "marker 2 is Chorus");
 
     /* save to a temp .wbus file */
     const char *path = "/tmp/test_save.wbus";
@@ -281,6 +285,12 @@ static void test_session_io(void) {
         CHECK(strcmp(s2->tracks[0].inserts[2].id, "reverb") == 0, "loaded reverb insert");
         CHECK(s2->tracks[0].clips[0].note_count > 0, "loaded clip has notes");
         CHECK(s2->tracks[0].route == -1, "loaded track routes to master by default");
+        /* R022: clip_gain round-trips through .wbus save/load */
+        CHECK(fabsf(s2->tracks[2].clips[0].clip_gain - 1.0f) < 1e-3f,
+              "loaded audio clip_gain == 1.0 (unity)");
+        /* R022: markers round-trip through .wbus save/load */
+        CHECK(s2->marker_count == 4, "loaded session has 4 markers");
+        CHECK(strcmp(s2->markers[1].label, "Verse") == 0, "loaded marker 1 is Verse");
 
         /* the loaded project must render non-silent through the engine
          * (proves a disk project opens and plays, the SOTA file workflow) */
@@ -583,6 +593,44 @@ static void test_audio_clip(void) {
     for (uint32_t i = 0; i < 4096*2; i++) { float v = out[i]<0?-out[i]:out[i]; if (v>peak) peak=v; }
     CHECK(peak > 0.01f, "audio clip rendered into output (peak audible)");
     printf("         audio clip peak=%.3f at 440Hz\n", peak);
+
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
+
+/* ---- test: R022 clip gain is applied pre-fader in the audio path -------- */
+static void test_clip_gain(void) {
+    printf("test_clip_gain\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Clip", 1);  /* audio track */
+    uint32_t nf = 44100;
+    wb_sample buf[44100];
+    for (uint32_t i = 0; i < nf; i++) {
+        double t = (double)i / 44100.0;
+        buf[i] = (float)(0.3 * sin(2*M_PI*440.0*t));
+    }
+    wb_session_add_audio_clip(tr, 0, (double)nf, buf, nf, 1);
+
+    /* peak at unity gain */
+    tr->clips[0].clip_gain = 1.0f;
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    wb_sample out[4096*2];
+    wb_engine_render(e, out, 4096);
+    float p1 = 0;
+    for (uint32_t i = 0; i < 4096*2; i++) { float v = out[i]<0?-out[i]:out[i]; if (v>p1) p1=v; }
+    CHECK(p1 > 0.01f, "clip renders at unity gain");
+
+    /* peak at 2x region gain — must be ~2x louder (pre-fader, real signal) */
+    tr->clips[0].clip_gain = 2.0f;
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    wb_engine_render(e, out, 4096);
+    float p2 = 0;
+    for (uint32_t i = 0; i < 4096*2; i++) { float v = out[i]<0?-out[i]:out[i]; if (v>p2) p2=v; }
+    CHECK(p2 > p1*1.8f, "clip_gain=2.0 ~doubles rendered peak (pre-fader)");
+    printf("         unity peak=%.3f  x2 peak=%.3f\n", p1, p2);
 
     wb_engine_destroy(e);
     wb_session_destroy(s);
@@ -942,6 +990,7 @@ int main(void) {
     test_automation_record();
     test_recorder();
     test_audio_clip();
+    test_clip_gain();
     test_bus_routing();
     test_undo();
     test_remove_note();

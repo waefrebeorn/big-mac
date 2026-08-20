@@ -69,6 +69,10 @@ typedef struct wb_clip {
      * exposure in stops (0 = none), saturation multiplier (1 = none). */
     float color_exposure;
     float color_saturation;
+    /* R022: clip gain (region gain). Linear multiplier applied to the audio
+     * clip BEFORE any track processing/fader — i.e. pre-fader gain staging,
+     * exactly like Pro Tools "Region Gain" / Reaper "Item Gain". 1.0 = unity. */
+    float clip_gain;
 } wb_clip;
 
 /* ---- mixer insert (one plugin slot on a track) ------------------------ */
@@ -115,6 +119,16 @@ typedef struct wb_automation_lane {
     wb_automation_point *points;
 } wb_automation_lane;
 
+/* ---- arrangement markers (song sections / cues) ----------------------- */
+/* A marker labels a point on the timeline. 'section' markers (Intro/Verse/
+ * Chorus...) describe song structure; 'cue' markers are plain locators.
+ * Modeled on Ardour location markers / Logic arrangement markers. */
+typedef struct wb_marker {
+    double pos;        /* sample position on the timeline */
+    char   label[32];  /* e.g. "Intro", "Verse", "Chorus", "Hook" */
+    int    kind;       /* 0 = cue (locator), 1 = section (song part) */
+} wb_marker;
+
 /* ---- session (the editable model) ------------------------------------- */
 typedef struct wb_session {
     char      name[128];
@@ -126,6 +140,9 @@ typedef struct wb_session {
     wb_track *tracks;
     uint32_t  automation_count;
     wb_automation_lane **automation;
+    /* R022: arrangement markers */
+    uint32_t  marker_count;
+    wb_marker markers[64];
 } wb_session;
 
 /* ---- session lifecycle -------------------------------------------------- */
@@ -141,6 +158,8 @@ int         wb_session_remove_note(wb_track *tr, double start, int pitch);
 int         wb_session_add_audio_clip(wb_track *tr, double start, double length,
                                       const wb_sample *data, uint32_t frames,
                                       int channels);
+/* R022: arrangement markers (song-structure labels on the timeline) */
+int         wb_session_add_marker(wb_session *s, double pos, const char *label, int kind);
 
 /* ---- undo/redo (session snapshots) -------------------------------------- */
 typedef struct wb_undo wb_undo;

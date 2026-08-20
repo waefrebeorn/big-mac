@@ -201,6 +201,17 @@ int wb_session_add_audio_clip(wb_track *tr, double start, double length,
     cl->audio_data = malloc(bytes);
     if (!cl->audio_data) { tr->clip_count--; return -1; }
     memcpy(cl->audio_data, data, bytes);
+    cl->clip_gain = 1.0f;   /* R022: unity region gain by default */
+    return 0;
+}
+
+/* R022: add an arrangement marker (song-section label / cue) to the session. */
+int wb_session_add_marker(wb_session *s, double pos, const char *label, int kind) {
+    if (!s || s->marker_count >= 64) return -1;
+    wb_marker *m = &s->markers[s->marker_count++];
+    m->pos = pos;
+    m->kind = kind;
+    snprintf(m->label, sizeof(m->label), "%s", label ? label : "");
     return 0;
 }
 
@@ -291,6 +302,13 @@ wb_session *wb_session_demo(void) {
         wb_session_add_audio_clip(pad, 0, (double)nf, buf, nf, 1);
         free(buf);
     }
+
+    /* R022: arrangement markers — song sections on the timeline */
+    double mbar = 44100.0 * 2.0;   /* 2s per bar at 120bpm */
+    wb_session_add_marker(s, 0.0,        "Intro", 1);
+    wb_session_add_marker(s, mbar,       "Verse", 1);
+    wb_session_add_marker(s, mbar*2.0,   "Chorus", 1);
+    wb_session_add_marker(s, mbar*3.0,   "Outro", 1);
 
     return s;
 }

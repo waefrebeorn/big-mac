@@ -56,8 +56,8 @@ int wb_session_save(const wb_session *s, const char *path) {
     fprintf(f, "length %.3f\n", s->length);
     for (uint32_t t = 0; t < s->track_count; t++) {
         const wb_track *tk = &s->tracks[t];
-        fprintf(f, "track \"%s\" kind %d volume %.5f pan %.5f mute %d solo %d route %d\n",
-                tk->name, tk->kind, tk->volume, tk->pan, tk->mute, tk->solo, tk->route);
+        fprintf(f, "track \"%s\" kind %d volume %.5f pan %.5f mute %d solo %d route %d lane %d\n",
+                tk->name, tk->kind, tk->volume, tk->pan, tk->mute, tk->solo, tk->route, tk->active_lane);
         for (int i = 0; i < WB_MAX_INSERT_SLOTS; i++)
             if (tk->inserts[i].id[0])
                 fprintf(f, "  insert %d \"%s\"\n", i, tk->inserts[i].id);
@@ -79,7 +79,7 @@ int wb_session_save(const wb_session *s, const char *path) {
         }
         for (uint32_t c = 0; c < tk->clip_count; c++) {
             const wb_clip *cl = &tk->clips[c];
-            fprintf(f, "  clip %u start %.3f length %.3f gain %.4f\n", c, cl->start, cl->length, cl->clip_gain);
+            fprintf(f, "  clip %u start %.3f length %.3f gain %.4f lane %d\n", c, cl->start, cl->length, cl->clip_gain, cl->lane);
             for (uint32_t n = 0; n < cl->note_count; n++)
                 fprintf(f, "    note %d %.3f %.3f %d\n",
                         cl->notes[n].pitch, cl->notes[n].start, cl->notes[n].dur, cl->notes[n].vel);
@@ -148,6 +148,7 @@ wb_session *wb_session_load(const char *path) {
                 else if (strcmp(tok,"mute")==0)    { tok=next_tok(&ts); if(tok) tk->mute=atoi(tok); }
                 else if (strcmp(tok,"solo")==0)    { tok=next_tok(&ts); if(tok) tk->solo=atoi(tok); }
                 else if (strcmp(tok,"route")==0)   { tok=next_tok(&ts); if(tok) tk->route=atoi(tok); }
+                else if (strcmp(tok,"lane")==0)    { tok=next_tok(&ts); if(tok) tk->active_lane=atoi(tok); }
                 else if (strcmp(tok,"insert")==0) {
                     tok=next_tok(&ts); int slot = tok?atoi(tok):0;
                     tok=next_tok(&ts); if (tok && slot>=0 && slot<WB_MAX_INSERT_SLOTS)
@@ -188,6 +189,9 @@ wb_session *wb_session_load(const char *path) {
                         if (strcmp(tok,"end_clips")==0) break;
                         if (strcmp(tok,"gain")==0) {
                             tok=next_tok(&ts); if(tok) cl->clip_gain=(float)atof(tok);
+                        }
+                        else if (strcmp(tok,"lane")==0) {
+                            tok=next_tok(&ts); if(tok) cl->lane=atoi(tok);
                         }
                         else if (strcmp(tok,"note")==0) {
                             wb_note no = {0,0,0,100};

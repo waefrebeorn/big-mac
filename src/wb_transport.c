@@ -20,6 +20,8 @@ void wb_transport_schedule_notes(wb_track *track, double block_start, uint32_t n
     for (uint32_t c = 0; c < track->clip_count; c++) {
         wb_clip *clip = &track->clips[c];
         if (!clip || clip->type != 0) continue;
+        /* R030: take-lanes — only the active lane is heard (comping) */
+        if (clip->lane != track->active_lane) continue;
         for (uint32_t k = 0; k < clip->note_count; k++) {
             wb_note *nt = &clip->notes[k];
             double abs_start = clip->start + nt->start;

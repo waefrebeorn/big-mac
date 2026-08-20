@@ -748,6 +748,53 @@ static void test_contrast(void) {
     CHECK(pass, "all primary UI text clears WCAG AA (>=4.5:1) on every background");
 }
 
+/* ---- test: R030 take-lanes — only the active lane is heard (comping) --- */
+static void test_take_lanes(void) {
+    printf("test_take_lanes\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Vox", 1);  /* audio track */
+    tr->active_lane = 0;
+    tr->clips = calloc(2, sizeof(wb_clip));
+    /* lane 0: a LOUD 1s tone (amplitude 0.8) */
+    {
+        wb_clip *cl = &tr->clips[tr->clip_count++];
+        memset(cl, 0, sizeof(*cl));
+        cl->type = 1; cl->start = 0; cl->length = 44100;
+        cl->audio_channels = 1; cl->audio_frames = 44100;
+        cl->audio_data = calloc(44100, sizeof(wb_sample));
+        for (int i = 0; i < 44100; i++) cl->audio_data[i] = 0.8f * (float)sin(2*3.14159*440.0*i/44100.0);
+        cl->lane = 0;
+    }
+    /* lane 1: SILENCE (amplitude 0) at the same position — an alternate take */
+    {
+        wb_clip *cl = &tr->clips[tr->clip_count++];
+        memset(cl, 0, sizeof(*cl));
+        cl->type = 1; cl->start = 0; cl->length = 44100;
+        cl->audio_channels = 1; cl->audio_frames = 44100;
+        cl->audio_data = calloc(44100, sizeof(wb_sample));  /* all zeros */
+        cl->lane = 1;
+    }
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    wb_sample out[4096*2];
+    /* active lane 0 -> should hear the loud tone */
+    tr->active_lane = 0;
+    wb_engine_render(e, out, 4096);
+    float pk0 = 0; for (int i=0;i<4096*2;i++) { float a=fabsf(out[i]); if(a>pk0)pk0=a; }
+    CHECK(pk0 > 0.3f, "active lane 0: loud take is heard");
+    /* active lane 1 -> should be silent (the alternate take is empty) */
+    tr->active_lane = 1;
+    wb_engine_render(e, out, 4096);
+    float pk1 = 0; for (int i=0;i<4096*2;i++) { float a=fabsf(out[i]); if(a>pk1)pk1=a; }
+    CHECK(pk1 < 0.05f, "active lane 1: only the (silent) alternate take is heard");
+    printf("         peak lane0=%.3f lane1=%.3f\n", pk0, pk1);
+
+    wb_engine_destroy(e);
+    wb_session_destroy(s);   /* also frees clip->audio_data and tr->clips */
+}
+
 /* ---- test: R025 real video edit ops (ripple / slip / roll) ------------ */
 static void test_video_edit(void) {
     printf("test_video_edit\n");
@@ -1245,6 +1292,7 @@ int main(void) {
     test_meter();
     test_master_meter();
     test_contrast();
+    test_take_lanes();
     test_video_edit();
     test_video_export_edit();
     test_preview_seek();

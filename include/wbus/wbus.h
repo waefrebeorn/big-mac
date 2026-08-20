@@ -73,6 +73,10 @@ typedef struct wb_clip {
      * clip BEFORE any track processing/fader — i.e. pre-fader gain staging,
      * exactly like Pro Tools "Region Gain" / Reaper "Item Gain". 1.0 = unity. */
     float clip_gain;
+    /* R030: take-lane. Clips with lane != track.active_lane are NOT played
+     * (only the active lane is heard — Pro Tools "main playlist" comping).
+     * 0 = main lane. */
+    int lane;
 } wb_clip;
 
 /* ---- mixer insert (one plugin slot on a track) ------------------------ */
@@ -108,6 +112,9 @@ typedef struct wb_track {
      * linear 0..~1+. Ballistics (decay) applied in the UI for VU feel. */
     float meter_peak;
     float meter_rms;
+    /* R030: take-lanes — only the clip on this lane is heard; switch to
+     * audition/comp another take. 0 = main lane. */
+    int active_lane;
 } wb_track;
 
 /* ---- automation envelopes ---------------------------------------------- */
@@ -165,6 +172,9 @@ int         wb_session_add_audio_clip(wb_track *tr, double start, double length,
                                       int channels);
 /* R022: arrangement markers (song-structure labels on the timeline) */
 int         wb_session_add_marker(wb_session *s, double pos, const char *label, int kind);
+/* R030: take-lanes — set which lane is heard on a track (comping). Only clips
+ * on the active lane are played; others are muted. 0 = main lane. */
+void        wb_session_set_active_lane(wb_session *s, int track, int lane);
 
 /* ---- undo/redo (session snapshots) -------------------------------------- */
 typedef struct wb_undo wb_undo;

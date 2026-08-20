@@ -229,6 +229,8 @@ static void stage_instruments(wb_engine *e, uint32_t frames) {
             for (uint32_t c = 0; c < tk->clip_count; c++) {
                 wb_clip *cl = &tk->clips[c];
                 if (!cl->audio_data || cl->audio_frames == 0) continue;
+                /* R030: take-lanes — only the active lane is heard (comping) */
+                if (cl->lane != tk->active_lane) continue;
                 double cl_end = cl->start + cl->length;
                 /* skip clips that don't overlap this block */
                 if (cl_end <= pos || cl->start >= pos + frames) continue;

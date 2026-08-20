@@ -132,6 +132,7 @@ wb_track *wb_session_add_track(wb_session *s, const char *name, int kind) {
     tr->mute = 0;
     tr->solo = 0;
     tr->route = -1;   /* default: route to master, not a bus */
+    tr->active_lane = 0;   /* R030: main lane active by default */
     return tr;
 }
 
@@ -213,6 +214,14 @@ int wb_session_add_marker(wb_session *s, double pos, const char *label, int kind
     m->kind = kind;
     snprintf(m->label, sizeof(m->label), "%s", label ? label : "");
     return 0;
+}
+
+/* R030: set the active take-lane for a track (comping). Only clips on the
+ * active lane are played; the rest are silent. */
+void wb_session_set_active_lane(wb_session *s, int track, int lane) {
+    if (!s || track < 0 || (uint32_t)track >= s->track_count) return;
+    if (lane < 0) lane = 0;
+    s->tracks[track].active_lane = lane;
 }
 
 static void add_note(wb_clip *clip, double start, double dur, int pitch, int vel) {

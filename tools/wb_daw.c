@@ -305,6 +305,11 @@ static void draw_arrangement(app *a) {
         wb_track *tr = &a->session->tracks[ti];
         int y = TRANSPORT_H + RULER_H + (int)(ti*track_h);
         int th = (int)track_h;
+        /* R030: take-lanes — compute how many lanes this track uses */
+        int lane_count = 1;
+        for (uint32_t c = 0; c < tr->clip_count; c++)
+            if (tr->clips[c].lane + 1 > lane_count) lane_count = tr->clips[c].lane + 1;
+        int lh = (th - 8) / lane_count;   /* height of one lane sub-row */
 
         /* lane bg: highlight if this is the selected track */
         SDL_Rect lane = { GUTTER_W, y, ARRANG_W, th };
@@ -327,7 +332,9 @@ static void draw_arrangement(app *a) {
                 int wx = arr_x(a, cl->start);
                 int ww = (int)((cl->length/WB_SAMPLE_RATE)*arr_px_per_sec(a));
                 if (ww < 4) ww = 4;
-                SDL_Rect clipbox = { wx, y+4, ww, th-8 };
+                int clip_h = lh - 4;
+                if (clip_h < 6) clip_h = 6;
+                SDL_Rect clipbox = { wx, y+4 + cl->lane*lh, ww, clip_h };
                 if (clipbox.x < GUTTER_W) { int over = GUTTER_W-clipbox.x; clipbox.w -= over; clipbox.x = GUTTER_W; }
                 if (clipbox.w <= 0) continue;
                 SDL_Rect bg = clipbox;
@@ -371,11 +378,12 @@ static void draw_arrangement(app *a) {
                 double dur = nt->dur;
                 int x = arr_x(a, s);
                 int w = (int)((dur/WB_SAMPLE_RATE)*arr_px_per_sec(a)); if(w<3)w=3;
-                /* pitch maps to vertical: full lane = PITCH_SPAN semitones, low at bottom */
+                /* pitch maps to vertical within this clip's lane sub-row */
                 int span = 24;  /* 2 octaves visible per lane */
                 int row = nt->pitch % span;
-                int cell_h = th / span;
-                int ny = y + th - (row+1)*cell_h;
+                int cell_h = lh / span;
+                if (cell_h < 1) cell_h = 1;
+                int ny = y + 4 + cl->lane*lh + lh - (row+1)*cell_h;
                 SDL_Rect bar = { x, ny, w, cell_h-1 };
                 /* R023: shade note by velocity (bright = loud), like Ableton */
                 int vv = nt->vel > 127 ? 127 : (nt->vel < 1 ? 1 : nt->vel);
@@ -1458,6 +1466,25 @@ static void handle_key(app *a, SDL_Keycode k) {
             }
         }
         break;
+    case SDLK_RIGHTBRACKET:  /* R030: next take-lane on selected track (comping) */
+    case SDLK_LEFTBRACKET: {  /* R030: prev take-lane */
+        if (a->selected_track >= 0 && a->session) {
+            int ti = a->selected_track;
+            int cur = a->session->tracks[ti].active_lane;
+            int dir = (k == SDLK_RIGHTBRACKET) ? 1 : -1;
+            /* find max lane on this track */
+            int maxl = 0;
+            for (uint32_t c = 0; c < a->session->tracks[ti].clip_count; c++)
+                if (a->session->tracks[ti].clips[c].lane > maxl)
+                    maxl = a->session->tracks[ti].clips[c].lane;
+            int nl = cur + dir;
+            if (nl < 0) nl = 0;
+            if (nl > maxl) nl = maxl;
+            wb_session_set_active_lane(a->session, ti, nl);
+            printf("lane: track %d active lane %d/%d\n", ti, nl, maxl);
+        }
+        break;
+    }
     default: break;
     }
 }

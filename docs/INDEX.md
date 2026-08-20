@@ -78,6 +78,8 @@
 | Compositor: **HDR / wide-gamut color pipeline** (R018-B) — `wb_node_colorspace` (sRGB↔linear, PQ/HLG HDR, Rec.709↔2020) + `wb_node_tonemap` (Reinhard/ACES) on the 32-bit-float frame | `make test_compositor` (66/66: CST round-trips, PQ peak, gamut matrix, tonemap bounds) |
 | Interchange: **FCPXML intent enrichment** (R018-C) — `<adjust-color>` (exposure/saturation) on video clips + `audioRole` + `<adjust-volume>` on audio; "transfer intent, not just data" | `make test_fcpxml` (10/10: adjust-color values, role, volume carried) |
 | **Voice: in-repo TTS engine** (R019) — `wb_tts` pure-C11 formant/articulatory synth (Klatt-style), dictionary + rule G2P, no model download, zero-dep, 22.05 kHz; neural ggml-VITS backend architected (deferred, needs vendored model) | `make test_tts` (14/14: offline, deterministic, non-silent, no NaN, WAV write) |
+| **Audio: harmonic-percussive source separation** (R020-A) — `wb_hpss` classic two-stage median-filter HPSS (Driedger/Soros): steady tonal bed vs transients, pure C11, no ML weights; gives the DAW a stem split (melody/bass vs drums) | `make test_hpss` (7/7: split pad->harmonic, clicks->percussive, finite, energy retained) |
+| **Video: transform node (Ken Burns / zoom-punch)** (R020-B) — `wb_node_transform` affine scale/pan/rotate with keyframable params on the G11 bus, so clips animate (zoom-in) without re-encoding | `make test_compositor` (72/72: 4x zoom pushes corner off-frame, keyframed zoom interpolates) |
 ## R017 recursive-loop gaps — ALL 12 CLOSED ✅ (G1–G12)
 | Gap | Status |
 |---|---|

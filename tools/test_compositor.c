@@ -327,6 +327,44 @@ int main(void) {
         }
         wb_node_destroy(tml); wb_node_destroy(tmh); wb_node_destroy(low); wb_node_destroy(hi);
     }
+    {
+        /* R020-B TRANSFORM node: keyframable scale/pan/rotate (Ken Burns).
+         * A source with a known red corner; scale up -> the corner pixel
+         * moves toward center (content zooms). */
+        wb_node *src = wb_node_source_color(1.0f, 1.0f, 1.0f, 1.0f, 16, 16);
+        /* paint the top-left pixel red so we can track where it lands */
+        wb_frame *base = wb_node_pull(src, 0.0, 0, 0, 16, 16);
+        CHECK(base != NULL, "transform source pull ok");
+        if (base) { base->px[0].r = 1.0f; base->px[0].g = 0.0f; base->px[0].b = 0.0f;
+                    wb_frame_free(base); }
+        wb_node *tf = wb_node_transform(); tf->inputs[0] = src;
+        /* static 4x zoom about center: corner (0,0) maps to source (-4,-4),
+         * outside the frame -> transparent (Ken Burns pushes edges off). */
+        wb_param_track *sc = wb_param_track_create();
+        wb_param_track_set(sc, 0.0, 4.0f, WB_KF_LINEAR);
+        int slot = wb_node_add_param(tf, "scale", sc);
+        CHECK(slot >= 0, "transform 'scale' param bound");
+        wb_frame *fz = wb_node_pull(tf, 0.0, 0, 0, 16, 16);
+        CHECK(fz != NULL, "transform pull ok");
+        if (fz) {
+            /* at 4x zoom about center, output(0,0) samples source(6,6) = white;
+             * the red source corner is magnified off-frame (Ken Burns). */
+            CHECK(fz->px[0].r > 0.9f, "red corner pushed off-frame by 4x zoom (Ken Burns)");
+            CHECK(fz->px[8*fz->w+8].a > 0.5f, "center kept (inside zoom)");
+            wb_frame_free(fz);
+        }
+        /* keyframed zoom-in on a FRESH node: scale 1->3 over 0..2s; t=1 -> 2 */
+        wb_node *tf2 = wb_node_transform();
+        wb_param_track *sc2 = wb_param_track_create();
+        wb_param_track_set(sc2, 0.0, 1.0f, WB_KF_LINEAR);
+        wb_param_track_set(sc2, 2.0, 3.0f, WB_KF_LINEAR);
+        wb_node_add_param(tf2, "scale", sc2);
+        CHECK(fabsf(wb_node_param_value(tf2, "scale", 1.0) - 2.0f) < 1e-3f,
+              "keyframed zoom-in interpolates (t=1 -> 2x)");
+        wb_node_destroy(tf2); wb_param_track_free(sc2);
+        wb_node_destroy(tf); wb_node_destroy(src);
+        wb_param_track_free(sc);
+    }
 
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

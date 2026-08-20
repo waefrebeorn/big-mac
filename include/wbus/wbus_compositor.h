@@ -148,6 +148,12 @@ wb_node *wb_node_source_color(float r, float g, float b, float a, int w, int h);
  *      via param "gain"), 2 = invert-alpha matte */
 wb_node *wb_node_effect(int op, float gain);
 
+/* TRANSFORM: affine scale/pan/rotate over its single input (Ken Burns /
+ * zoom-punch). Params "scale" (1=100%), "cx","cy" (normalized pivot 0..1),
+ * "rot" (radians) are keyframable via the G11 param bus, so a clip can
+ * animate (e.g. slow zoom-in) without re-encoding. */
+wb_node *wb_node_transform(void);
+
 /* COMPOSITE: blends up to 8 inputs (bottom..top) by alpha (over operator). */
 wb_node *wb_node_composite(void);
 

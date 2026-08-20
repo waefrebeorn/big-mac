@@ -34,7 +34,7 @@ CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c \
              src/wb_sampler.c src/wb_wav.c src/wb_backend.c \
              src/wb_tuner.c src/wb_ui_font.c src/wb_midi_coremidi.c src/wb_clap.c \
              src/wb_session_file.c src/wb_unit.c src/wb_fm.c src/wb_drums.c \
-             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c src/wb_voice_polish.c src/wb_voice_isolate.c src/wb_fft.c src/wb_param_track.c src/wb_compositor.c src/wb_transcript.c src/wb_ofx.c src/wb_ofx_plugin_builtin.c src/wb_agent.c src/wb_tts.c
+             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c src/wb_voice_polish.c src/wb_voice_isolate.c src/wb_fft.c src/wb_param_track.c src/wb_compositor.c src/wb_transcript.c src/wb_ofx.c src/wb_ofx_plugin_builtin.c src/wb_agent.c src/wb_tts.c src/wb_hpss.c
 CXX_SRCS := src/wb_vst3_host.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/module.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/processdata.cpp \
@@ -194,11 +194,23 @@ build/wb_mk_burn: build/tools/mk_burn.o $(CORE_OBJS)
 mk_burn: build/wb_mk_burn
 	./build/wb_mk_burn
 
+build/wb_mk_tts_podcast: build/tools/mk_tts_podcast.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+mk_tts_podcast: build/wb_mk_tts_podcast
+	./build/wb_mk_tts_podcast
+
 build/wb_test_tts: build/tools/test_tts.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 
 test_tts: build/wb_test_tts
 	./build/wb_test_tts
+
+build/wb_test_hpss: build/tools/test_hpss.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_hpss: build/wb_test_hpss
+	./build/wb_test_hpss
 
 build/wb_test_compositor: build/tools/test_compositor.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)

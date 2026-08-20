@@ -200,6 +200,16 @@ build/wb_mk_tts_podcast: build/tools/mk_tts_podcast.o $(CORE_OBJS)
 mk_tts_podcast: build/wb_mk_tts_podcast
 	./build/wb_mk_tts_podcast
 
+# Fetch the Piper voice model on demand (NOT vendored in git — it's ~120MB).
+# The engine (binary + dylibs) is vendored; only the model is fetched here.
+# After this runs once, TTS works fully offline.
+tts-voice:
+	curl -sL --max-time 300 -o third_party/piper/voices/en_US-ryan-high.onnx \
+	  https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/high/en_US-ryan-high.onnx
+	curl -sL --max-time 60 -o third_party/piper/voices/en_US-ryan-high.onnx.json \
+	  https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/high/en_US-ryan-high.onnx.json
+	@echo "TTS voice model fetched -> third_party/piper/voices/en_US-ryan-high.onnx"
+
 build/wb_test_tts: build/tools/test_tts.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 

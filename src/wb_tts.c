@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include "wbus/wbus_tts.h"
 #include "wbus/wb_internal.h"   /* wb_wav_write_pcm16 / wb_wav_read_pcm16 */
 
@@ -101,6 +102,34 @@ static const char *engine_root(void) {
     return WB_TTS_ENGINE_DIR;
 }
 
+/* If the vendored voice model is missing, fetch it on demand (one-time).
+ * Keeps the repo small (engine is vendored, the ~120MB model is fetched
+ * once, then TTS runs fully offline). Returns 0 if model is present/ok. */
+static int wb_tts_ensure_voice(const char *model_path) {
+    struct stat st;
+    if (stat(model_path, &st) == 0 && st.st_size > 1000) return 0;  /* present */
+    fprintf(stderr, "wb_tts: voice model missing, fetching once: %s\n", model_path);
+    char url[2048], cmd[4096];
+    snprintf(url, sizeof(url),
+             "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/"
+             "en/en_US/ryan/high/en_US-ryan-high.onnx");
+    snprintf(cmd, sizeof(cmd),
+             "curl -sL --max-time 300 -o '%s' '%s'", model_path, url);
+    if (wb_tts_run_cmd(cmd, "fetch piper voice") != 0) {
+        fprintf(stderr, "wb_tts: voice fetch failed (need: make tts-voice)\n");
+        return -1;
+    }
+    /* also the json sidecar */
+    char json[2048];
+    snprintf(json, sizeof(json), "%s.json", model_path);
+    snprintf(url, sizeof(url),
+             "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/"
+             "en/en_US/ryan/high/en_US-ryan-high.onnx.json");
+    snprintf(cmd, sizeof(cmd), "curl -sL --max-time 60 -o '%s' '%s'", json, url);
+    wb_tts_run_cmd(cmd, "fetch piper voice json");
+    return (stat(model_path, &st) == 0 && st.st_size > 1000) ? 0 : -1;
+}
+
 /* Synthesize text -> output WAV (16-bit PCM) via the vendored Piper engine. */
 static int synth_to_wav(wb_tts *t, const char *text, const char *wav_path) {
     const char *root = engine_root();
@@ -110,6 +139,9 @@ static int synth_to_wav(wb_tts *t, const char *text, const char *wav_path) {
     snprintf(model,  sizeof(model),  "%s/" WB_TTS_VOICE, root);
     snprintf(libdir, sizeof(libdir), "%s/lib", root);
     snprintf(datadir,sizeof(datadir),"%s/share/espeak-ng-data", root);
+
+    /* ensure the (large) voice model is present; fetch once if not */
+    if (wb_tts_ensure_voice(model) != 0) return -1;
 
     /* write the input text to a temp file */
     snprintf(textfile, sizeof(textfile), "%s.txt", wav_path);

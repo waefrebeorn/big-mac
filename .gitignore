@@ -4,3 +4,4 @@ build/
 third_party/SDL2-2.32.10/build/
 third_party/vst3sdk/
 .hermes/
+third_party/piper/voices/

@@ -425,6 +425,28 @@ static void stage_effects(wb_engine *e, uint32_t frames) {
                 dt->bufR[i] += tr->bufR[i] * sl;
             }
         }
+        /* R024: live meter — measure this track's actual post-FX level before
+         * it is summed to master (so the meter shows real signal, not fader).
+         * A muted or solo-excluded track is silent to the listener, so its
+         * meter reads zero too (matches what the user hears). */
+        {
+            int any_solo = 0;
+            for (uint32_t tt = 0; tt < e->session->track_count; tt++)
+                if (e->rtracks[tt].solo) any_solo = 1;
+            wb_track *st = &e->session->tracks[t];
+            float pk = 0.0f, sum = 0.0f;
+            if (!st->mute && (!any_solo || st->solo)) {
+                for (uint32_t i = 0; i < frames; i++) {
+                    float vL = tr->bufL[i] < 0 ? -tr->bufL[i] : tr->bufL[i];
+                    float vR = tr->bufR[i] < 0 ? -tr->bufR[i] : tr->bufR[i];
+                    float v = vL > vR ? vL : vR;
+                    if (v > pk) pk = v;
+                    sum += v * v;
+                }
+            }
+            st->meter_peak = pk;
+            st->meter_rms  = (float)sqrtf(sum / (double)frames);
+        }
     }
 }
 

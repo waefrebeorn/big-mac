@@ -103,6 +103,11 @@ typedef struct wb_track {
     uint32_t   clip_count;
     wb_clip   *clips;
     wb_plugin_slot inserts[WB_MAX_INSERT_SLOTS];
+    /* R024: live meter — actual signal level after processing (not fader).
+     * peak = max abs sample this block; rms = sqrt(mean square). Both in
+     * linear 0..~1+. Ballistics (decay) applied in the UI for VU feel. */
+    float meter_peak;
+    float meter_rms;
 } wb_track;
 
 /* ---- automation envelopes ---------------------------------------------- */

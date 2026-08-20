@@ -96,6 +96,9 @@ typedef struct app {
     int vel_drag_start_y;    /* mouse y where drag began */
     int vel_drag_start_vel;  /* velocity at drag start */
 
+    /* R024: VU ballistics — displayed meter lags the raw peak slightly */
+    float meter_disp[WB_MAX_TRACKS];
+
     /* tabbed view (R006/R007: KEYS / PAD / STEP / SESSION)
      * video editor tabs (R009: MEDIA / EDIT / CAPTIONS / EXPORT) */
     int tab;                 /* 0=KEYS 1=PAD 2=STEP 3=SESSION
@@ -438,6 +441,31 @@ static void draw_mixer(app *a) {
         /* strip */
         SDL_Rect strip = { x, TRANSPORT_H+4, sw, (int)(fader_h+50) };
         setc(a->ren, C_PANEL2); SDL_RenderFillRect(a->ren, &strip);
+
+        /* R024: live VU meter — vertical bar, left of the fader, driven by the
+         * engine's REAL post-FX peak (not the fader). VU-style decay. */
+        {
+            int fy_top = TRANSPORT_H + 40;
+            int fy_bot = fy_top + (int)fader_h;
+            float raw = tr->meter_peak;
+            float disp = a->meter_disp[ti];
+            if (raw > disp) disp = raw;            /* fast attack */
+            else disp = disp * 0.82f + raw * 0.18f; /* ~300ms decay */
+            a->meter_disp[ti] = disp;
+            /* map linear peak -> dB fraction [-60,0] -> [0,1] */
+            float mdb = disp > 0.0001f ? 20*log10f(disp) : -60.0f;
+            float mf = (mdb - (-60.0f)) / 60.0f; if (mf<0) mf=0; if (mf>1) mf=1;
+            int mx = x + 3, mw = 6;
+            SDL_Rect mtrk = { mx, fy_top, mw, (int)fader_h };
+            setc(a->ren, C_LANE_A); SDL_RenderFillRect(a->ren, &mtrk);
+            int mh = (int)(mf * fader_h);
+            SDL_Rect mfill = { mx, fy_bot - mh, mw, mh };
+            /* green below -6dB, yellow to 0dB, red if clipping (>0.99) */
+            if (disp > 0.99f)      setc(a->ren, 220, 60, 60);
+            else if (mdb > -6.0f)  setc(a->ren, 220, 200, 60);
+            else                   setc(a->ren, 80, 200, 110);
+            SDL_RenderFillRect(a->ren, &mfill);
+        }
 
         /* fader track */
         int fx = x + sw/2 - 4;
@@ -1439,6 +1467,11 @@ int main(int argc, char **argv) {
             if (access(demo, F_OK) == 0) video_import(a, demo);
         }
         wb_engine_seek(a->engine, 2.0*WB_SAMPLE_RATE);
+        wb_engine_play(a->engine);
+        /* actually render blocks so live meters (R024) and playhead reflect
+         * real signal, not a silent static frame */
+        wb_sample blk[4096*2];
+        for (int i=0;i<6;i++) wb_engine_render(a->engine, blk, 4096);
         for (int i=0;i<5;i++) { render(a); SDL_Delay(20); }
         wb_engine_seek(a->engine, 2.0*WB_SAMPLE_RATE);
         render(a);

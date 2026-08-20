@@ -669,6 +669,31 @@ static void test_velocity(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: R024 live meter reflects the real post-FX signal ----------- */
+static void test_meter(void) {
+    printf("test_meter\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Met", 0);
+    tr->volume = 1.0f;
+    wb_session_add_note(tr, 0, 44100.0, 69, 100);
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    wb_sample out[4096*2];
+    wb_engine_render(e, out, 4096);   /* populates tr->meter_peak */
+    CHECK(s->tracks[0].meter_peak > 0.0f, "live meter shows signal while playing");
+
+    /* mute the track -> next block should read (near) zero */
+    s->tracks[0].mute = 1;
+    wb_engine_render(e, out, 4096);
+    CHECK(s->tracks[0].meter_peak < 0.05f, "muted track meter falls to ~0");
+    printf("         muted peak=%.3f\n", s->tracks[0].meter_peak);
+
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
+
 /* ---- test: undo/redo via session snapshots ------------------------------ */
 static void test_undo(void) {
     printf("test_undo\n");
@@ -1025,6 +1050,7 @@ int main(void) {
     test_audio_clip();
     test_clip_gain();
     test_velocity();
+    test_meter();
     test_bus_routing();
     test_undo();
     test_remove_note();

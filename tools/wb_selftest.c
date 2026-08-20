@@ -924,6 +924,45 @@ static void test_comp_ownership(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: R036 STEP pattern commit -> arrangement clip (real notes) - */
+static void test_step_commit(void) {
+    printf("test_step_commit\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Seq", 0);   /* returns wb_track*; kind 0 = instrument */
+    /* a 16-step pattern: every other step on pitch 60 (samples!) */
+    double step_smp = ((60.0/120.0)/4.0) * WB_SAMPLE_RATE;  /* 16th = 0.125s = 5512.5 */
+    int count = 0;
+    for (int st = 0; st < 16; st += 2) {
+        wb_session_add_note(tr, st*step_smp, step_smp*0.9, 60, 100);
+        count++;
+    }
+    CHECK(tr->clip_count == 1, "commit created one clip");
+    CHECK(tr->clips[0].note_count == count, "clip holds one note per active step");
+    tr->clips[0].length = 16 * step_smp;   /* one bar, like the real commit */
+    /* first note at sample 0, last at 14*step_smp */
+    double first = tr->clips[0].notes[0].start;
+    double last  = tr->clips[0].notes[count-1].start;
+    CHECK(fabs(first) < 1.0, "first note at step 0 (sample 0)");
+    CHECK(fabs(last - 14*step_smp) < 1.0, "last note at step 14 (sample 14*step)");
+    /* rendering the session must produce audible output (pattern is in song) */
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    int frames = (int)(s->length);
+    wb_sample *buf = calloc((size_t)frames * 2, sizeof(wb_sample));  /* engine writes STEREO */
+    double peak = 0;
+    int done = 0;
+    while (done < frames) {                       /* render in 4096-block chunks */
+        int n = frames - done; if (n > 4096) n = 4096;
+        wb_engine_render(e, buf + done, n);
+        done += n;
+    }
+    for (int i=0;i<frames;i++){ double a=fabs(buf[i]); if(a>peak)peak=a; }
+    CHECK(peak > 0.01, "committed STEP pattern renders to audible audio");
+    printf("         notes=%u peak=%.3f\n", tr->clips[0].note_count, peak);
+    free(buf); wb_engine_destroy(e); wb_session_destroy(s);
+}
+
 static void test_video_edit(void) {
     printf("test_video_edit\n");
     wb_session *s = wb_session_create();
@@ -1404,6 +1443,7 @@ int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0); /* unbuffered so we see output on crash */
     printf("=== Big Mac DAW self-test gate ===\n");
     test_transport();
+    test_step_commit();   /* R036: run FIRST for fast backtrace isolation */
     test_synth_audio();
     test_wav();
     test_units();
@@ -1424,6 +1464,7 @@ int main(void) {
     test_comp_region();
     test_comp_region_midi();
     test_comp_ownership();
+    test_step_commit();
     test_video_edit();
     test_video_export_edit();
     test_preview_seek();

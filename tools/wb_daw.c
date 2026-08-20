@@ -1294,6 +1294,35 @@ static void session_click(app *a, int x, int y) {
     }
 }
 
+/* ---- R036: commit the STEP pattern into the track's arrangement clip -- */
+static void step_commit_to_clip(app *a) {
+    int ti = a->selected_track; if (ti < 0 || !a->session) return;
+    wb_track *tr = &a->session->tracks[ti];
+    double bpm = a->t.bpm > 0 ? a->t.bpm : 120.0;
+    double step_sec = (60.0 / bpm) / 4.0;          /* 16th-note seconds */
+    double step_smp = step_sec * WB_SAMPLE_RATE;
+    /* ensure a clip exists to hold the notes */
+    if (tr->clip_count == 0) {
+        tr->clips = calloc(1, sizeof(wb_clip));
+        tr->clips[0].type = 0; tr->clips[0].start = 0;
+        tr->clips[0].length = 16 * step_smp;
+        tr->clip_count = 1;
+    }
+    wb_clip *cl = &tr->clips[tr->clip_count - 1];
+    /* clear existing notes, then write the pattern (idempotent) */
+    free(cl->notes); cl->notes = NULL; cl->note_count = 0;
+    cl->length = 16 * step_smp;
+    int n = 0;
+    for (int s = 0; s < 16; s++) {
+        int p = a->step_pitch[ti][s];
+        if (p < 0) continue;
+        wb_session_add_note(tr, s * step_smp, step_smp * 0.9, p, 100);
+        n++;
+    }
+    wb_engine_set_session(a->engine, a->session);  /* rebuild runtime */
+    printf("step-commit: track %d wrote %d notes (one bar) into clip\n", ti, n);
+}
+
 /* ---- R035: per-frame performance tick (STEP playback + PAD flash) ---- */
 static void perf_tick(app *a) {
     /* decay PAD flash counters */
@@ -1722,6 +1751,9 @@ static void handle_key(app *a, SDL_Keycode k) {
             a->marquee_active = 0;
         }
         break;
+    case SDLK_k:  /* R036: commit the STEP pattern into the track's clip */
+        if (a->tab == 2) step_commit_to_clip(a);
+        break;
     default: break;
     }
 }
@@ -1826,6 +1858,16 @@ int main(int argc, char **argv) {
             a->sel_lane = 1;
             a->sel_t0 = 1.0*WB_SAMPLE_RATE;
             a->sel_t1 = 3.0*WB_SAMPLE_RATE;
+        }
+        /* R036: if WB_COMMIT_STEP is set, populate a STEP pattern on the
+         * selected track, run the real commit, then show the arrangement so
+         * the screenshot proves the pattern landed in the song (UI wiring). */
+        if (getenv("WB_COMMIT_STEP")) {
+            a->selected_track = 0;
+            a->tab = 2;
+            for (int s = 0; s < 16; s += 2) a->step_pitch[0][s] = 60;
+            step_commit_to_clip(a);
+            a->tab = 0;   /* switch to arrangement to show the committed notes */
         }
         render(a);
         SDL_Rect full = { 0,0,WIN_W,WIN_H };

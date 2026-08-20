@@ -658,11 +658,19 @@ static void draw_video_preview(app *a) {
     double clip_time = a->t.song_pos / WB_SAMPLE_RATE - a->vid_tl_start;
     if (clip_time < 0) clip_time = 0;
     if (clip_time > a->vid_dur) clip_time = a->vid_dur;
+    /* R027: honor the clip's source in-point so slip/roll show the correct
+     * frame in the preview (not just the timeline-relative position). */
+    double in_src = 0.0;
+    if (a->vid_has_clip && a->session && a->vid_track >= 0 && a->vid_clip >= 0) {
+        wb_clip *vc = &a->session->tracks[a->vid_track].clips[a->vid_clip];
+        if (vc->type == 2 && vc->video) in_src = vc->video->start_in_source;
+        if (in_src < 0) in_src = 0.0;
+    }
     wb_video_decoder *vd = wb_video_decoder_open(a->vid_source);
     if (vd) {
         uint8_t *rgba = calloc(PROXY_SCALE_W * PROXY_SCALE_H, 4);
         int out_w = PROXY_SCALE_W, out_h = PROXY_SCALE_H;
-        if (wb_video_decoder_seek(vd, clip_time) == 0 &&
+        if (wb_video_decoder_seek(vd, in_src + clip_time) == 0 &&
             wb_video_decoder_decode_frame(vd, rgba, &out_w, &out_h) == 0) {
             SDL_Texture *tex = wb_video_frame_to_texture(a->ren, rgba, out_w, out_h);
             if (tex) {

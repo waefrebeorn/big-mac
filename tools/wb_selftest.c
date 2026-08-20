@@ -795,7 +795,53 @@ static void test_take_lanes(void) {
     wb_session_destroy(s);   /* also frees clip->audio_data and tr->clips */
 }
 
-/* ---- test: R025 real video edit ops (ripple / slip / roll) ------------ */
+/* ---- test: R031 comping — promote a region of a take onto lane 0 ----- */
+static void test_comp_region(void) {
+    printf("test_comp_region\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Vox", 1);
+    tr->active_lane = 0;
+    tr->clips = calloc(1, sizeof(wb_clip));
+    wb_clip *cl = &tr->clips[tr->clip_count++];
+    memset(cl, 0, sizeof(*cl));
+    cl->type = 1; cl->start = 0; cl->length = 44100;   /* 1s full take on lane 1 */
+    cl->lane = 1;
+    cl->audio_channels = 1; cl->audio_frames = 44100;
+    cl->audio_data = calloc(44100, sizeof(wb_sample));
+    for (int i = 0; i < 44100; i++) cl->audio_data[i] = 0.8f * (float)sin(2*3.14159*440.0*i/44100.0);
+
+    /* comp the middle [0.25s, 0.75s] of the take onto lane 0 */
+    int made = wb_session_comp_region(s, 0, 1, 11025.0, 33075.0);
+    CHECK(made == 1, "comp_region created exactly one comp clip");
+
+    /* expect: lane0 has the 0.5s comp @0.25; lane1 keeps two pieces */
+    int n0 = 0, n1 = 0; double comp_start = -1, comp_len = -1;
+    for (uint32_t c = 0; c < tr->clip_count; c++) {
+        if (tr->clips[c].lane == 0) { n0++; comp_start = tr->clips[c].start; comp_len = tr->clips[c].length; }
+        if (tr->clips[c].lane == 1) n1++;
+    }
+    CHECK(n0 == 1, "one comp clip on lane 0");
+    CHECK(n1 == 2, "source take split into 2 kept pieces on lane 1");
+    CHECK(fabs(comp_start - 11025.0) < 1.0, "comp starts at selection start (0.25s)");
+    CHECK(fabs(comp_len - 22050.0) < 1.0, "comp length is the selection (0.5s)");
+
+    /* the comp clip's audio must equal the source's [0.25,0.75] samples */
+    wb_clip *comp = NULL;
+    for (uint32_t c = 0; c < tr->clip_count; c++) if (tr->clips[c].lane == 0) comp = &tr->clips[c];
+    CHECK(comp && comp->audio_frames == 22050, "comp audio length correct");
+    /* comp audio must equal the source's [0.25,0.75] sub-range (recompute expected) */
+    uint32_t off = 11025;
+    float maxdiff = 0; for (uint32_t i = 0; i < comp->audio_frames; i++) {
+        float exp = 0.8f * (float)sin(2*3.14159*440.0*(off + i)/44100.0);
+        float d = fabsf(comp->audio_data[i] - exp); if (d > maxdiff) maxdiff = d;
+    }
+    CHECK(maxdiff < 1e-3, "comp audio matches source sub-range");
+    printf("         n0=%d n1=%d comp_start=%.0f comp_len=%.0f maxdiff=%.4f\n",
+           n0, n1, comp_start, comp_len, maxdiff);
+
+    wb_session_destroy(s);
+}
 static void test_video_edit(void) {
     printf("test_video_edit\n");
     wb_session *s = wb_session_create();
@@ -1293,6 +1339,7 @@ int main(void) {
     test_master_meter();
     test_contrast();
     test_take_lanes();
+    test_comp_region();
     test_video_edit();
     test_video_export_edit();
     test_preview_seek();

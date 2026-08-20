@@ -175,6 +175,9 @@ int         wb_session_add_marker(wb_session *s, double pos, const char *label, 
 /* R030: take-lanes — set which lane is heard on a track (comping). Only clips
  * on the active lane are played; others are muted. 0 = main lane. */
 void        wb_session_set_active_lane(wb_session *s, int track, int lane);
+/* R031: comping — promote the time-region [t0,t1] of a take-lane audio clip
+ * onto lane 0 (the comp). Returns # comp clips made, or -1 on error. */
+int         wb_session_comp_region(wb_session *s, int track, int src_lane, double t0, double t1);
 
 /* ---- undo/redo (session snapshots) -------------------------------------- */
 typedef struct wb_undo wb_undo;

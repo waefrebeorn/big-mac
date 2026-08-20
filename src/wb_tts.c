@@ -140,6 +140,14 @@ static int synth_to_wav(wb_tts *t, const char *text, const char *wav_path) {
     snprintf(libdir, sizeof(libdir), "%s/lib", root);
     snprintf(datadir,sizeof(datadir),"%s/share/espeak-ng-data", root);
 
+    /* Put the engine's library paths into the REAL environment. macOS SIP
+     * strips DYLD_* vars when they are set *inside* a system() command string,
+     * but honors them when inherited from the process environment — so we
+     * setenv() them here (the child via system() inherits our environ). */
+    setenv("DYLD_LIBRARY_PATH", libdir, 1);
+    setenv("ESPEAK_DATA_PATH", datadir, 1);
+    setenv("DYLD_FALLBACK_LIBRARY_PATH", libdir, 1);
+
     /* ensure the (large) voice model is present; fetch once if not */
     if (wb_tts_ensure_voice(model) != 0) return -1;
 
@@ -147,14 +155,13 @@ static int synth_to_wav(wb_tts *t, const char *text, const char *wav_path) {
     snprintf(textfile, sizeof(textfile), "%s.txt", wav_path);
     if (wb_tts_write_text(textfile, text) != 0) return -1;
 
-    /* Piper command. DYLD_LIBRARY_PATH points at our vendored dylibs so the
-     * engine links against the forked espeak-ng + onnxruntime we built, not
-     * anything system-provided. ESPEAK_DATA_PATH points at our phoneme data. */
+    /* Piper command. Library paths are in the environment (above), not in the
+     * command string, so SIP can't strip them. --noise_scale 0 --noise_w 0
+     * make VITS deterministic. */
     snprintf(cmd, sizeof(cmd),
-             "DYLD_LIBRARY_PATH='%s' ESPEAK_DATA_PATH='%s' "
              "cat '%s' | '%s' --model '%s' --output_file '%s' "
              "--length-scale %.3f --noise_scale 0 --noise_w 0 >/dev/null 2>&1",
-             libdir, datadir, textfile, bin, model, wav_path,
+             textfile, bin, model, wav_path,
              (t->rate > 0.01f) ? 1.0f / t->rate : 1.0f);
 
     int rc = wb_tts_run_cmd(cmd, "piper tts");

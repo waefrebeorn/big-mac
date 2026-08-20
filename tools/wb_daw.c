@@ -201,10 +201,12 @@ static void draw_transport(app *a) {
     char bpm[24]; snprintf(bpm,sizeof(bpm),"BPM %.1f",a->t.bpm);
     wb_ui_draw_text(a->ren, 150, 12, bpm, 1, C_TEXT);
 
-    /* bar:beat */
-    double beat = a->t.song_pos / (60.0/a->t.bpm) * WB_SAMPLE_RATE / WB_SAMPLE_RATE;
-    beat = a->t.song_pos / (60.0/a->t.bpm);
-    int bar = (int)(beat / 4) + 1, bi = (int)beat % 4 + 1;
+    /* bar:beat (convert samples -> seconds first!) */
+    double sec_bb = a->t.song_pos / (double)WB_SAMPLE_RATE;
+    double bps = a->t.bpm / 60.0;
+    double beat = sec_bb * bps;
+    int bar = (int)(beat / 4) + 1;
+    int bi  = ((int)beat % 4) + 1;
     char barbuf[24]; snprintf(barbuf,sizeof(barbuf),"bar %d.%d",bar,bi);
     wb_ui_draw_text(a->ren, 150, 32, barbuf, 1, C_TEXT_DIM);
 
@@ -226,11 +228,6 @@ static void draw_transport(app *a) {
         }
         wb_ui_draw_text(a->ren, 460, 12, pname, 1, C_ACCENT);
     }
-
-    /* loss metric */
-    double loss = a->tuner ? wb_tuner_last_loss(a->tuner) : 0;
-    char lossbuf[32]; snprintf(lossbuf,sizeof(lossbuf),"learn loss %.4f",loss);
-    wb_ui_draw_text(a->ren, WIN_W-MIXER_W-230, 12, lossbuf, 1, loss < 0.2 ? C_SOLO : C_MUTE);
 
     /* xrun counter (underruns dropped by the RT callback) */
     uint64_t xr = wb_engine_xruns(a->engine);
@@ -390,13 +387,17 @@ static void draw_mixer(app *a) {
         SDL_Rect ftr = { fx, fy_top, 8, (int)fader_h };
         setc(a->ren, C_LANE_A); SDL_RenderFillRect(a->ren, &ftr);
 
-        /* fader knob */
-        int fy = fy_bot - (int)(tr->volume*fader_h);
+        /* fader knob — map VOLUME in dB (logarithmic), like a real console.
+         * volume is linear gain 0..1; convert to dB in [-60,0], then to a
+         * 0..1 fraction of the fader travel. */
+        float db = tr->volume>0.0001f ? 20*log10f(tr->volume) : -60.0f;
+        float frac = (db - (-60.0f)) / (0.0f - (-60.0f));   /* -60dB->0, 0dB->1 */
+        if (frac < 0) frac = 0; if (frac > 1) frac = 1;
+        int fy = fy_bot - (int)(frac * fader_h);
         SDL_Rect knob = { fx-5, fy-6, 18, 12 };
         setc(a->ren, tr->mute?C_MUTE:C_ACCENT); SDL_RenderFillRect(a->ren, &knob);
 
         /* dB readout */
-        float db = tr->volume>0.0001f ? 20*log10f(tr->volume) : -60;
         char dbuf[16]; snprintf(dbuf,sizeof(dbuf),"%.1f dB",db);
         wb_ui_draw_text(a->ren, x+2, fy_bot+8, dbuf, 1, C_TEXT);
 

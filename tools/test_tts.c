@@ -1,6 +1,8 @@
-/* test_tts.c — verify the legitimate in-repo TTS engine (R019).
- * Checks: non-empty PCM, finite, sane duration, no NaN, determinism (two runs
- * equal), backend is PHONETIC when no neural model is configured, and WAV write. */
+/* test_tts.c — verify the legitimate in-repo TTS engine (R020).
+ * Big Mac HOSTS Piper (VITS, Apache-2.0, offline) exactly like the caption
+ * engine hosts whisper.cpp. Checks: non-empty PCM, finite, sane duration, no
+ * NaN, determinism (two runs equal), backend is NEURAL (vendored Piper), rate
+ * changes output, and WAV write. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -17,11 +19,11 @@ static int has_nan(const float *b, uint32_t n) {
 }
 
 int main(void) {
-    printf("=== R019 TTS engine ===\n\n");
+    printf("=== R020 TTS engine (Piper, hosted) ===\n\n");
 
-    wb_tts *t = wb_tts_create(NULL);   /* force phonetic backend */
+    wb_tts *t = wb_tts_create(NULL);   /* vendored Piper neural backend */
     CK(t != NULL, "engine created");
-    CK(wb_tts_get_backend(t) == WB_TTS_BACKEND_PHONETIC, "backend is PHONETIC (offline, zero-dep)");
+    CK(wb_tts_get_backend(t) == WB_TTS_BACKEND_NEURAL, "backend is NEURAL (vendored Piper, offline)");
     CK(wb_tts_sample_rate(t) == 22050, "sample rate 22050");
     CK(wb_tts_voice_count(t) >= 1, "has >=1 voice");
 
@@ -48,12 +50,13 @@ int main(void) {
         if (p1[i] != p2[i]) same = 0;
     CK(same, "deterministic samples (bit-identical)");
 
-    /* pitch/rate controls change output */
-    wb_tts_set_pitch(t, 200.0f);
+    /* rate control changes output (pitch is voice-driven, rate is honored) */
+    wb_tts_set_rate(t, 1.5f);
     float *p3 = NULL; uint32_t n3 = 0; int sr3 = 0;
     wb_tts_speak(t, "Hello world, this is the Big Mac editor.", &p3, &n3, &sr3);
-    int diff = 0; for (uint32_t i = 0; i < n1 && i < n3; i++) if (p1[i] != p3[i]) { diff = 1; break; }
-    CK(diff, "different pitch -> different output");
+    int diff = (n3 != n1);
+    CK(diff, "different rate -> different output (faster -> fewer frames)");
+    wb_tts_set_rate(t, 1.0f);
 
     free(p1); free(p2); free(p3);
 

@@ -1,20 +1,18 @@
-/* wbus_tts.h — legitimate, dependency-free Text-to-Speech for Big Mac.
+/* wbus_tts.h — legitimate, offline Text-to-Speech for Big Mac.
  *
- * Two backends, one API:
- *   WB_TTS_BACKEND_PHONETIC  (default, always available)
- *      A pure-C11 formant / articulatory synthesizer (Klatt-style): text ->
- *      graphemes -> phonemes (dictionary + letter-to-sound rules) -> per-phoneme
- *      glottal source through 3 formant resonators -> 22.05 kHz float PCM.
- *      No model download, no third-party runtime. Runs instantly on a dual-core
- *      iMac; trivially fast on better hardware. This is the "worst-hardware-
- *      first" proof that the editor can narrate fully offline.
- *   WB_TTS_BACKEND_NEURAL     (deferred)
- *      A VITS-style model on ggml (mirroring whisper.cpp / qwentts.cpp), no
- *      ONNX/PyTorch at runtime. Slots in once a .bin/.gguf VITS model is
- *      vendored. The same wb_tts_speak() API serves both.
+ * Architecture (same as the caption engine): Big Mac HOSTS a real, vendored
+ * TTS engine rather than reinventing one. The engine is Piper (VITS,
+ * Apache-2.0, onnxruntime/ggml, CPU, 100% offline) — see third_party/piper/.
+ * We drive it the exact same way the caption engine drives whisper.cpp:
+ * a subprocess with the model + dylibs vendored in-repo, no network, no key.
  *
- * The engine produces mono float PCM at wb_tts_sample_rate() Hz; callers route
- * it through the existing WAV writer / voice-polish / export path.
+ *   - caption engine -> whisper.cpp (ASR)
+ *   - tts engine      -> piper       (TTS, VITS neural)
+ *
+ * The engine produces mono float PCM at wb_tts_sample_rate() Hz (Piper
+ * default 22050); callers route it through the WAV writer / voice-polish /
+ * export path. The wb_tts_* API is stable so the podcast driver and tests
+ * keep working.
  */
 #ifndef WUBUS_WBUS_TTS_H
 #define WUBUS_WBUS_TTS_H
@@ -24,8 +22,8 @@
 
 typedef enum {
     WB_TTS_BACKEND_NONE = 0,
-    WB_TTS_BACKEND_PHONETIC,   /* formant synth, offline, zero-dep */
-    WB_TTS_BACKEND_NEURAL      /* ggml VITS (deferred; needs a model) */
+    WB_TTS_BACKEND_PHONETIC,   /* reserved (formant proof-of-concept) */
+    WB_TTS_BACKEND_NEURAL      /* Piper VITS (vendored, offline, active) */
 } wb_tts_backend;
 
 typedef struct wb_tts wb_tts;

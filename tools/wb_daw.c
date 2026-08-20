@@ -78,6 +78,12 @@ typedef struct app {
     int dragging_clip;       /* -1 = none, else clip index on selected_track */
     int drag_start_x;        /* mouse x where drag began */
     double clip_drag_origin; /* timeline pos where drag began */
+    /* R032: comping marquee — shift+drag a time range on a lane, then 'C'
+     * commits it to lane 0 (the comp). sel_lane = which lane the drag was on. */
+    int marquee_active;
+    double sel_t0, sel_t1;
+    int sel_lane;
+
 
     /* zoom / scroll (arrangement navigation) */
     double view_start;       /* timeline sample at left edge of arrangement */
@@ -420,6 +426,20 @@ static void draw_arrangement(app *a) {
                 }
             }
         }
+    }
+
+    /* R032: comping marquee — show the current shift-drag selection */
+    if (a->marquee_active && a->session && a->selected_track >= 0) {
+        int ti = a->selected_track;
+        int x0 = arr_x(a, a->sel_t0), x1 = arr_x(a, a->sel_t1);
+        int top = TRANSPORT_H + RULER_H + (int)(ti*(ARRANG_H/(double)a->session->track_count));
+        double th = ARRANG_H/(double)a->session->track_count;
+        SDL_Rect mb = { x0 < x1 ? x0 : x1, top+4, abs(x1-x0), (int)th-8 };
+        setc(a->ren, 96, 155, 235);
+        SDL_RenderDrawRect(a->ren, &mb);
+        SDL_Rect fill = mb; fill.x = x0<x1?x0:x1; fill.w = abs(x1-x0);
+        /* semi-transparent look via a dimmer fill */
+        setc(a->ren, 60, 100, 150); SDL_RenderFillRect(a->ren, &fill);
     }
 
     /* playhead */
@@ -1062,6 +1082,24 @@ static int y_to_track(app *a, int y) {
     return (int)((y - top) / track_h);
 }
 
+/* R032: which take-lane (sub-row) within track ti does screen-y fall on? */
+static int y_to_lane(app *a, int ti, int y) {
+    if (!a->session || ti < 0 || ti >= (int)a->session->track_count) return 0;
+    wb_track *tr = &a->session->tracks[ti];
+    int top = TRANSPORT_H + RULER_H;
+    double track_h = (double)ARRANG_H / a->session->track_count;
+    double rel = (y - top - ti*track_h - 4);
+    int lane_count = 1;
+    for (uint32_t c = 0; c < tr->clip_count; c++)
+        if (tr->clips[c].lane + 1 > lane_count) lane_count = tr->clips[c].lane + 1;
+    int lh = (int)((track_h - 8) / lane_count);
+    if (lh < 1) lh = 1;
+    int lane = (int)(rel / lh);
+    if (lane < 0) lane = 0;
+    if (lane >= lane_count) lane = lane_count - 1;
+    return lane;
+}
+
 /* Convert a screen y within a track lane to a MIDI pitch (2-octave span). */
 static int y_to_pitch(app *a, int ti, int y) {
     int n = a->session ? a->session->track_count : 0;
@@ -1220,8 +1258,19 @@ static void handle_wheel(app *a, SDL_MouseWheelEvent w) {
 
 /* Mouse motion: drag a parameter slider when one is armed. */
 static void handle_motion(app *a, SDL_MouseMotionEvent m) {
-    /* R023: velocity drag — vertical mouse motion on a held note changes its
-     * velocity (like dragging up/down on a note in Ableton/Logic). */
+    /* R032: shift+drag marquee to select a comp region on a lane */
+    if ((m.state & SDL_BUTTON_LMASK) && (SDL_GetModState() & KMOD_SHIFT) && a->session) {
+        int ti = y_to_track(a, m.y);
+        if (ti >= 0) {
+            double pos = x_to_sample(a, m.x);
+            if (!a->marquee_active) { a->marquee_active = 1; a->sel_t0 = pos; a->sel_lane = y_to_lane(a, ti, m.y); }
+            a->sel_t1 = pos;
+            /* keep t0 <= t1 */
+            if (a->sel_t1 < a->sel_t0) { double t = a->sel_t0; a->sel_t0 = a->sel_t1; a->sel_t1 = t; }
+            return;
+        }
+    }
+    /* R023: velocity drag ... */
     if (a->vel_drag_track >= 0 && a->session) {
         wb_track *tr = &a->session->tracks[a->vel_drag_track];
         if (a->vel_drag_clip >= 0 && a->vel_drag_note >= 0 &&
@@ -1485,6 +1534,16 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     }
+    case SDLK_c:  /* R032: comp the shift-dragged selection to lane 0 */
+        if (a->marquee_active && a->session && a->selected_track >= 0) {
+            int ti = a->selected_track;
+            int made = wb_session_comp_region(a->session, ti, a->sel_lane,
+                                             a->sel_t0, a->sel_t1);
+            printf("comp: track %d lane %d [%g..%g] -> %d clip(s) on lane 0\n",
+                   ti, a->sel_lane, a->sel_t0, a->sel_t1, made);
+            a->marquee_active = 0;
+        }
+        break;
     default: break;
     }
 }
@@ -1581,6 +1640,15 @@ int main(int argc, char **argv) {
         for (int i=0;i<6;i++) wb_engine_render(a->engine, blk, 4096);
         for (int i=0;i<5;i++) { render(a); SDL_Delay(20); }
         wb_engine_seek(a->engine, 2.0*WB_SAMPLE_RATE);
+        /* R032: if WB_MARQUEE is set, arm a comping selection so the
+         * screenshot shows the marquee draw path (verifies the UI wiring). */
+        if (getenv("WB_MARQUEE")) {
+            a->selected_track = 0;
+            a->marquee_active = 1;
+            a->sel_lane = 1;
+            a->sel_t0 = 1.0*WB_SAMPLE_RATE;
+            a->sel_t1 = 3.0*WB_SAMPLE_RATE;
+        }
         render(a);
         SDL_Rect full = { 0,0,WIN_W,WIN_H };
         SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormat(0, WIN_W, WIN_H, 32, SDL_PIXELFORMAT_ARGB8888);

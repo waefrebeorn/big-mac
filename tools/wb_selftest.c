@@ -724,6 +724,30 @@ static void test_master_meter(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: R029 UI palette meets WCAG AA contrast (>=4.5:1 normal text) - */
+static double _lin(int c) { double v = c/255.0; return v<=0.03928 ? v/12.92 : pow((v+0.055)/1.055, 2.4); }
+static double _lum(const int c[3]) { return 0.2126*_lin(c[0]) + 0.7152*_lin(c[1]) + 0.0722*_lin(c[2]); }
+static double _cr(const int fg[3], const int bg[3]) {
+    double l1=_lum(fg), l2=_lum(bg), hi=l1>l2?l1:l2, lo=l1<l2?l1:l2;
+    return (hi+0.05)/(lo+0.05);
+}
+static void test_contrast(void) {
+    printf("test_contrast\n");
+    /* mirror of the wb_daw.c palette (MUST be kept in sync) */
+    int TEXT_DIM[3]={165,169,179}, MUTE[3]={235,140,140}, ACCENT[3]={96,155,235};
+    int bgs[][3] = {{24,26,30},{36,39,45},{28,30,35},{44,48,55},{38,41,47}};
+    int LANE_A[3]={44,48,55};
+    int pass=1, i;
+    for (i=0;i<5;i++){
+        if (_cr(TEXT_DIM, bgs[i]) < 4.5) { pass=0; printf("  FAIL TEXT_DIM on bg#%d = %.2f\n", i, _cr(TEXT_DIM,bgs[i])); }
+        if (_cr(MUTE,    bgs[i]) < 4.5) { pass=0; printf("  FAIL MUTE on bg#%d = %.2f\n", i, _cr(MUTE,bgs[i])); }
+        if (_cr(ACCENT,  bgs[i]) < 4.5) { pass=0; printf("  FAIL ACCENT on bg#%d = %.2f\n", i, _cr(ACCENT,bgs[i])); }
+    }
+    printf("  TEXT_DIM on LANE_A=%.2f  MUTE on LANE_A=%.2f  ACCENT on LANE_A=%.2f\n",
+           _cr(TEXT_DIM,LANE_A), _cr(MUTE,LANE_A), _cr(ACCENT,LANE_A));
+    CHECK(pass, "all primary UI text clears WCAG AA (>=4.5:1) on every background");
+}
+
 /* ---- test: R025 real video edit ops (ripple / slip / roll) ------------ */
 static void test_video_edit(void) {
     printf("test_video_edit\n");
@@ -1220,6 +1244,7 @@ int main(void) {
     test_velocity();
     test_meter();
     test_master_meter();
+    test_contrast();
     test_video_edit();
     test_video_export_edit();
     test_preview_seek();

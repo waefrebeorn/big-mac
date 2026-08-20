@@ -142,12 +142,12 @@ static int running = 1;
 #define C_LANE_B 38, 41, 47
 #define C_PLAY   235, 90, 90
 #define C_TEXT   222, 224, 230
-#define C_TEXT_DIM 140, 144, 154
+#define C_TEXT_DIM 165, 169, 179   /* R029: brightened to clear WCAG AA (>=4.5:1) on every bg */
 #define C_NOTE   255, 198, 90
 #define C_NOTE2  210, 130, 80
 #define C_GRID   54, 58, 66
 #define C_SOLO   120, 200, 120
-#define C_MUTE   220, 120, 120
+#define C_MUTE   235, 140, 140   /* R029: brightened to clear WCAG AA on lane bg */
 
 static void setc(SDL_Renderer *r, Uint8 cr, Uint8 cg, Uint8 cb) {
     SDL_SetRenderDrawColor(r, cr, cg, cb, 255);

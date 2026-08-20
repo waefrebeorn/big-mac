@@ -89,6 +89,13 @@ typedef struct app {
     int param_drag;          /* -1 = none, else param index being dragged */
     int param_drag_x;        /* x where the drag began */
 
+    /* R023: velocity-drag — when dragging a note vertically, change its velocity */
+    int vel_drag_track;      /* -1 = none, else track index */
+    int vel_drag_clip;       /* clip index */
+    int vel_drag_note;       /* note index */
+    int vel_drag_start_y;    /* mouse y where drag began */
+    int vel_drag_start_vel;  /* velocity at drag start */
+
     /* tabbed view (R006/R007: KEYS / PAD / STEP / SESSION)
      * video editor tabs (R009: MEDIA / EDIT / CAPTIONS / EXPORT) */
     int tab;                 /* 0=KEYS 1=PAD 2=STEP 3=SESSION
@@ -366,7 +373,39 @@ static void draw_arrangement(app *a) {
                 int cell_h = th / span;
                 int ny = y + th - (row+1)*cell_h;
                 SDL_Rect bar = { x, ny, w, cell_h-1 };
-                setc(a->ren, (nt->pitch%12)==0 ? C_NOTE2 : C_NOTE); SDL_RenderFillRect(a->ren, &bar);
+                /* R023: shade note by velocity (bright = loud), like Ableton */
+                int vv = nt->vel > 127 ? 127 : (nt->vel < 1 ? 1 : nt->vel);
+                int b = (int)(90 + (vv/127.0f)*150);   /* 90..240 brightness */
+                if (nt->pitch%12 == 0) setc(a->ren, b, b/2, 200);
+                else                   setc(a->ren, b, b, b);
+                SDL_RenderFillRect(a->ren, &bar);
+            }
+        }
+    }
+
+    /* R023: velocity lane — a strip at the bottom of the arrangement showing
+     * each MIDI note's velocity as a vertical bar (Ableton/Logic style). */
+    {
+        int vy = TRANSPORT_H + RULER_H + ARRANG_H - 34;
+        int vh = 30;
+        SDL_Rect vstrip = { GUTTER_W, vy, ARRANG_W, vh };
+        setc(a->ren, C_PANEL2); SDL_RenderFillRect(a->ren, &vstrip);
+        wb_ui_draw_text(a->ren, GUTTER_W+4, vy+2, "VELOCITY", 1, C_TEXT_DIM);
+        if (a->session) for (uint32_t t=0;t<a->session->track_count;t++) {
+            wb_track *tr = &a->session->tracks[t];
+            for (uint32_t c=0;c<tr->clip_count;c++) {
+                wb_clip *cl = &tr->clips[c];
+                for (uint32_t k=0;k<cl->note_count;k++) {
+                    wb_note *nt = &cl->notes[k];
+                    double s = cl->start + nt->start;
+                    int x = arr_x(a, s);
+                    if (x < GUTTER_W) continue;
+                    int vv = nt->vel > 127 ? 127 : (nt->vel < 0 ? 0 : nt->vel);
+                    int bh = (int)((vv/127.0f) * (vh-4));
+                    SDL_Rect vb = { x, vy + (vh-2) - bh, 3, bh };
+                    setc(a->ren, 200, 200, 90);
+                    SDL_RenderFillRect(a->ren, &vb);
+                }
             }
         }
     }
@@ -950,6 +989,30 @@ static int y_to_pitch(app *a, int ti, int y) {
     return base + (span - 1 - row);
 }
 
+/* R023: find the index of the note under (x,y) in track ti, or -1. */
+static int note_under(app *a, int ti, int x, int y) {
+    if (!a->session || ti < 0 || ti >= (int)a->session->track_count) return -1;
+    wb_track *tr = &a->session->tracks[ti];
+    for (uint32_t c = 0; c < tr->clip_count; c++) {
+        wb_clip *cl = &tr->clips[c];
+        for (uint32_t k = 0; k < cl->note_count; k++) {
+            wb_note *nt = &cl->notes[k];
+            double s = cl->start + nt->start;
+            int nx = arr_x(a, s);
+            int nw = (int)((nt->dur/WB_SAMPLE_RATE)*arr_px_per_sec(a)); if(nw<3)nw=3;
+            int span = 24; double track_h = (double)ARRANG_H / a->session->track_count;
+            int row = nt->pitch % span; int cell_h = (int)(track_h/span);
+            int top = TRANSPORT_H + RULER_H;
+            int ny = top + (int)(ti*track_h) + (int)track_h - (row+1)*cell_h;
+            if (x >= nx && x <= nx+nw && y >= ny && y <= ny+cell_h) {
+                a->vel_drag_clip = (int)c; a->vel_drag_note = (int)k;
+                return (int)c; /* caller also has note idx via a->vel_drag_note */
+            }
+        }
+    }
+    return -1;
+}
+
 static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
     /* If the VST3 param editor is open and the click lands on a slider row,
      * arm that parameter for dragging (motion handler does the rest). */
@@ -985,13 +1048,24 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
         double pos = x_to_sample(a, b.x);
         wb_engine_seek(a->engine, pos);
         a->clip_drag_origin = pos;
-        /* piano-roll: left-click in an empty lane adds a note (1 beat, mid vel) */
+        /* piano-roll: left-click on an existing note starts a VELOCITY drag
+         * (R023); left-click on empty lane adds a note (1 beat, mid vel) */
+        a->vel_drag_track = -1;
         if (b.y > TRANSPORT_H + RULER_H) {
-            int pitch = y_to_pitch(a, ti, b.y);
-            double start = pos / WB_SAMPLE_RATE;
-            double beat = 60.0 / a->t.bpm;
-            wb_session_add_note(&a->session->tracks[ti], start, beat, pitch, 100);
-            wb_engine_set_session(a->engine, a->session);  /* rebuild runtime */
+            int hit = note_under(a, ti, b.x, b.y);
+            if (hit >= 0) {
+                wb_clip *cl = &a->session->tracks[ti].clips[a->vel_drag_clip];
+                wb_note *nt = &cl->notes[a->vel_drag_note];
+                a->vel_drag_track  = ti;
+                a->vel_drag_start_y = b.y;
+                a->vel_drag_start_vel = nt->vel;
+            } else {
+                int pitch = y_to_pitch(a, ti, b.y);
+                double start = pos / WB_SAMPLE_RATE;
+                double beat = 60.0 / a->t.bpm;
+                wb_session_add_note(&a->session->tracks[ti], start, beat, pitch, 100);
+                wb_engine_set_session(a->engine, a->session);  /* rebuild runtime */
+            }
         }
     }
     /* right-click toggles mute on the track under cursor OR deletes a note */
@@ -1059,6 +1133,22 @@ static void handle_wheel(app *a, SDL_MouseWheelEvent w) {
 
 /* Mouse motion: drag a parameter slider when one is armed. */
 static void handle_motion(app *a, SDL_MouseMotionEvent m) {
+    /* R023: velocity drag — vertical mouse motion on a held note changes its
+     * velocity (like dragging up/down on a note in Ableton/Logic). */
+    if (a->vel_drag_track >= 0 && a->session) {
+        wb_track *tr = &a->session->tracks[a->vel_drag_track];
+        if (a->vel_drag_clip >= 0 && a->vel_drag_note >= 0 &&
+            (uint32_t)a->vel_drag_clip < tr->clip_count &&
+            (uint32_t)a->vel_drag_note < tr->clips[a->vel_drag_clip].note_count) {
+            wb_note *nt = &tr->clips[a->vel_drag_clip].notes[a->vel_drag_note];
+            int dy = a->vel_drag_start_y - m.y;          /* up = louder */
+            int nv = a->vel_drag_start_vel + (int)(dy * 0.6f);  /* ~0.6 vel/px */
+            if (nv < 1) nv = 1; if (nv > 127) nv = 127;
+            nt->vel = (uint8_t)nv;
+            return;
+        }
+        a->vel_drag_track = -1;
+    }
     if (!a->param_view || a->param_drag < 0 || !a->session) return;
     int ti = a->selected_track;
     if (ti < 0) return;
@@ -1395,7 +1485,7 @@ int main(int argc, char **argv) {
             else if (ev.type==SDL_MOUSEWHEEL) handle_wheel(a, ev.wheel);
             else if (ev.type==SDL_MOUSEMOTION) handle_motion(a, ev.motion);
             else if (ev.type==SDL_MOUSEBUTTONDOWN) handle_mouse(a, ev.button);
-            else if (ev.type==SDL_MOUSEBUTTONUP) a->param_drag = -1;
+            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; }
         }
         render(a);
         SDL_Delay(16);

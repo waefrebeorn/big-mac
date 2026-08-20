@@ -636,6 +636,39 @@ static void test_clip_gain(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: R023 velocity is in the signal path (louder note = louder out) */
+static void test_velocity(void) {
+    printf("test_velocity\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Vel", 0);  /* instrument track */
+    tr->volume = 1.0f;
+    wb_session_add_note(tr, 0, 44100.0, 69, 100);  /* placeholder, vel overwritten */
+
+    /* render soft (vel 30) */
+    s->tracks[0].clips[0].notes[0].vel = 30;
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    wb_sample out[4096*2];
+    wb_engine_render(e, out, 4096);
+    float p_soft = 0;
+    for (uint32_t i = 0; i < 4096*2; i++) { float v = out[i]<0?-out[i]:out[i]; if (v>p_soft) p_soft=v; }
+
+    /* render loud (vel 120) */
+    s->tracks[0].clips[0].notes[0].vel = 120;
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    wb_engine_render(e, out, 4096);
+    float p_loud = 0;
+    for (uint32_t i = 0; i < 4096*2; i++) { float v = out[i]<0?-out[i]:out[i]; if (v>p_loud) p_loud=v; }
+
+    CHECK(p_loud > p_soft * 1.5f, "velocity 120 renders clearly louder than velocity 30");
+    printf("         vel30 peak=%.3f  vel120 peak=%.3f\n", p_soft, p_loud);
+
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
+
 /* ---- test: undo/redo via session snapshots ------------------------------ */
 static void test_undo(void) {
     printf("test_undo\n");
@@ -991,6 +1024,7 @@ int main(void) {
     test_recorder();
     test_audio_clip();
     test_clip_gain();
+    test_velocity();
     test_bus_routing();
     test_undo();
     test_remove_note();

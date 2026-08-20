@@ -1248,8 +1248,10 @@ int main(int argc, char **argv) {
     wb_backend *audio = NULL;
     const char *shot_path = NULL;
     const char *file_path = NULL;
+    int forced_view = -1;
     for (int i=1;i<argc;i++) {
         if (strcmp(argv[i],"--screenshot")==0) { shot=1; shot_path = (i+1<argc)?argv[i+1]:"/tmp/wbdaw.ppm"; }
+        else if (strcmp(argv[i],"--view")==0 && i+1<argc) { forced_view = atoi(argv[i+1]); }
         else if (strcmp(argv[i],"--file")==0 && i+1<argc) { file_path = argv[i+1]; }
     }
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
@@ -1282,7 +1284,7 @@ int main(int argc, char **argv) {
     a->param_drag_x = 0;
 
     /* tabbed view default: keyboard piano roll, A minor scale */
-    a->tab          = 0;   /* KEYS */
+    a->tab          = (forced_view >= 0 && forced_view <= 7) ? forced_view : 0;   /* KEYS or forced */
     a->scale_root   = 9;   /* A */
     a->scale_type   = 1;   /* natural minor */
     a->last_lp_row  = -1;
@@ -1309,6 +1311,22 @@ int main(int argc, char **argv) {
     a->tuner = wb_tuner_create(a->engine);
     wb_tuner_start(a->tuner);
     if (shot) {
+        /* for video-editor views, set up a demo clip so the panels show
+         * real content (source + proxy + timeline), not an empty state. */
+        if (forced_view >= 4 && forced_view <= 7) {
+            const char *demo = "/tmp/bigmac_demo_src.mp4";
+            if (access(demo, F_OK) != 0 || access(demo, R_OK) != 0) {
+                char dc[1024];
+                snprintf(dc, sizeof(dc),
+                    "\"%s\" -y -f lavfi -i color=c=blue:s=854x480:d=8 "
+                    "-f lavfi -i testsrc=size=854x480:rate=10:duration=8 "
+                    "-filter_complex \"[1][0]overlay=shortest=1\" "
+                    "-c:v libx264 -preset ultrafast \"%s\" >/dev/null 2>&1",
+                    a->ffmpeg_path[0]?a->ffmpeg_path:"/Users/waefrebeorn/.local/bin/ffmpeg", demo);
+                system(dc);
+            }
+            if (access(demo, F_OK) == 0) video_import(a, demo);
+        }
         wb_engine_seek(a->engine, 2.0*WB_SAMPLE_RATE);
         for (int i=0;i<5;i++) { render(a); SDL_Delay(20); }
         wb_engine_seek(a->engine, 2.0*WB_SAMPLE_RATE);

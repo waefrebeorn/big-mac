@@ -885,6 +885,45 @@ static void test_comp_region_midi(void) {
 
     wb_session_destroy(s);
 }
+static void test_comp_ownership(void) {
+    printf("test_comp_ownership\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Vox", 1);
+    tr->active_lane = 0;
+    /* seed the COMP lane (0) with an existing clip in [0,1s] */
+    tr->clips = calloc(2, sizeof(wb_clip));
+    wb_clip *old = &tr->clips[tr->clip_count++];
+    memset(old, 0, sizeof(*old));
+    old->type = 1; old->lane = 0; old->start = 0; old->length = 44100;
+    old->audio_channels = 1; old->audio_frames = 44100;
+    old->audio_data = calloc(44100, sizeof(wb_sample));
+    for (int i=0;i<44100;i++) old->audio_data[i] = 0.3f*(float)sin(2*3.14159*220.0*i/44100.0);
+    /* take on lane 1: loud 1s tone in [0,1s] */
+    wb_clip *tk = &tr->clips[tr->clip_count++];
+    memset(tk, 0, sizeof(*tk));
+    tk->type = 1; tk->lane = 1; tk->start = 0; tk->length = 44100;
+    tk->audio_channels = 1; tk->audio_frames = 44100;
+    tk->audio_data = calloc(44100, sizeof(wb_sample));
+    for (int i=0;i<44100;i++) tk->audio_data[i] = 0.8f*(float)sin(2*3.14159*440.0*i/44100.0);
+
+    /* comp the whole [0,1s] — must REPLACE the old comp clip, not stack */
+    int made = wb_session_comp_region(s, 0, 1, 0.0, 44100.0);
+    CHECK(made == 1, "comp_region created one comp clip");
+
+    int n0 = 0; wb_clip *comp = NULL;
+    for (uint32_t c = 0; c < tr->clip_count; c++)
+        if (tr->clips[c].lane == 0) { n0++; comp = &tr->clips[c]; }
+    CHECK(n0 == 1, "comp lane has EXACTLY one clip (old comp replaced, not stacked)");
+    CHECK(comp && comp->audio_frames == 44100, "the surviving comp is the new take (full 1s)");
+    /* the new comp must be the loud 440Hz take, NOT the old 220Hz seed */
+    float peak = 0; for (uint32_t i=0;i<comp->audio_frames;i++){float a=fabsf(comp->audio_data[i]);if(a>peak)peak=a;}
+    CHECK(peak > 0.7f, "surviving comp is the loud (440Hz) take, not the 0.3 seed");
+    printf("         lane0_clips=%d peak=%.3f\n", n0, peak);
+
+    wb_session_destroy(s);
+}
+
 static void test_video_edit(void) {
     printf("test_video_edit\n");
     wb_session *s = wb_session_create();
@@ -1384,6 +1423,7 @@ int main(void) {
     test_take_lanes();
     test_comp_region();
     test_comp_region_midi();
+    test_comp_ownership();
     test_video_edit();
     test_video_export_edit();
     test_preview_seek();

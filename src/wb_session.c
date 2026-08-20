@@ -236,10 +236,33 @@ static void clip_add_note(wb_clip *cl, double start, double dur, int pitch, int 
     wb_note *n = &cl->notes[cl->note_count++];
     n->start = start; n->dur = dur; n->pitch = (uint8_t)pitch; n->vel = (uint8_t)vel;
 }
+/* R034: remove all material of `lane` that overlaps [t0,t1] from a track
+ * (used to give the comp/main lane ownership of the selected range). */
+static void track_clear_lane_range(wb_track *tk, int lane, double t0, double t1) {
+    if (!tk) return;
+    uint32_t w = 0;
+    for (uint32_t c = 0; c < tk->clip_count; c++) {
+        wb_clip *cl = &tk->clips[c];
+        if (cl->lane == lane) {
+            double cs = cl->start, ce = cl->start + cl->length;
+            if (ce > t0 && cs < t1) {  /* overlaps the range: drop it */
+                free(cl->audio_data); free(cl->notes);
+                continue;
+            }
+        }
+        tk->clips[w++] = tk->clips[c];   /* keep */
+    }
+    tk->clip_count = w;
+}
 int wb_session_comp_region(wb_session *s, int track, int src_lane, double t0, double t1) {
     if (!s || track < 0 || (uint32_t)track >= s->track_count) return -1;
     if (t1 <= t0) return 0;
     wb_track *tk = &s->tracks[track];
+    /* R034: the comp lane (0) OWNS the selected range — clear any existing
+     * main-lane material there first so re-comping replaces, not stacks
+     * (matches Pro Tools/Reaper comp-lane ownership). The source take (and
+     * its other lanes) are untouched. */
+    track_clear_lane_range(tk, 0, t0, t1);
     int made = 0;
     for (uint32_t c = 0; c < tk->clip_count; c++) {
         wb_clip *cl = &tk->clips[c];

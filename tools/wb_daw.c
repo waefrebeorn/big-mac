@@ -1258,6 +1258,10 @@ static int video_import(app *a, const char *path) {
         vt = (int)a->session->track_count;
         wb_track *tr = &a->session->tracks[vt];
         tr->volume = 1.0f;
+        tr->kind = WB_TRACK_KIND_VIDEO;   /* R042: video tracks are audio-inert
+            so the engine's instrument/audio stages skip them (no voice, no
+            crash). Previously left as kind 0 -> engine built a synth voice
+            for an uninitialized track -> heap corruption on render. */
         snprintf(tr->name, sizeof(tr->name), "Video");
         a->session->track_count++;
     }
@@ -2182,16 +2186,15 @@ int main(int argc, char **argv) {
                 system(dc);
             }
             if (access(demo, F_OK) == 0) {
-                /* R041: populate the editor panel metadata directly instead of
-                 * importing a type==2 clip into the audio session. The engine's
-                 * video-clip integration is unstable (R042) and crashes the app;
-                 * the panels/timeline render from these fields without needing
-                 * a real clip in the engine. */
+                /* R041/R042: populate editor panel metadata directly instead of
+                 * a real type==2 import. The engine's live video-clip integration
+                 * (R042) still crashes on real import/playback; the panels and
+                 * timeline render from these fields without a clip in the engine. */
                 snprintf(a->vid_source, sizeof(a->vid_source), "%s", demo);
                 char proxy[512];
                 snprintf(proxy, sizeof(proxy), "/tmp/bigmac_proxy_%d_800.mp4", (int)getpid());
                 if (access(proxy, F_OK) != 0)
-                    snprintf(proxy, sizeof(proxy), "%s", demo);  /* fall back to source */
+                    snprintf(proxy, sizeof(proxy), "%s", demo);
                 snprintf(a->vid_proxy, sizeof(a->vid_proxy), "%s", proxy);
                 a->vid_dur = 8.0;
                 a->vid_tl_start = 0.0;

@@ -456,7 +456,11 @@ static void draw_arrangement(app *a) {
                         if (v > peak) peak = v;
                     }
                     if (peak > 1.0f) peak = 1.0f;
-                    int amp = (int)(peak * (clipbox.h/2));
+                    /* R042: apply clip (region) gain to the waveform so gain
+                     * changes are visible, like Pro Tools / Studio One. */
+                    float g = cl->clip_gain > 0.0001f ? cl->clip_gain : 1.0f;
+                    int amp = (int)(peak * g * (clipbox.h/2));
+                    if (amp > clipbox.h/2) amp = clipbox.h/2;
                     int mid = clipbox.y + clipbox.h/2;
                     SDL_RenderDrawLine(a->ren, clipbox.x+px, mid-amp, clipbox.x+px, mid+amp);
                 }

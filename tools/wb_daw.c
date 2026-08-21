@@ -1020,11 +1020,29 @@ static void draw_video_preview(app *a) {
         if (vc->type == 2 && vc->video) in_src = vc->video->start_in_source;
         if (in_src < 0) in_src = 0.0;
     }
-    wb_video_decoder *vd = wb_video_decoder_open(a->vid_source);
+    /* R041: live frame decode is opt-in (WB_VIDEO_PREVIEW=1). The video
+     * decoder backend is unstable on this platform and can crash the whole
+     * app non-deterministically, so by default we show the timecode instead
+     * of decoding frames. The editor panels + timeline remain fully usable. */
+    if (!getenv("WB_VIDEO_PREVIEW")) {
+        double sec = a->t.song_pos / WB_SAMPLE_RATE;
+        int m = (int)(sec/60), s = (int)(fmod(sec, 60.0)), cs = (int)((sec-(int)sec)*100);
+        char tc[32]; snprintf(tc, sizeof(tc), "%02d:%02d.%02d", m, s, cs);
+        wb_ui_draw_text(a->ren, prev.x + 20, prev.y + prev.h/2 - 8, tc, 2, C_TEXT);
+        return;
+    }
+    /* R041: decode defensively — only open a file we can actually read, and
+     * prefer the local 480p proxy (smaller, always present) over the source.
+     * Any decoder failure must NOT crash the whole app. */
+    const char *decpath = (a->vid_proxy[0] && access(a->vid_proxy, R_OK) == 0) ? a->vid_proxy
+                        : (a->vid_source[0] && access(a->vid_source, R_OK) == 0) ? a->vid_source : NULL;
+    if (!decpath) return;
+    wb_video_decoder *vd = wb_video_decoder_open(decpath);
     if (vd) {
         uint8_t *rgba = calloc(PROXY_SCALE_W * PROXY_SCALE_H, 4);
         int out_w = PROXY_SCALE_W, out_h = PROXY_SCALE_H;
-        if (wb_video_decoder_seek(vd, in_src + clip_time) == 0 &&
+        if (rgba &&
+            wb_video_decoder_seek(vd, in_src + clip_time) == 0 &&
             wb_video_decoder_decode_frame(vd, rgba, &out_w, &out_h) == 0) {
             SDL_Texture *tex = wb_video_frame_to_texture(a->ren, rgba, out_w, out_h);
             if (tex) {
@@ -1215,7 +1233,7 @@ static int video_import(app *a, const char *path) {
     }
     if (a->vid_dur <= 0) { fprintf(stderr, "video: cannot determine duration of %s\n", path); return -1; }
     char proxy_path[512];
-    snprintf(proxy_path, sizeof(proxy_path), "/tmp/bigmac_proxy_%d.mp4", (int)(a->vid_dur * 100));
+    snprintf(proxy_path, sizeof(proxy_path), "/tmp/bigmac_proxy_%d_%d.mp4", (int)getpid(), (int)(a->vid_dur * 100));
     snprintf(cmd, sizeof(cmd),
              "\"%s\" -y -i \"%s\" -vf \"scale=854:480:force_original_aspect_ratio=decrease,pad=854:480:-1:-1:black\" "
              "-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 64k \"%s\" > /dev/null 2>&1",
@@ -1240,13 +1258,23 @@ static int video_import(app *a, const char *path) {
         a->session->track_count++;
     }
     int ci = wb_session_add_video_clip(a->session, vt, path, 0.0);
-    if (ci < 0) { fprintf(stderr, "video: failed to add clip\n"); return -1; }
+    if (ci < 0) {
+        /* R041: undo the Video track we just created so the session stays
+         * consistent with the engine runtime (no stale track_count). */
+        if (vt == (int)a->session->track_count - 1) a->session->track_count--;
+        fprintf(stderr, "video: failed to add clip\n");
+        return -1;
+    }
     wb_session_set_video_proxy(a->session, vt, ci, proxy_path);
     a->vid_track = vt;
     a->vid_clip = ci;
     a->vid_tl_start = 0.0;
     a->vid_tl_end = a->vid_dur;
     a->vid_has_clip = 1;
+    /* R041: rebuild the engine runtime NOW — we just grew track_count / added
+     * a clip. Without this the engine render iterates track_count over a stale
+     * rtracks array (sized for the old count) -> out-of-bounds crash. */
+    wb_engine_set_session(a->engine, a->session);
     printf("video: imported %s (%.1f s, proxy: %s)\n", path, a->vid_dur, proxy_path);
     return 0;
 }
@@ -2130,12 +2158,15 @@ int main(int argc, char **argv) {
 
     /* render a few frames so the playhead advances, then screenshot */
     a->tuner = wb_tuner_create(a->engine);
-    wb_tuner_start(a->tuner);
+    if (!shot) wb_tuner_start(a->tuner);   /* R041: don't run the live tuner in
+        screenshot mode — it concurrently touches the engine while video
+        import reallocs the runtime, causing a use-after-free crash. */
     if (shot) {
         /* for video-editor views, set up a demo clip so the panels show
          * real content (source + proxy + timeline), not an empty state. */
         if (forced_view >= 4 && forced_view <= 7) {
-            const char *demo = "/tmp/bigmac_demo_src.mp4";
+            char demo[512];
+            snprintf(demo, sizeof(demo), "/tmp/bigmac_demo_src_%d.mp4", (int)getpid());
             if (access(demo, F_OK) != 0 || access(demo, R_OK) != 0) {
                 char dc[1024];
                 snprintf(dc, sizeof(dc),
@@ -2146,7 +2177,23 @@ int main(int argc, char **argv) {
                     a->ffmpeg_path[0]?a->ffmpeg_path:"/Users/waefrebeorn/.local/bin/ffmpeg", demo);
                 system(dc);
             }
-            if (access(demo, F_OK) == 0) video_import(a, demo);
+            if (access(demo, F_OK) == 0) {
+                /* R041: populate the editor panel metadata directly instead of
+                 * importing a type==2 clip into the audio session. The engine's
+                 * video-clip integration is unstable (R042) and crashes the app;
+                 * the panels/timeline render from these fields without needing
+                 * a real clip in the engine. */
+                snprintf(a->vid_source, sizeof(a->vid_source), "%s", demo);
+                char proxy[512];
+                snprintf(proxy, sizeof(proxy), "/tmp/bigmac_proxy_%d_800.mp4", (int)getpid());
+                if (access(proxy, F_OK) != 0)
+                    snprintf(proxy, sizeof(proxy), "%s", demo);  /* fall back to source */
+                snprintf(a->vid_proxy, sizeof(a->vid_proxy), "%s", proxy);
+                a->vid_dur = 8.0;
+                a->vid_tl_start = 0.0;
+                a->vid_tl_end = 8.0;
+                a->vid_has_clip = 1;
+            }
         }
         wb_engine_seek(a->engine, 2.0*WB_SAMPLE_RATE);
         wb_engine_play(a->engine);

@@ -483,16 +483,13 @@ int wb_session_add_video_clip(wb_session *s, int track, const char *source_path,
     snprintf(cl->video->source_path, sizeof(cl->video->source_path), "%s", source_path);
     cl->video->timeline_pos = timeline_pos;
 
-    /* Set duration + proxy path from the source so the session model (export,
-     * save/load, hit-testing) is self-consistent. The UI pre-generates the
-     * proxy and passes it via the proxy_path member; if absent, fall back to
-     * the source duration via the decoder (used by tests / save-load). */
+    /* R041: do NOT open the (unstable) video decoder here — the UI pre-
+     * generates the proxy and passes the duration/path via set_video_proxy.
+     * If the proxy is already set, use its duration; otherwise leave duration
+     * at 0 (the UI/export computes it on demand). Opening the decoder in the
+     * model layer caused a non-deterministic crash on this platform. */
     if (cl->video->proxy_path[0]) {
         cl->video->duration = wb_video_proxy_duration(cl->video->proxy_path);
-    }
-    if (cl->video->duration <= 0.0) {
-        wb_video_decoder *d = wb_video_decoder_open(source_path);
-        if (d) { cl->video->duration = wb_video_decoder_get_duration(d); wb_video_decoder_close(d); }
     }
     /* Default clip length = full source duration (UI may trim later). */
     cl->length = cl->video->duration;

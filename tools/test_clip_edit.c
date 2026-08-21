@@ -51,6 +51,17 @@ int main(void) {
     CHECK(fabsf(wb_clip_edit_env(NULL, 100.0, 44100.0, sr) - 1.0f) < 1e-4f,
           "NULL edit -> env 1.0");
 
+    /* G3: loop flag + loop_len defaults/set */
+    wb_clip_edit *le = wb_clip_edit_get(t, 2, 0);
+    CHECK(le->loop == 0, "default loop off");
+    le->loop = 1; le->loop_len = 22050.0;   /* 0.5s loop */
+    CHECK(le->loop == 1 && le->loop_len == 22050.0, "loop + loop_len set");
+
+    /* G5: content-slide offset (start_in_source) */
+    wb_clip_edit *se = wb_clip_edit_get(t, 3, 0);
+    se->start_in_source = 8820.0;            /* start 0.2s into the buffer */
+    CHECK(se->start_in_source == 8820.0, "content-slide offset set");
+
     wb_clip_edit_destroy(t);
     t = NULL;
 

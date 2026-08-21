@@ -113,12 +113,13 @@ model) — exactly what the R043 ribbon does, extended with FUSION/3D-CGI/AGI ti
 - **wired:** R038 shell, R039 SESSION colors/scenes, R040 overview, R041 crash
   hardening, R042 clip-gain-on-waveform, R042-A realtime lock fix, R042-B duration
   resolve, R043 workspace module + ribbon + gate, **R043-G1/G2 clip-edit handles
-  (trim + fade-in/out) wired via a self-contained `wb_clip_edit` side-table — see
-  `src/wb_clip_edit.c` + `include/wbus/wbus_clip_edit.h`. The side-table keeps
-  `wb_clip` layout-stable (critical: it is memcpy'd + serialized) and honors the
-  no-monolith doctrine.**
-- **open:** G3 (loop region), G4 (mixer fader readout), G5 (content-slide drag),
-  G6 (Fusion view), G7 (CGI/AGI views), G8/G9 (crossfade overlap + pre-fade).
+  (trim + fade-in/out) wired via a self-contained `wb_clip_edit` side-table**,
+  **R043-G3 clip LOOP (repeats buffer across timeline via side-table `loop` flag)
+  + R043-G5 content-slide (start_in_source offset, slides waveform inside clip)** —
+  both verified end-to-end through the engine render path (selftest loop=6 peaks,
+  slide head 0.000→0.300). See `src/wb_clip_edit.c` + `include/wbus/wbus_clip_edit.h`.
+- **open:** G4 (mixer fader readout), G6 (Fusion view), G7 (CGI/AGI views),
+  G8/G9 (crossfade overlap + pre-fade).
 
 ## Build order for next loop
 G1 → G2 → G3 (the "clips feel real" cluster, cheapest high-leverage) → G4 (fader

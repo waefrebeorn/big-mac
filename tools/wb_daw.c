@@ -549,6 +549,7 @@ static void draw_arrangement(app *a) {
                 /* clip border */
                 setc(a->ren, C_GRID);
                 SDL_RenderDrawRect(a->ren, &clipbox);
+                int rx = clipbox.x + clipbox.w;
                 /* R043 (G1/G2): direct-manipulation handles — drawn on the
                  * waveform, one source of truth with hit-testing (below).
                  *   LEFT_EDGE  = trim start   RIGHT_EDGE = trim length
@@ -572,22 +573,42 @@ static void draw_arrangement(app *a) {
                     SDL_RenderDrawLine(a->ren, clipbox.x, clipbox.y, clipbox.x + (int)fin_px, clipbox.y);
                     double fout_px = clipbox.w * (fout / (dur > 0 ? dur : 1));
                     if (fout_px < 4) fout_px = 4; if (fout_px > clipbox.w) fout_px = clipbox.w;
-                    int rx = clipbox.x + clipbox.w;
                     SDL_RenderDrawLine(a->ren, rx, clipbox.y, rx - (int)fout_px, clipbox.y + (int)fout_px);
                     SDL_RenderDrawLine(a->ren, rx, clipbox.y, rx - (int)fout_px, clipbox.y);
                     /* trim-edge caps (drawn as a 2px tall accent bar at edges) */
                     setc(a->ren, C_ACCENT);
                     SDL_RenderDrawLine(a->ren, clipbox.x, clipbox.y, clipbox.x, clipbox.y+clipbox.h);
                     SDL_RenderDrawLine(a->ren, rx-1, clipbox.y, rx-1, clipbox.y+clipbox.h);
+                    /* R043 (G5): content-slide affordance — a faint top-half
+                     * guide showing the waveform can be slid inside the clip.
+                     * Use the fade-green so it's discoverable (not C_GRID-dim). */
+                    setc(a->ren, C_FADE);
+                    SDL_RenderDrawLine(a->ren, clipbox.x+hw, clipbox.y+clipbox.h/2,
+                                       rx-hw, clipbox.y+clipbox.h/2);
+                    /* R043 (G3): loop indicator — a small badge at bottom-right.
+                     * Filled (accent) when looping, outline when not. */
+                    wb_clip_edit_table *et = wb_engine_clip_edit(a->engine);
+                    const wb_clip_edit *ced = et ? wb_clip_edit_get(et, ti, (int)c) : NULL;
+                    if (ced && ced->loop) {
+                        setc(a->ren, C_ACCENT);
+                        SDL_Rect lb = { rx-12, clipbox.y+clipbox.h-12, 10, 10 };
+                        SDL_RenderFillRect(a->ren, &lb);
+                    } else {
+                        setc(a->ren, C_FADE);
+                        SDL_RenderDrawRect(a->ren, &(SDL_Rect){rx-12, clipbox.y+clipbox.h-12, 10, 10});
+                    }
                 }
-                /* register handle hit regions: id = 50000 + ti*1000 + c*4 + h
-                 * (h: 0 left-trim, 1 right-trim, 2 fade-in, 3 fade-out) so decode
-                 * is unambiguous: ti=(id-50000)/1000; rem%1000; c=rem/4; h=rem%4. */
-                int base = 50000 + ti*1000 + (int)c*4;
+                /* register handle hit regions: id = 50000 + ti*1000 + c*8 + h
+                 * h: 0 left-trim, 1 right-trim, 2 fade-in, 3 fade-out,
+                 *    4 content-slide (top half of waveform), 5 loop-toggle.
+                 * decode: ti=(id-50000)/1000; rem%1000; c=rem/8; h=rem%8. */
+                int base = 50000 + ti*1000 + (int)c*8;
                 region_add(base+0, clipbox.x, clipbox.y, hw, clipbox.h);          /* LEFT trim  */
                 region_add(base+1, clipbox.x+clipbox.w-hw, clipbox.y, hw, clipbox.h); /* RIGHT trim */
                 region_add(base+2, clipbox.x, clipbox.y, hw+2, hw+2);              /* FADE_IN */
                 region_add(base+3, clipbox.x+clipbox.w-hw-2, clipbox.y, hw+2, hw+2); /* FADE_OUT */
+                region_add(base+4, clipbox.x+hw, clipbox.y, clipbox.w-2*hw, clipbox.h/2); /* CONTENT-SLIDE (top half) */
+                region_add(base+5, rx-10, clipbox.y+clipbox.h-10, 10, 10);          /* LOOP toggle (bottom-right) */
                 a->clip_handle_base[ti] = (clipbox.w > 16) ? base : -1;
                 /* R022: clip (region) gain readout — pre-fader, like Pro Tools */
                 if (cl->clip_gain > 1.001f || cl->clip_gain < 0.999f) {
@@ -1840,12 +1861,19 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
             if (id >= 50000) {
                 int ti = (id - 50000) / 1000;
                 int rem = (id - 50000) % 1000;
-                int c  = rem / 4;
-                int h  = rem % 4;
+                int c  = rem / 8;
+                int h  = rem % 8;
                 if (ti >= 0 && ti < (int)a->session->track_count
                     && c >= 0 && c < (int)a->session->tracks[ti].clip_count) {
                     wb_clip *tgt = &a->session->tracks[ti].clips[c];
-                    wb_clip_edit *te = wb_clip_edit_get(wb_engine_clip_edit(a->engine), ti, c);
+                    wb_clip_edit_table *et = wb_engine_clip_edit(a->engine);
+                    wb_clip_edit *te = et ? wb_clip_edit_get(et, ti, c) : NULL;
+                    /* handle 5 (loop toggle) is a click, not a drag */
+                    if (h == 5) {
+                        if (te) te->loop = te->loop ? 0 : 1;
+                        printf("loop: track %d clip %d -> %s\n", ti, c, te&&te->loop?"ON":"off");
+                        return;
+                    }
                     a->handle_drag = h;
                     a->hd_track = ti;
                     a->hd_clip  = c;
@@ -2001,6 +2029,15 @@ static void handle_motion(app *a, SDL_MouseMotionEvent m) {
             double f = a->hd_fade0[1] + dsec;
             if (f < 0) f = 0; if (f > cl->length/WB_SAMPLE_RATE) f = cl->length/WB_SAMPLE_RATE;
             ce->fade_out = (float)f;
+            break;
+        }
+        case 4: {  /* G5: CONTENT-SLIDE — slide the waveform inside the clip
+                     boundary without moving the clip on the timeline. */
+            double sis = a->hd_sis0 + dsmp;
+            double max_sis = (double)cl->audio_frames - 1.0;
+            if (sis < 0) sis = 0;
+            if (sis > max_sis) sis = max_sis;
+            ce->start_in_source = sis;
             break;
         }
         }

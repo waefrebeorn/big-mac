@@ -261,24 +261,46 @@ static void stage_instruments(wb_engine *e, uint32_t frames) {
                 if (!cl->audio_data || cl->audio_frames == 0) continue;
                 /* R030: take-lanes — only the active lane is heard (comping) */
                 if (cl->lane != tk->active_lane) continue;
-                double cl_end = cl->start + cl->length;
+                /* R043 (G1/G2/G3/G5): fetch this clip's edit state once per clip. */
+                const wb_clip_edit *ce = e->edit
+                    ? wb_clip_edit_get(e->edit, (int)(tk - e->session->tracks), (int)c)
+                    : NULL;
+                /* R043 (G3): a looping clip repeats its buffer across the whole
+                 * timeline — treat its effective span as the session length so
+                 * the render doesn't drop it after the first (length) window. */
+                double cl_eff_end = cl->start + cl->length;
+                if (ce && ce->loop) cl_eff_end = (double)e->session->length;
                 /* skip clips that don't overlap this block */
-                if (cl_end <= pos || cl->start >= pos + frames) continue;
+                if (cl_eff_end <= pos || cl->start >= pos + frames) continue;
                 uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
                 for (uint32_t i = 0; i < frames; i++) {
                     double sp = pos + i;
-                    if (sp < cl->start || sp >= cl_end) continue;
-                    double f = sp - cl->start;
-                    uint32_t idx = (uint32_t)f;
+                    if (sp < cl->start || sp >= cl_eff_end) continue;
+                    double f = sp - cl->start;               /* position within clip (samples) */
+                    /* R043 (G5): content-slide — offset into the owned buffer so
+                     * the waveform can be slid inside the clip boundary without
+                     * moving the clip on the timeline. */
+                    double sis = ce ? ce->start_in_source : 0.0;
+                    double bufpos = f + sis;
+                    /* R043 (G3): loop — wrap bufpos within the loop region
+                     * [sis, sis + looplen). looplen defaults to the full clip. */
+                    double looplen = (ce && ce->loop_len > 0.0) ? ce->loop_len
+                                                              : (double)cl->audio_frames;
+                    if (ce && ce->loop && looplen > 0.0) {
+                        bufpos = sis + fmod(f, looplen);
+                        if (bufpos < sis) bufpos += looplen;
+                    }
+                    uint32_t idx = (uint32_t)bufpos;
                     if (idx >= cl->audio_frames) continue;
                     float vL = cl->audio_data[idx*ch];
                     float vR = ch > 1 ? cl->audio_data[idx*ch+1] : vL;
                     /* R022: clip (region) gain — pre-fader, before track vol */
                     float cg = cl->clip_gain > 0.0001f ? cl->clip_gain : 1.0f;
                     /* R043 (G1/G2): linear fade envelope from the clip-edit
-                     * side-table (keeps wb_clip layout-stable + self-contained). */
+                     * side-table (keeps wb_clip layout-stable + self-contained).
+                     * Envelope is over the clip's TIMELINE position f so fades
+                     * stay at the clip head/tail regardless of content-slide/loop. */
                     if (e->edit) {
-                        const wb_clip_edit *ce = wb_clip_edit_get(e->edit, (int)(tk - e->session->tracks), (int)c);
                         double env = wb_clip_edit_env(ce, f, cl->length, WB_SAMPLE_RATE);
                         cg *= (float)env;
                     }

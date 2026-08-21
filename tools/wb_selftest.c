@@ -637,7 +637,118 @@ static void test_clip_gain(void) {
     wb_session_destroy(s);
 }
 
-/* ---- test: R023 velocity is in the signal path (louder note = louder out) */
+/* ---- test: R043-G3 clip LOOP repeats audio instead of playing once ---- */
+/* render n frames (offline) into an interleaved L/R buffer by chunking at
+ * WB_MAX_BLOCK, since wb_engine_render caps each call there. */
+static void render_offline(wb_engine *e, wb_sample *out, uint32_t n) {
+    memset(out, 0, n * 2 * sizeof(wb_sample));
+    uint32_t done = 0;
+    wb_sample tmp[WB_MAX_BLOCK * 2];
+    while (done < n) {
+        uint32_t blk = n - done; if (blk > WB_MAX_BLOCK) blk = WB_MAX_BLOCK;
+        wb_engine_render(e, tmp, blk);
+        memcpy(out + done*2, tmp, blk * 2 * sizeof(wb_sample));
+        done += blk;
+    }
+}
+static void test_clip_loop(void) {
+    printf("test_clip_loop\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 264600.0;   /* 6s window */
+    wb_track *tr = wb_session_add_track(s, "Loop", 1);
+    /* a 1s tone, placed at t=0, clip length 1s (rest of timeline is silent) */
+    uint32_t nf = 44100;
+    wb_sample buf[44100];
+    for (uint32_t i = 0; i < nf; i++) buf[i] = (wb_sample)(0.3 * sin(2*M_PI*440.0*i/44100.0));
+    wb_session_add_audio_clip(tr, 0, (double)nf, buf, nf, 1);
+
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    /* turn on looping via the clip-edit side-table */
+    wb_clip_edit_table *et = wb_engine_clip_edit(e);
+    wb_clip_edit *ce = wb_clip_edit_get(et, 0, 0);
+    ce->loop = 1;
+    ce->loop_len = (double)nf;
+
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    /* render a 3s block: with loop ON the tone should repeat at 1s,2s,3s... */
+    wb_sample *out = malloc(44100*3*2 * sizeof(wb_sample));
+    render_offline(e, out, 44100*3);
+    /* measure energy in each 0.5s window; expect multiple peaks (looping) */
+    int peaks = 0;
+    for (int w = 0; w < 6; w++) {
+        float pk = 0;
+        for (int i = w*22050; i < (w+1)*22050; i++) {
+            float v = out[i*2]<0?-out[i*2]:out[i*2];
+            if (v > pk) pk = v;
+        }
+        if (pk > 0.05f) peaks++;
+    }
+    CHECK(peaks >= 3, "loop repeats audio across multiple windows");
+    printf("         loop peaks across 6 windows = %d\n", peaks);
+
+    /* loop OFF -> only the first window has audio */
+    ce->loop = 0;
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    render_offline(e, out, 44100*3);
+    int peaks2 = 0;
+    for (int w = 0; w < 6; w++) {
+        float pk = 0;
+        for (int i = w*22050; i < (w+1)*22050; i++) {
+            float v = out[i*2]<0?-out[i*2]:out[i*2];
+            if (v > pk) pk = v;
+        }
+        if (pk > 0.05f) peaks2++;
+    }
+    CHECK(peaks2 == 2, "loop OFF -> single play spans 2 half-second windows (no repetition beyond)");
+    printf("         no-loop peaks = %d\n", peaks2);
+
+    free(out);
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
+
+/* ---- test: R043-G5 content-slide offsets the played buffer region ---- */
+static void test_clip_content_slide(void) {
+    printf("test_clip_content_slide\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Slide", 1);
+    /* 2s buffer: first 1s silence, last 1s tone — so sliding reveals the tone */
+    uint32_t nf = 88200;
+    wb_sample buf[88200];
+    for (uint32_t i = 0; i < nf; i++) {
+        double t = (double)i / 44100.0;
+        buf[i] = (i < 44100) ? 0.0f : (wb_sample)(0.3 * sin(2*M_PI*440.0*(t-1.0)));
+    }
+    wb_session_add_audio_clip(tr, 0, (double)nf, buf, nf, 1);
+
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    wb_clip_edit_table *et = wb_engine_clip_edit(e);
+    wb_clip_edit *ce = wb_clip_edit_get(et, 0, 0);
+
+    /* no slide: first 1s is silent */
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    wb_sample *out = malloc(44100*2 * sizeof(wb_sample));
+    render_offline(e, out, 44100);
+    float head = 0;
+    for (int i = 0; i < 44100; i++) { float v = out[i*2]<0?-out[i*2]:out[i*2]; if (v>head) head=v; }
+    CHECK(head < 0.05f, "no slide: head is silent (tone is in 2nd half)");
+
+    /* slide +44100 samples: now the head should be the tone */
+    ce->start_in_source = 44100.0;
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    render_offline(e, out, 44100);
+    float head2 = 0;
+    for (int i = 0; i < 44100; i++) { float v = out[i*2]<0?-out[i*2]:out[i*2]; if (v>head2) head2=v; }
+    CHECK(head2 > 0.05f, "content-slide +0.2s: tone now at head");
+    printf("         head peak no-slide=%.3f slide=%.3f\n", head, head2);
+
+    free(out);
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
 static void test_velocity(void) {
     printf("test_velocity\n");
     wb_session *s = wb_session_create();
@@ -1497,6 +1608,8 @@ int main(void) {
     test_recorder();
     test_audio_clip();
     test_clip_gain();
+    test_clip_loop();
+    test_clip_content_slide();
     test_velocity();
     test_meter();
     test_master_meter();

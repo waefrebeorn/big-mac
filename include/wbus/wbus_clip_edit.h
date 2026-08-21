@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-/* One clip's edit handles. All fades in SECONDS; offset in SAMPLES. */
+/* One clip's edit handles. All fades in SECONDS; offset/length in SAMPLES. */
 typedef struct wb_clip_edit {
     float  fade_in;        /* linear fade-in ramp at clip head (Ableton/Logic) */
     float  fade_out;       /* linear fade-out ramp at clip tail */
@@ -25,6 +25,8 @@ typedef struct wb_clip_edit {
                               begins (Bitwig "content slide" inside the clip) */
     float  pre_fade_in;    /* G9: fade in material BEFORE the edit point while
                               keeping the clip's true start at full amp (0=off) */
+    int    loop;           /* G3: 1 = clip repeats its loop region */
+    double loop_len;       /* G3: loop region length in SAMPLES (0 = full clip) */
 } wb_clip_edit;
 
 /* Opaque table. Keyed by (track, clip); grows as needed. */

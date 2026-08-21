@@ -54,7 +54,8 @@ static const char *scale_name(int root, int type) {
 #define TRANSPORT_H 58
 #define TOOLBAR_H 40
 #define ACTION_H 32
-#define MAIN_Y (TRANSPORT_H + TOOLBAR_H + ACTION_H)   /* top of the main content area */
+#define OVERVIEW_H 22
+#define MAIN_Y (TRANSPORT_H + TOOLBAR_H + ACTION_H + OVERVIEW_H)   /* top of the main content (ruler) area */
 #define STATUS_H 24
 #define MIXER_W 248
 #define RULER_H 26
@@ -114,6 +115,9 @@ typedef struct app {
     int vel_drag_note;       /* note index */
     int vel_drag_start_y;    /* mouse y where drag began */
     int vel_drag_start_vel;  /* velocity at drag start */
+
+    /* R040: overview minimap drag state */
+    int ov_drag;            /* 1 while dragging the overview strip */
 
     /* R024: VU ballistics — displayed meter lags the raw peak slightly */
     float meter_disp[WB_MAX_TRACKS];
@@ -189,6 +193,7 @@ enum {
     BTN_PLAY, BTN_REWIND, BTN_STOP, BTN_RECORD, BTN_LOOP, BTN_SAVE,
     BTN_TAB0, BTN_TAB1, BTN_TAB2, BTN_TAB3, BTN_TAB4, BTN_TAB5, BTN_TAB6, BTN_TAB7,
     BTN_ACT0, BTN_ACT1, BTN_ACT2, BTN_ACT3,   /* per-view action buttons */
+    BTN_OVERVIEW,                             /* arrangement overview strip (scroll/zoom) */
     BTN_COUNT
 };
 typedef struct { int id; SDL_Rect r; } click_region;
@@ -224,6 +229,8 @@ static void ui_button(SDL_Renderer *r, int id, int x, int y, int w, int h,
 }
 
 /* sample pos -> x in arrangement (respects zoom/scroll view window) */
+static double song_len_samples(app *a);  /* R040 forward decl (defined later) */
+
 static int arr_x(app *a, double sample_pos) {
     double secs = sample_pos / WB_SAMPLE_RATE;
     double view_secs = a ? a->visible_secs : VISIBLE_SECS;
@@ -238,6 +245,23 @@ static double arr_px_per_sec(app *a) {
     double view_secs = a ? a->visible_secs : VISIBLE_SECS;
     if (view_secs <= 0.0) view_secs = VISIBLE_SECS;
     return ARRANG_W / view_secs;
+}
+
+/* R040: center the arrangement view window on the clicked overview x */
+static void ov_scroll_to(app *a, int mx) {
+    int x0 = GUTTER_W, w = WIN_W - MIXER_W - GUTTER_W;
+    if (mx < x0) mx = x0; if (mx > x0 + w) mx = x0 + w;
+    double frac = (double)(mx - x0) / w;
+    double slen = song_len_samples(a) / (double)WB_SAMPLE_RATE;
+    if (slen <= 0) slen = a->visible_secs;
+    double center = frac * slen;
+    double vs = a->visible_secs;
+    double ns = center - vs / 2.0;
+    if (ns < 0) ns = 0;
+    double max_start = slen - vs;
+    if (max_start < 0) max_start = 0;
+    if (ns > max_start) ns = max_start;
+    a->view_start = ns * WB_SAMPLE_RATE;
 }
 
 #if 0  /* note_name: reserved for the note/arrangement display feature */
@@ -816,6 +840,7 @@ static void draw_video_tab_panel(app *a);
 static void draw_toolbar(app *a);
 static void draw_action_bar(app *a);
 static void draw_status(app *a);
+static void draw_overview(app *a);
 static void handle_action(app *a, int act);
 
 static void render(app *a) {
@@ -824,6 +849,7 @@ static void render(app *a) {
     setc(a->ren, C_BG); SDL_RenderClear(a->ren);
     draw_transport(a);
     draw_toolbar(a);
+    draw_overview(a);
     switch (a->tab) {
     case 0:  /* ARRANGE: linear arrangement (Ableton Arrangement View) */
         draw_ruler(a);
@@ -910,6 +936,44 @@ static void draw_action_bar(app *a) {
         ui_button(a->ren, BTN_ACT1, bx+bw+6,  by, bw, bh, "CAPTIONS", 0);
         ui_button(a->ren, BTN_ACT2, bx+2*(bw+6), by, bw, bh, "EXPORT", 0);
     }
+}
+
+/* ---- R040: Arrangement Overview minimap (Ableton-style bird's-eye) --- */
+static void draw_overview(app *a) {
+    int y = TRANSPORT_H + TOOLBAR_H + ACTION_H;   /* strip band */
+    int x0 = GUTTER_W, w = WIN_W - MIXER_W - GUTTER_W;
+    SDL_Rect strip = { x0, y, w, OVERVIEW_H };
+    setc(a->ren, C_BG); SDL_RenderFillRect(a->ren, &strip);
+    setc(a->ren, C_GRID); SDL_RenderDrawRect(a->ren, &strip);
+    if (!a->session) { region_add(BTN_OVERVIEW, x0, y, w, OVERVIEW_H); return; }
+
+    double slen = song_len_samples(a) / (double)WB_SAMPLE_RATE;  /* song length secs */
+    if (slen <= 0) slen = a->visible_secs;
+    /* clip density: colored ticks per track */
+    for (uint32_t t = 0; t < a->session->track_count; t++) {
+        wb_track *tr = &a->session->tracks[t];
+        rgb tc = track_rgb((int)t);
+        for (uint32_t c = 0; c < tr->clip_count; c++) {
+            wb_clip *cl = &tr->clips[c];
+            int cx = x0 + (int)((cl->start / WB_SAMPLE_RATE / slen) * w);
+            int cw = (int)((cl->length / WB_SAMPLE_RATE / slen) * w);
+            if (cw < 1) cw = 1;
+            setc(a->ren, tc.r, tc.g, tc.b);
+            SDL_Rect cr = { cx, y+3 + (int)t*((OVERVIEW_H-6)/(int)a->session->track_count) + 1,
+                            cw, (OVERVIEW_H-6)/(int)a->session->track_count };
+            SDL_RenderFillRect(a->ren, &cr);
+        }
+    }
+    /* view window rectangle (current zoom/scroll position) */
+    int vx = x0 + (int)((a->view_start / WB_SAMPLE_RATE / slen) * w);
+    int vw = (int)((a->visible_secs / slen) * w);
+    if (vw < 6) vw = 6;
+    SDL_Rect win = { vx, y+1, vw, OVERVIEW_H-2 };
+    setc(a->ren, C_ACCENT); SDL_RenderDrawRect(a->ren, &win);
+    setc(a->ren, 96,155,235); SDL_RenderFillRect(a->ren, &win);  /* faint fill */
+    setc(a->ren, C_TEXT_DIM);
+    wb_ui_draw_text(a->ren, x0+4, y+5, "OVERVIEW (drag to scroll • wheel to zoom)", 1, C_TEXT_DIM);
+    region_add(BTN_OVERVIEW, x0, y, w, OVERVIEW_H);
 }
 
 static SDL_Rect video_preview_rect(app *a) {
@@ -1571,6 +1635,10 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                     a->tab = id - BTN_TAB0; break;
                 case BTN_ACT0: case BTN_ACT1: case BTN_ACT2: case BTN_ACT3:
                     handle_action(a, id - BTN_ACT0); break;
+                case BTN_OVERVIEW:   /* R040: begin scroll-drag on the overview strip */
+                    a->ov_drag = 1;
+                    ov_scroll_to(a, b.x);
+                    break;
                 default:
                     if (id >= 1000 && id < 2000) {  /* per-track Mute in gutter */
                         int ti = id - 1000;
@@ -1699,6 +1767,8 @@ static void handle_wheel(app *a, SDL_MouseWheelEvent w) {
 
 /* Mouse motion: drag a parameter slider when one is armed. */
 static void handle_motion(app *a, SDL_MouseMotionEvent m) {
+    /* R040: dragging the overview strip scrolls the arrangement view */
+    if (a->ov_drag) { ov_scroll_to(a, m.x); return; }
     /* R032: shift+drag marquee to select a comp region on a lane */
     if ((m.state & SDL_BUTTON_LMASK) && (SDL_GetModState() & KMOD_SHIFT) && a->session) {
         int ti = y_to_track(a, m.y);
@@ -2031,6 +2101,7 @@ int main(int argc, char **argv) {
     a->param_slot   = 0;
     a->param_drag   = -1;
     a->param_drag_x = 0;
+    a->ov_drag      = 0;
 
     /* tabbed view default: keyboard piano roll, A minor scale */
     a->tab          = (forced_view >= 0 && forced_view <= 7) ? forced_view : 0;   /* ARRANGE or forced */
@@ -2162,7 +2233,7 @@ int main(int argc, char **argv) {
             else if (ev.type==SDL_MOUSEWHEEL) handle_wheel(a, ev.wheel);
             else if (ev.type==SDL_MOUSEMOTION) handle_motion(a, ev.motion);
             else if (ev.type==SDL_MOUSEBUTTONDOWN) handle_mouse(a, ev.button);
-            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; }
+            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; }
         }
         render(a);
         perf_tick(a);

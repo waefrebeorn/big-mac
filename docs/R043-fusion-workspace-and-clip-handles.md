@@ -104,15 +104,21 @@ model) — exactly what the R043 ribbon does, extended with FUSION/3D-CGI/AGI ti
 | G5 | **Content/offset slide** handle (Bitwig-style) | slide audio inside the clip boundary without moving the clip | top-half drag → `start_in_source` shift; draw + hit-test | open |
 | G6 | **FUSION page** node graph view (we have `wb_compositor`) | the FUSION tier is wired but has no dedicated view yet | tab 5 (EDIT) → host the compositor node editor when FUSION active | open |
 | G7 | **3D-CGI / AGI** tiers: real views | tiers unlockable but empty; user wants low-poly CGI + AGI control surface | stub a `wb_cgi` module (opaque, C11) + AGI command bridge; wire to ribbon | open |
+| G8 | **Crossfade needs real overlap + material past the edge** | cosmetic crossfades that ignore this feel fake (Bitwig: only renders when clips overlap AND have audio extending past their edges) | G2/G1 must drag the fade *past* the boundary onto the other clip; draw the overlap region, not a fake gradient | open |
+| G9 | **Pre-fade preserves the edit point** | fading in earlier audio *before* the clip while keeping the clip's true start at full amp is a distinct operation (Bitwig pre-fade) | G2 handle model must separate *clip-edge fade* from *content-before-edge fade-in* | open |
 
 ---
 
 ## Wired vs Open ledger (this repo)
 - **wired:** R038 shell, R039 SESSION colors/scenes, R040 overview, R041 crash
   hardening, R042 clip-gain-on-waveform, R042-A realtime lock fix, R042-B duration
-  resolve, R043 workspace module + ribbon + gate.
-- **open:** G1..G7 above (clip handles, fades, loop, fader readout, Fusion view,
-  CGI/AGI views).
+  resolve, R043 workspace module + ribbon + gate, **R043-G1/G2 clip-edit handles
+  (trim + fade-in/out) wired via a self-contained `wb_clip_edit` side-table — see
+  `src/wb_clip_edit.c` + `include/wbus/wbus_clip_edit.h`. The side-table keeps
+  `wb_clip` layout-stable (critical: it is memcpy'd + serialized) and honors the
+  no-monolith doctrine.**
+- **open:** G3 (loop region), G4 (mixer fader readout), G5 (content-slide drag),
+  G6 (Fusion view), G7 (CGI/AGI views), G8/G9 (crossfade overlap + pre-fade).
 
 ## Build order for next loop
 G1 → G2 → G3 (the "clips feel real" cluster, cheapest high-leverage) → G4 (fader

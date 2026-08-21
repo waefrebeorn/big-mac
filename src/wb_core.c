@@ -22,6 +22,7 @@
 #include "wbus_vst3.h"
 #include "wbus_modulation.h"
 #include "wbus_midifx.h"
+#include "wbus_clip_edit.h"
 #include "wb_internal.h"
 #include "wb_recorder.h"
 
@@ -72,6 +73,10 @@ struct wb_engine {
     float      master_peak;      /* R028: master bus output peak (post master vol) */
     float      master_rms;       /* R028: master bus output RMS */
     float cpu_load;
+
+    /* R043 (G1/G2): clip-edit side-table (fade/offset handles). Self-contained
+     * module — keeps wb_clip layout-stable. Consulted in the render path. */
+    wb_clip_edit_table *edit;
 
     /* R002: Xrun detection via process try-lock */
     pthread_mutex_t process_lock;
@@ -270,6 +275,13 @@ static void stage_instruments(wb_engine *e, uint32_t frames) {
                     float vR = ch > 1 ? cl->audio_data[idx*ch+1] : vL;
                     /* R022: clip (region) gain — pre-fader, before track vol */
                     float cg = cl->clip_gain > 0.0001f ? cl->clip_gain : 1.0f;
+                    /* R043 (G1/G2): linear fade envelope from the clip-edit
+                     * side-table (keeps wb_clip layout-stable + self-contained). */
+                    if (e->edit) {
+                        const wb_clip_edit *ce = wb_clip_edit_get(e->edit, (int)(tk - e->session->tracks), (int)c);
+                        double env = wb_clip_edit_env(ce, f, cl->length, WB_SAMPLE_RATE);
+                        cg *= (float)env;
+                    }
                     tr->bufL[i] += vL * cg;
                     tr->bufR[i] += vR * cg;
                 }
@@ -540,6 +552,7 @@ wb_engine *wb_engine_create(void) {
     wb_unit_ensure_all();   /* register built-in FX + instruments */
     e->mod = wb_mod_matrix_create();
     for (int i = 0; i < WB_MAX_TRACKS; i++) { e->launch_clip[i] = -1; e->launch_pos[i] = 0; }
+    e->edit = wb_clip_edit_create();   /* R043 (G1/G2): clip-edit side-table */
     return e;
 }
 
@@ -575,6 +588,7 @@ void wb_engine_destroy(wb_engine *e) {
     free(e->accL);
     free(e->accR);
     if (e->mod) wb_mod_matrix_destroy(e->mod);
+    if (e->edit) wb_clip_edit_destroy(e->edit);   /* R043 (G1/G2) */
     free(e);
 }
 
@@ -682,6 +696,11 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
 }
 
 wb_session *wb_engine_get_session(wb_engine *e) { return e->session; }
+
+/* R043 (G1/G2): expose the engine-owned clip-edit side-table to the UI. */
+wb_clip_edit_table *wb_engine_clip_edit(wb_engine *e) {
+    return e ? e->edit : NULL;
+}
 
 void wb_engine_play(wb_engine *e) { wb_cmd c = { .type = WB_CMD_PLAY }; wb_cmd_push(&e->queue, c); }
 void wb_engine_stop(wb_engine *e) { wb_cmd c = { .type = WB_CMD_STOP }; wb_cmd_push(&e->queue, c); }

@@ -12,6 +12,7 @@
 #include "wbus_midifx.h"
 #include "wbus_video.h"
 #include "wbus_captions.h"
+#include "wbus_clip_edit.h"
 
 /* Forward declarations for cross-referenced types. */
 typedef struct wb_mod_matrix wb_mod_matrix;
@@ -231,6 +232,11 @@ void       wb_engine_destroy(wb_engine *e);
  * Call BEFORE starting playback. Not safe concurrently with render. */
 void wb_engine_set_session(wb_engine *e, wb_session *s);
 wb_session *wb_engine_get_session(wb_engine *e);
+
+/* R043 (G1/G2): access the engine's clip-edit side-table (fade/offset handles).
+ * The table is engine-owned; callers get/set per-clip edit state through it.
+ * Returns NULL if the engine or table is unavailable. */
+wb_clip_edit_table *wb_engine_clip_edit(wb_engine *e);
 
 /* ---- transport control (thread-safe via cmd queue) -------------------- */
 void wb_engine_play(wb_engine *e);

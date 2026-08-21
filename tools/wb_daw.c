@@ -21,6 +21,7 @@
 #include "wbus_vst3.h"
 #include "wbus_video.h"
 #include "wbus_workspace.h"
+#include "wbus_clip_edit.h"
 #include "wbus_captions.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
@@ -87,6 +88,18 @@ typedef struct app {
     int dragging_clip;       /* -1 = none, else clip index on selected_track */
     int drag_start_x;        /* mouse x where drag began */
     double clip_drag_origin; /* timeline pos where drag began */
+    /* R043 (G1/G2): clip-handle drag state (trim/fade/content).
+     * handle_drag = -1 none; 0 left-trim, 1 right-trim, 2 fade-in, 3 fade-out,
+     * 4 content-slide (top half of waveform). hd_track/hd_clip identify target. */
+    int handle_drag;
+    int hd_track, hd_clip;
+    int hd_start_x;          /* mouse x at drag begin */
+    double hd_clip_start0;   /* clip->start at drag begin (samples) */
+    double hd_clip_len0;     /* clip->length at drag begin */
+    float  hd_fade0[2];      /* fade_in/out at drag begin */
+    double hd_sis0;          /* start_in_source at drag begin */
+    /* per-track base id of the last-drawn clip handle region (or -1) */
+    int clip_handle_base[64];
     /* R032: comping marquee — shift+drag a time range on a lane, then 'C'
      * commits it to lane 0 (the comp). sel_lane = which lane the drag was on. */
     int marquee_active;
@@ -179,6 +192,7 @@ static int running = 1;
 #define C_GRID   54, 58, 66
 #define C_SOLO   120, 200, 120
 #define C_MUTE   235, 140, 140   /* R029: brightened to clear WCAG AA on lane bg */
+#define C_FADE   120, 220, 110   /* R043 (G1/G2): clip fade handles (bright green) */
 
 static void setc(SDL_Renderer *r, Uint8 cr, Uint8 cg, Uint8 cb) {
     SDL_SetRenderDrawColor(r, cr, cg, cb, 255);
@@ -535,6 +549,46 @@ static void draw_arrangement(app *a) {
                 /* clip border */
                 setc(a->ren, C_GRID);
                 SDL_RenderDrawRect(a->ren, &clipbox);
+                /* R043 (G1/G2): direct-manipulation handles — drawn on the
+                 * waveform, one source of truth with hit-testing (below).
+                 *   LEFT_EDGE  = trim start   RIGHT_EDGE = trim length
+                 *   FADE_IN    = top-left     FADE_OUT   = top-right */
+                int hw = 6;  /* handle hit size (px) */
+                if (clipbox.w > 16) {
+                    /* read fade state from the clip-edit side-table (keeps
+                     * wb_clip layout-stable; one source of truth with render) */
+                    const wb_clip_edit *ce = wb_clip_edit_get(wb_engine_clip_edit(a->engine), ti, (int)c);
+                    float fin  = ce ? ce->fade_in  : 0.0f;
+                    float fout = ce ? ce->fade_out : 0.0f;
+                    /* fade handles: only meaningful when a fade is > 0 OR the
+                     * clip is tall enough; draw a corner triangle either way so
+                     * it's discoverable (Ableton/Logic show them on-hover). */
+                    setc(a->ren, C_FADE);
+                    /* fade-in corner (top-left): width ~ fade_in in px */
+                    double dur = cl->length / WB_SAMPLE_RATE;
+                    double fin_px = clipbox.w * (fin / (dur > 0 ? dur : 1));
+                    if (fin_px < 4) fin_px = 4; if (fin_px > clipbox.w) fin_px = clipbox.w;
+                    SDL_RenderDrawLine(a->ren, clipbox.x, clipbox.y, clipbox.x + (int)fin_px, clipbox.y + (int)fin_px);
+                    SDL_RenderDrawLine(a->ren, clipbox.x, clipbox.y, clipbox.x + (int)fin_px, clipbox.y);
+                    double fout_px = clipbox.w * (fout / (dur > 0 ? dur : 1));
+                    if (fout_px < 4) fout_px = 4; if (fout_px > clipbox.w) fout_px = clipbox.w;
+                    int rx = clipbox.x + clipbox.w;
+                    SDL_RenderDrawLine(a->ren, rx, clipbox.y, rx - (int)fout_px, clipbox.y + (int)fout_px);
+                    SDL_RenderDrawLine(a->ren, rx, clipbox.y, rx - (int)fout_px, clipbox.y);
+                    /* trim-edge caps (drawn as a 2px tall accent bar at edges) */
+                    setc(a->ren, C_ACCENT);
+                    SDL_RenderDrawLine(a->ren, clipbox.x, clipbox.y, clipbox.x, clipbox.y+clipbox.h);
+                    SDL_RenderDrawLine(a->ren, rx-1, clipbox.y, rx-1, clipbox.y+clipbox.h);
+                }
+                /* register handle hit regions: id = 50000 + ti*1000 + c*4 + h
+                 * (h: 0 left-trim, 1 right-trim, 2 fade-in, 3 fade-out) so decode
+                 * is unambiguous: ti=(id-50000)/1000; rem%1000; c=rem/4; h=rem%4. */
+                int base = 50000 + ti*1000 + (int)c*4;
+                region_add(base+0, clipbox.x, clipbox.y, hw, clipbox.h);          /* LEFT trim  */
+                region_add(base+1, clipbox.x+clipbox.w-hw, clipbox.y, hw, clipbox.h); /* RIGHT trim */
+                region_add(base+2, clipbox.x, clipbox.y, hw+2, hw+2);              /* FADE_IN */
+                region_add(base+3, clipbox.x+clipbox.w-hw-2, clipbox.y, hw+2, hw+2); /* FADE_OUT */
+                a->clip_handle_base[ti] = (clipbox.w > 16) ? base : -1;
                 /* R022: clip (region) gain readout — pre-fader, like Pro Tools */
                 if (cl->clip_gain > 1.001f || cl->clip_gain < 0.999f) {
                     char gb[16]; snprintf(gb, sizeof(gb), "g%.2f", cl->clip_gain);
@@ -1779,6 +1833,32 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                 }
                 return;
             }
+
+            /* R043 (G1/G2): clip-handle hit-test (audio clips).
+             * id = 50000 + ti*1000 + c*4 + h  (h: 0 left-trim,1 right-trim,
+             * 2 fade-in,3 fade-out). Takes priority over empty canvas. */
+            if (id >= 50000) {
+                int ti = (id - 50000) / 1000;
+                int rem = (id - 50000) % 1000;
+                int c  = rem / 4;
+                int h  = rem % 4;
+                if (ti >= 0 && ti < (int)a->session->track_count
+                    && c >= 0 && c < (int)a->session->tracks[ti].clip_count) {
+                    wb_clip *tgt = &a->session->tracks[ti].clips[c];
+                    wb_clip_edit *te = wb_clip_edit_get(wb_engine_clip_edit(a->engine), ti, c);
+                    a->handle_drag = h;
+                    a->hd_track = ti;
+                    a->hd_clip  = c;
+                    a->hd_start_x = b.x;
+                    a->hd_clip_start0 = tgt->start;
+                    a->hd_clip_len0   = tgt->length;
+                    a->hd_fade0[0] = te ? te->fade_in : 0.0f;
+                    a->hd_fade0[1] = te ? te->fade_out : 0.0f;
+                    a->hd_sis0 = te ? te->start_in_source : 0.0;
+                    printf("handle: track %d clip %d kind %d\n", ti, c, h);
+                    return;
+                }
+            }
         }
 
         if (!a->session || b.x < GUTTER_W) return;
@@ -1883,6 +1963,52 @@ static void handle_wheel(app *a, SDL_MouseWheelEvent w) {
 static void handle_motion(app *a, SDL_MouseMotionEvent m) {
     /* R040: dragging the overview strip scrolls the arrangement view */
     if (a->ov_drag) { ov_scroll_to(a, m.x); return; }
+    /* R043 (G1/G2): clip-handle drag — trim / fade / content-slide.
+     * Applied directly to the clip; render path + draw share the geometry. */
+    if (a->handle_drag >= 0 && a->session
+        && a->hd_track >= 0 && a->hd_track < (int)a->session->track_count
+        && a->hd_clip  >= 0 && a->hd_clip  < (int)a->session->tracks[a->hd_track].clip_count) {
+        wb_clip *cl = &a->session->tracks[a->hd_track].clips[a->hd_clip];
+        double pps = arr_px_per_sec(a);
+        double dsec = (double)(m.x - a->hd_start_x) / pps;       /* px -> seconds */
+        double dsmp = (double)(m.x - a->hd_start_x) / ARRANG_W * a->visible_secs * WB_SAMPLE_RATE;
+        wb_clip_edit *ce = wb_clip_edit_get(wb_engine_clip_edit(a->engine), a->hd_track, a->hd_clip);
+        switch (a->handle_drag) {
+        case 0: {  /* LEFT trim: move start, shrink length (anchor right edge) */
+            double newstart = a->hd_clip_start0 + dsmp;
+            double right = a->hd_clip_start0 + a->hd_clip_len0;
+            if (newstart >= right - WB_SAMPLE_RATE*0.05) newstart = right - WB_SAMPLE_RATE*0.05;
+            if (newstart < 0) newstart = 0;
+            cl->start = newstart;
+            cl->length = right - newstart;
+            /* content stays put: shift start_in_source so the waveform doesn't jump */
+            ce->start_in_source = a->hd_sis0 + (newstart - a->hd_clip_start0);
+            break;
+        }
+        case 1: {  /* RIGHT trim: change length, anchor left edge */
+            double newlen = a->hd_clip_len0 + dsmp;
+            if (newlen < WB_SAMPLE_RATE*0.05) newlen = WB_SAMPLE_RATE*0.05;
+            cl->length = newlen;
+            break;
+        }
+        case 2: {  /* FADE_IN: seconds (0..clip length) */
+            double f = a->hd_fade0[0] + dsec;
+            if (f < 0) f = 0; if (f > cl->length/WB_SAMPLE_RATE) f = cl->length/WB_SAMPLE_RATE;
+            ce->fade_in = (float)f;
+            break;
+        }
+        case 3: {  /* FADE_OUT: seconds */
+            double f = a->hd_fade0[1] + dsec;
+            if (f < 0) f = 0; if (f > cl->length/WB_SAMPLE_RATE) f = cl->length/WB_SAMPLE_RATE;
+            ce->fade_out = (float)f;
+            break;
+        }
+        }
+        /* keep the session length covering the clip (so export/playback span it) */
+        double end = cl->start + cl->length;
+        if (end > a->session->length) a->session->length = end;
+        return;
+    }
     /* R032: shift+drag marquee to select a comp region on a lane */
     if ((m.state & SDL_BUTTON_LMASK) && (SDL_GetModState() & KMOD_SHIFT) && a->session) {
         int ti = y_to_track(a, m.y);
@@ -2379,7 +2505,7 @@ int main(int argc, char **argv) {
             else if (ev.type==SDL_MOUSEWHEEL) handle_wheel(a, ev.wheel);
             else if (ev.type==SDL_MOUSEMOTION) handle_motion(a, ev.motion);
             else if (ev.type==SDL_MOUSEBUTTONDOWN) handle_mouse(a, ev.button);
-            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; }
+            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; a->handle_drag = -1; }
         }
         render(a);
         perf_tick(a);

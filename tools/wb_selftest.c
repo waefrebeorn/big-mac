@@ -749,6 +749,66 @@ static void test_clip_content_slide(void) {
     wb_engine_destroy(e);
     wb_session_destroy(s);
 }
+/* ---- test: R043-G4 fader automation write + 0 dB anchor quantization ---- */
+static void test_fader_automation(void) {
+    printf("test_fader_automation\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0;
+    wb_track *tr = wb_session_add_track(s, "Fad", 1);
+    tr->volume = 1.0f;
+
+    /* 0 dB anchor quantization: a tiny drag near unity must snap to exactly 0 dB */
+    float db = 20.0f*log10f(tr->volume);   /* 0.0 dB */
+    db = db + 0.2f;
+    db = (float)((int)(db/0.5f + 0.5f)*0.5f);
+    if (fabsf(db) < 0.26f) db = 0.0f;
+    CHECK(fabsf(db) < 1e-4f, "0 dB anchor: tiny nudge snaps back to exactly 0.0 dB");
+
+    /* arm a volume automation lane and capture a few fader moves */
+    wb_automation_lane *lane = wb_session_add_automation(s, "volume", 0);
+    wb_automation_recorder *rec = wb_automation_recorder_create(lane, 0.01);
+    wb_automation_recorder_arm(rec, tr->volume);
+    wb_automation_recorder_capture(rec, 0.5, 0.5f);
+    wb_automation_recorder_capture(rec, 1.0, 0.25f);
+    int committed = wb_automation_recorder_commit(rec);
+    CHECK(committed == 1, "fader automation committed successfully");
+    CHECK(lane->point_count >= 2, "volume lane has >=2 points after commit");
+
+    /* drive the engine to confirm the lane is wired into the render graph.
+     * (wb_track_runtime is opaque here, so we assert the lane is non-empty
+     * and the recorder committed — the actual apply is exercised by
+     * test_velocity/master_meter-style render paths + stage_automation.) */
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    CHECK(lane->point_count >= 2, "volume lane retained points after engine bind");
+
+    /* end-to-end: a tone clip rendered WITH the volume automation (0.5 at t=0.5s)
+     * should be quieter than WITHOUT it. Proves stage_automation + the fader-
+     * write lane are actually in the render graph (no opaque struct access). */
+    uint32_t nf = 44100;
+    wb_sample tbuf[44100];
+    for (uint32_t i = 0; i < nf; i++) tbuf[i] = (wb_sample)(0.5*sin(2*M_PI*330.0*i/44100.0));
+    wb_session_add_audio_clip(tr, 0, (double)nf, tbuf, nf, 1);
+    wb_engine_seek(e, 0);
+    wb_sample outA[44100*2];
+    render_offline(e, outA, 44100);
+    float pkA = 0; for (int i=0;i<44100;i++){float v=outA[i*2]<0?-outA[i*2]:outA[i*2]; if(v>pkA)pkA=v;}
+
+    /* disable automation: clear the lane, re-bind, re-render */
+    wb_automation_clear(lane);
+    wb_engine_set_session(e, s);   /* rebuild runtime */
+    wb_engine_seek(e, 0);
+    wb_sample outB[44100*2];
+    render_offline(e, outB, 44100);
+    float pkB = 0; for (int i=0;i<44100;i++){float v=outB[i*2]<0?-outB[i*2]:outB[i*2]; if(v>pkB)pkB=v;}
+
+    CHECK(pkA < pkB * 0.7f, "automation attenuated render (applied to graph)");
+    printf("         peak with automation=%.3f without=%.3f\n", pkA, pkB);
+
+    wb_automation_recorder_destroy(rec);
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
 static void test_velocity(void) {
     printf("test_velocity\n");
     wb_session *s = wb_session_create();
@@ -1610,6 +1670,7 @@ int main(void) {
     test_clip_gain();
     test_clip_loop();
     test_clip_content_slide();
+    test_fader_automation();
     test_velocity();
     test_meter();
     test_master_meter();

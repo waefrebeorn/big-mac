@@ -100,6 +100,15 @@ typedef struct app {
     double hd_sis0;          /* start_in_source at drag begin */
     /* per-track base id of the last-drawn clip handle region (or -1) */
     int clip_handle_base[64];
+    /* R043 (G4): mixer fader drag + automation-write arm.
+     * dragging_fader = -1 none, else track index. fader_drag_y = mouse y at
+     * drag begin; fader_vol0 = volume (linear) at drag begin. arm[t] = 1 when
+     * that track's volume automation is armed (drags write automation points). */
+    int dragging_fader;
+    int fader_drag_y;
+    float fader_vol0;
+    int arm[WB_MAX_TRACKS];
+    wb_automation_recorder *fader_rec[WB_MAX_TRACKS];   /* per-track volume recorder */
     /* R032: comping marquee — shift+drag a time range on a lane, then 'C'
      * commits it to lane 0 (the comp). sel_lane = which lane the drag was on. */
     int marquee_active;
@@ -847,6 +856,19 @@ static void draw_mixer(app *a) {
         /* dB readout */
         char dbuf[16]; snprintf(dbuf,sizeof(dbuf),"%.1f dB",db);
         wb_ui_draw_text(a->ren, x+2, fy_bot+8, dbuf, 1, C_TEXT);
+
+        /* R043 (G4): 0 dB tick marker on the fader (unity anchor) */
+        int zero_y = fy_bot - (int)(1.0 * fader_h);   /* frac=1 -> 0 dB */
+        setc(a->ren, 110, 110, 110);
+        SDL_RenderDrawLine(a->ren, fx-6, zero_y, fx+12, zero_y);
+
+        /* R043 (G4): automation-write arm button ('A') — lit when armed.
+         * Placed at the strip's top-right so it never collides with mute/solo
+         * or the insert-chain readout below the fader. */
+        SDL_Rect armbox = { x + sw - 18, MAIN_Y + 6, 16, 14 };
+        setc(a->ren, a->arm[ti] ? C_SOLO : C_LANE_A);
+        SDL_RenderFillRect(a->ren, &armbox);
+        wb_ui_draw_text(a->ren, armbox.x+3, armbox.y+1, "A", 1, a->arm[ti]?C_BG:C_TEXT_DIM);
 
         /* mute / solo */
         SDL_Rect mute = { x+2, fy_bot+26, sw/2-2, 16 };
@@ -1797,7 +1819,56 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
         }
     }
 
-    /* ---- R038: registry-driven UI clicks (buttons + tabs) ---- */
+    /* ---- R043 (G4): mixer fader drag + automation arm ----
+     * Grab the fader if the click lands on a strip's fader column, or toggle
+     * the arm button. Must come before the generic registry so fader clicks
+     * win over empty canvas. */
+    if (b.button == SDL_BUTTON_LEFT && a->session) {
+        int n = (int)a->session->track_count;
+        int mx = WIN_W - MIXER_W;
+        double strip_w = (double)MIXER_W / (n>0?n:1);
+        double fader_h = ARRANG_H - 70;
+        int fy_top = MAIN_Y + 40, fy_bot = fy_top + (int)fader_h;
+        if (b.x >= mx) {
+            int ti = (int)((b.x - mx) / strip_w);
+            if (ti >= 0 && ti < n) {
+                int x = mx + (int)(ti*strip_w);
+                int sw = (int)strip_w - 4;
+                int fx = x + sw/2 - 4;
+                /* arm button: a small 'A' box just above the dB readout */
+                SDL_Rect armbox = { x+2, fy_bot+44, 16, 14 };
+                if (b.y >= armbox.y && b.y <= armbox.y+armbox.h &&
+                    b.x >= armbox.x && b.x <= armbox.x+armbox.w) {
+                    a->arm[ti] = a->arm[ti] ? 0 : 1;
+                    if (a->arm[ti]) {
+                        /* create/ensure the track's volume lane + recorder */
+                        wb_automation_lane *lane = NULL;
+                        for (uint32_t l = 0; l < a->session->automation_count; l++)
+                            if (a->session->automation[l]->target == ti &&
+                                !strcmp(a->session->automation[l]->param, "volume"))
+                            { lane = a->session->automation[l]; break; }
+                        if (!lane) lane = wb_session_add_automation(a->session, "volume", ti);
+                        if (a->fader_rec[ti]) wb_automation_recorder_destroy(a->fader_rec[ti]);
+                        a->fader_rec[ti] = wb_automation_recorder_create(lane, 0.01);
+                        wb_automation_recorder_arm(a->fader_rec[ti], a->session->tracks[ti].volume);
+                    } else if (a->fader_rec[ti]) {
+                        wb_automation_recorder_commit(a->fader_rec[ti]);
+                    }
+                    printf("fader-arm: track %d -> %s\n", ti, a->arm[ti]?"ARMED":"off");
+                    return;
+                }
+                /* fader column grab (±14px of fx, within fader travel) */
+                if (b.x >= fx-14 && b.x <= fx+14 && b.y >= fy_top-8 && b.y <= fy_bot+8) {
+                    a->dragging_fader = ti;
+                    a->fader_drag_y = b.y;
+                    a->fader_vol0 = a->session->tracks[ti].volume;
+                    printf("fader: grab track %d (vol %.3f)\n", ti, a->fader_vol0);
+                    return;
+                }
+            }
+        }
+    }
+
         if (b.button == SDL_BUTTON_LEFT) {
             int id = region_hit(b.x, b.y);
             if (id >= 0) {
@@ -2073,6 +2144,34 @@ static void handle_motion(app *a, SDL_MouseMotionEvent m) {
         }
         a->vel_drag_track = -1;
     }
+    /* R043 (G4): mixer fader drag — map vertical mouse delta to dB, quantize
+     * to a 0.5 dB grid with a hard anchor at 0.0 dB (unity), write the fader
+     * and (if armed) capture an automation point at the current playhead. */
+    if (a->dragging_fader >= 0 && a->session &&
+        a->dragging_fader < (int)a->session->track_count) {
+        int ti = a->dragging_fader;
+        double fader_h = ARRANG_H - 70;
+        /* pixels -> fraction -> dB. fader travel is 60 dB (frac 0..1 = -60..0 dB) */
+        double dy = (double)(a->fader_drag_y - m.y);          /* up = louder */
+        double dfrac = dy / fader_h;                          /* fraction of travel */
+        float db0 = a->fader_vol0 > 0.0001f ? 20.0f*log10f(a->fader_vol0) : -60.0f;
+        float db = db0 + (float)(dfrac * 60.0);              /* move in dB space */
+        /* quantize to 0.5 dB grid, anchor exactly 0.0 dB (unity) */
+        db = (float)((int)(db / 0.5f + 0.5f) * 0.5f);
+        if (fabsf(db) < 0.26f) db = 0.0f;                    /* snap to unity */
+        if (db > 0.0f) db = 0.0f;                            /* faders don't boost past 0 dB */
+        if (db < -60.0f) db = -60.0f;
+        float vol = (db <= -60.0f) ? 0.0f : (float)powf(10.0f, db/20.0f);
+        a->session->tracks[ti].volume = vol;
+        wb_engine_set_track_volume(a->engine, ti, vol);
+        /* if armed, write an automation point at the playhead */
+        if (a->arm[ti] && a->fader_rec[ti]) {
+            double pos = (double)a->t.song_pos / WB_SAMPLE_RATE;
+            wb_automation_recorder_capture(a->fader_rec[ti], pos, vol);
+        }
+        return;
+    }
+
     if (!a->param_view || a->param_drag < 0 || !a->session) return;
     int ti = a->selected_track;
     if (ti < 0) return;
@@ -2542,7 +2641,7 @@ int main(int argc, char **argv) {
             else if (ev.type==SDL_MOUSEWHEEL) handle_wheel(a, ev.wheel);
             else if (ev.type==SDL_MOUSEMOTION) handle_motion(a, ev.motion);
             else if (ev.type==SDL_MOUSEBUTTONDOWN) handle_mouse(a, ev.button);
-            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; a->handle_drag = -1; }
+            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; a->handle_drag = -1; a->dragging_fader = -1; }
         }
         render(a);
         perf_tick(a);
@@ -2555,6 +2654,8 @@ cleanup:
     if (a->tuner) { wb_tuner_stop(a->tuner); wb_tuner_destroy(a->tuner); }
     SDL_DestroyRenderer(a->ren); SDL_DestroyWindow(a->win);
     wb_workspace_destroy(a->ws);  /* R043 */
+    for (int i = 0; i < WB_MAX_TRACKS; i++)   /* R043 (G4): free fader recorders */
+        if (a->fader_rec[i]) wb_automation_recorder_destroy(a->fader_rec[i]);
     wb_engine_destroy(a->engine); wb_session_destroy(a->session);
     free(a); SDL_Quit();
     return 0;

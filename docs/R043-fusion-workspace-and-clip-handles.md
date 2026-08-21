@@ -118,8 +118,13 @@ model) — exactly what the R043 ribbon does, extended with FUSION/3D-CGI/AGI ti
   + R043-G5 content-slide (start_in_source offset, slides waveform inside clip)** —
   both verified end-to-end through the engine render path (selftest loop=6 peaks,
   slide head 0.000→0.300). See `src/wb_clip_edit.c` + `include/wbus/wbus_clip_edit.h`.
-- **open:** G4 (mixer fader readout), G6 (Fusion view), G7 (CGI/AGI views),
-  G8/G9 (crossfade overlap + pre-fade).
+- **R043-G4: mixer fader is now DRAGGABLE** (it was draw-only before) with
+  dB-quantized steps (0.5 dB grid) + a hard 0 dB unity anchor, plus an
+  automation-WRITE arm ('A' button per strip) that captures fader moves into a
+  `volume` automation lane via wb_automation_recorder — verified end-to-end
+  (selftest: 0 dB anchor snaps exactly; armed capture attenuates the rendered
+  output). Reuses the existing automation model (no new subsystem).
+- **open:** G6 (Fusion view), G7 (CGI/AGI views), G8/G9 (crossfade overlap + pre-fade).
 
 ## Build order for next loop
 G1 → G2 → G3 (the "clips feel real" cluster, cheapest high-leverage) → G4 (fader

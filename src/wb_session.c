@@ -483,16 +483,18 @@ int wb_session_add_video_clip(wb_session *s, int track, const char *source_path,
     snprintf(cl->video->source_path, sizeof(cl->video->source_path), "%s", source_path);
     cl->video->timeline_pos = timeline_pos;
 
-    /* R041: do NOT open the (unstable) video decoder here — the UI pre-
-     * generates the proxy and passes the duration/path via set_video_proxy.
-     * If the proxy is already set, use its duration; otherwise leave duration
-     * at 0 (the UI/export computes it on demand). Opening the decoder in the
-     * model layer caused a non-deterministic crash on this platform. */
-    if (cl->video->proxy_path[0]) {
-        cl->video->duration = wb_video_proxy_duration(cl->video->proxy_path);
-    }
+    /* R042 DEEP FIX (cascade): resolve the clip's source duration here so the
+     * clip carries a real length. We use the ffprobe SHELL helper (the same
+     * one set_video_proxy uses) — NOT the in-process libavformat decoder that
+     * R041 found unstable/crashing on this platform. The shell probe is
+     * isolated in a child process, so even a malformed file can't corrupt the
+     * engine. This makes add_video_clip self-sufficient (no proxy needed) and
+     * fixes downstream gates: s->length growth (export audio render),
+     * split/EDL/FCPXML span math, and the hit-test window. */
+    cl->video->duration = wb_video_proxy_duration(source_path);
+
     /* Default clip length = full source duration (UI may trim later). */
-    cl->length = cl->video->duration;
+    cl->length = cl->video->duration > 0.0 ? cl->video->duration : 0.0;
 
     /* Grow the session's total song length (in samples) to cover this clip,
      * so wb_engine_render_session (which requires s->length > 0) spans it. */

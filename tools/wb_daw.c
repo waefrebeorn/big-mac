@@ -20,6 +20,7 @@
 #include "wbus_midi.h"
 #include "wbus_vst3.h"
 #include "wbus_video.h"
+#include "wbus_workspace.h"
 #include "wbus_captions.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
@@ -57,6 +58,7 @@ static const char *scale_name(int root, int type) {
 #define OVERVIEW_H 22
 #define MAIN_Y (TRANSPORT_H + TOOLBAR_H + ACTION_H + OVERVIEW_H)   /* top of the main content (ruler) area */
 #define STATUS_H 24
+#define RIBBON_H 30   /* R043: bottom Fusion-style workspace tier ribbon */
 #define MIXER_W 248
 #define RULER_H 26
 #define GUTTER_W 132
@@ -152,6 +154,12 @@ typedef struct app {
     char whisper_model_path[256];
 
     char project_path[512];  /* current .wbus file, "" = unsaved */
+
+    /* R043: DaVinci-Resolve-style workspace/tier ribbon (AUDIO/VIDEO/
+     * FUSION/3D-CGI/AGI). Self-contained controller (opaque struct); the
+     * DAW just queries which tier is active to route audio vs video work.
+     * The current tier drives which top tab band is shown. */
+    wb_workspace *ws;
 } app;
 
 static int running = 1;
@@ -176,6 +184,10 @@ static void setc(SDL_Renderer *r, Uint8 cr, Uint8 cg, Uint8 cb) {
     SDL_SetRenderDrawColor(r, cr, cg, cb, 255);
 }
 
+/* forward declaration — defined below (after the registry helpers) */
+static void ui_button(SDL_Renderer *r, int id, int x, int y, int w, int h,
+                      const char *label, int active);
+
 /* R039: per-track color palette (clips/markers colored by track, Ableton-style) */
 typedef struct { Uint8 r, g, b; } rgb;
 static const rgb TRACK_PALETTE[16] = {
@@ -194,6 +206,7 @@ enum {
     BTN_TAB0, BTN_TAB1, BTN_TAB2, BTN_TAB3, BTN_TAB4, BTN_TAB5, BTN_TAB6, BTN_TAB7,
     BTN_ACT0, BTN_ACT1, BTN_ACT2, BTN_ACT3,   /* per-view action buttons */
     BTN_OVERVIEW,                             /* arrangement overview strip (scroll/zoom) */
+    BTN_WS0, BTN_WS1, BTN_WS2, BTN_WS3, BTN_WS4,  /* R043: workspace tier ribbon AUDIO/VIDEO/FUSION/3D-CGI/AGI */
     BTN_COUNT
 };
 typedef struct { int id; SDL_Rect r; } click_region;
@@ -213,6 +226,61 @@ static int region_hit(int x, int y) {
             return g_regions[i].id;
     }
     return -1;
+}
+
+/* R043: DaVinci-Resolve-style workspace/tier ribbon.
+ *
+ * The app is a COMBO DAW + NLE + (future) 3D-CGI + AGI control surface. The
+ * ribbon lets the user flip the whole workspace between tiers so audio and
+ * video work never get tangled, while ONE session + engine stays live. We map
+ * each tier to a sensible default top-tab band so switching tiers also flips
+ * the view to the relevant toolset:
+ *   AUDIO  -> ARRANGE (0)   VIDEO -> MEDIA (4)   FUSION -> EDIT (5)
+ *   3D-CGI -> SESSION (3)   AGI   -> CAPTIONS (6)  (AGI drives caption/auto-edit)
+ * The change callback just points the current view at the new tier's home tab.
+ * The workspace controller itself (wb_workspace) owns all state. */
+static void ws_on_change(void *ctx, wb_workspace_tier old_t, wb_workspace_tier new_t) {
+    (void)old_t;
+    app *a = (app*)ctx;
+    if (!a) return;
+    static const int tier_home_tab[WB_WS_COUNT] = { 0, 4, 5, 3, 6 };
+    if (new_t >= 0 && new_t < WB_WS_COUNT)
+        a->tab = tier_home_tab[new_t];
+}
+
+/* Draw the bottom workspace ribbon. Five tiers, each a labeled button; the
+ * active tier is highlighted, locked tiers are dimmed. Registered as a click
+ * region so handle_mouse can hit-test it (one source of truth). */
+static void draw_workspace_ribbon(app *a) {
+    int y = WIN_H - STATUS_H - RIBBON_H;
+    SDL_Rect bar = { 0, y, WIN_W, RIBBON_H };
+    setc(a->ren, C_PANEL2); SDL_RenderFillRect(a->ren, &bar);
+    setc(a->ren, C_BG);
+    SDL_RenderDrawLine(a->ren, 0, y, WIN_W, y);
+
+    int n = WB_WS_COUNT, pad = 6;
+    int bw = (WIN_W - MIXER_W - pad*(n+1)) / n;
+    int by = y + 4, bh = RIBBON_H - 8;
+    wb_workspace_tier active = wb_workspace_active(a->ws);
+    for (int i = 0; i < n; i++) {
+        wb_workspace_tier t = (wb_workspace_tier)i;
+        int bx = pad + i*(bw+pad);
+        int unlocked = wb_workspace_unlocked(a->ws, t);
+        int is_active = (t == active);
+        const char *lbl = wb_workspace_label(t);
+        if (!unlocked) {
+            /* locked tier: draw dim outline only (capability not present yet) */
+            setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &(SDL_Rect){bx,by,bw,bh});
+            setc(a->ren, C_GRID);  SDL_RenderDrawRect(a->ren, &(SDL_Rect){bx,by,bw,bh});
+            wb_ui_draw_text(a->ren, bx+8, by+8, lbl, 1, C_TEXT_DIM);
+        } else {
+            ui_button(a->ren, BTN_WS0 + i, bx, by, bw, bh, lbl, is_active);
+        }
+    }
+    /* tier legend / hint on the right edge of the ribbon */
+    char hint[128];
+    snprintf(hint, sizeof(hint), "WORKSPACE: %s", wb_workspace_label(active));
+    wb_ui_draw_text(a->ren, WIN_W - MIXER_W - 200, y + 8, hint, 1, C_MUTE);
 }
 
 /* draw a labeled button; registers its hit region for handle_mouse */
@@ -881,6 +949,7 @@ static void render(app *a) {
     }
     draw_action_bar(a);
     draw_status(a);
+    draw_workspace_ribbon(a);   /* R043: bottom Fusion-style tier ribbon */
     SDL_RenderPresent(a->ren);
 }
 
@@ -1669,6 +1738,15 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                 case BTN_TAB0: case BTN_TAB1: case BTN_TAB2: case BTN_TAB3:
                 case BTN_TAB4: case BTN_TAB5: case BTN_TAB6: case BTN_TAB7:
                     a->tab = id - BTN_TAB0; break;
+                case BTN_WS0: case BTN_WS1: case BTN_WS2: case BTN_WS3: case BTN_WS4: {
+                    /* R043: switch workspace tier (Fusion-style ribbon) */
+                    wb_workspace_tier t = (wb_workspace_tier)(id - BTN_WS0);
+                    if (wb_workspace_set(a->ws, t) != 0) {
+                        fprintf(stderr, "workspace: tier %s is locked\n",
+                                wb_workspace_label(t));
+                    }
+                    break;
+                }
                 case BTN_ACT0: case BTN_ACT1: case BTN_ACT2: case BTN_ACT3:
                     handle_action(a, id - BTN_ACT0); break;
                 case BTN_OVERVIEW:   /* R040: begin scroll-drag on the overview strip */
@@ -1902,6 +1980,19 @@ static void handle_key(app *a, SDL_Keycode k) {
             printf("param editor: %s (track %d, slot %d)\n",
                    a->param_view ? "OPEN" : "closed", a->selected_track, a->param_slot);
         break;
+    case SDLK_w:
+        /* R043: unlock the future tiers (3D-CGI + AGI) so the Fusion-style
+         * ribbon can flip into them. They start locked; this proves the
+         * combo architecture is wireable end-to-end once the capability
+         * exists. Toggling again re-locks them. */
+        if (a->ws) {
+            int cgi  = !wb_workspace_unlocked(a->ws, WB_WS_3DCGI);
+            int agi  = !wb_workspace_unlocked(a->ws, WB_WS_AGI);
+            wb_workspace_set_unlocked(a->ws, WB_WS_3DCGI, cgi);
+            wb_workspace_set_unlocked(a->ws, WB_WS_AGI,   agi);
+            printf("workspace: %s 3D-CGI + AGI tiers\n", cgi ? "UNLOCKED" : "locked");
+        }
+        break;
     case SDLK_UP: case SDLK_DOWN:
         /* switch the VST3 slot being edited (only when editor is open) */
         if (a->param_view) {
@@ -2116,6 +2207,7 @@ int main(int argc, char **argv) {
     a->selected_track = -1;
     a->dragging_clip = -1;
     a->engine = wb_engine_create();
+    a->ws = wb_workspace_create(ws_on_change, a);  /* R043: tier controller */
     if (file_path) {
         /* open a project from disk instead of the demo */
         a->session = wb_session_load(file_path);
@@ -2299,6 +2391,7 @@ cleanup:
     if (audio) wb_backend_destroy(audio);
     if (a->tuner) { wb_tuner_stop(a->tuner); wb_tuner_destroy(a->tuner); }
     SDL_DestroyRenderer(a->ren); SDL_DestroyWindow(a->win);
+    wb_workspace_destroy(a->ws);  /* R043 */
     wb_engine_destroy(a->engine); wb_session_destroy(a->session);
     free(a); SDL_Quit();
     return 0;

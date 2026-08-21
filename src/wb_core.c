@@ -579,12 +579,23 @@ void wb_engine_destroy(wb_engine *e) {
 }
 
 void wb_engine_set_session(wb_engine *e, wb_session *s) {
+    if (!e) return;
     e->session = s;
     if (s) {
         e->t.bpm = s->bpm;
         e->t.time_sig_num = s->time_sig_num;
         e->t.time_sig_den = s->time_sig_den;
     }
+    /* R042 DEEP FIX — the real deep crash. The CoreAudio realtime render
+     * callback reads e->rtracks under process_lock (trylock). This function
+     * used to free() the old rtracks array WITHOUT holding that lock, so a
+     * concurrent render could read freed memory the instant a video clip was
+     * imported (type==2) while the transport was live -> non-deterministic
+     * crash. We now serialize the entire destroy+rebuild under process_lock:
+     * the render thread observes either the fully-built OLD array or the
+     * fully-built NEW one, never a freed/partial one. Render's trylock simply
+     * counts an xrun and stays silent while we swap, which is correct. */
+    if (e->lock_initialized) pthread_mutex_lock(&e->process_lock);
     if (e->rtracks) {
         for (int i = 0; i < (int)WB_MAX_TRACKS; i++) {
             wb_track_runtime *tr = &e->rtracks[i];
@@ -593,24 +604,23 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
                 else if (tr->voice_unit_id && strcmp(tr->voice_unit_id,"drum")==0) wb_drum_destroy(tr->voice);
                 else wb_synth_destroy(tr->voice);
             }
-            for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
-                if (tr->inserts[s]) {
-                    const wb_unit *u = tr->insert_ids[s] ? wb_unit_find(tr->insert_ids[s]) : NULL;
-                    if (u) u->vt->destroy(tr->inserts[s]);
-                    else if (tr->insert_ids[s] && strcmp(tr->insert_ids[s],"comp")==0)   wb_comp_destroy(tr->inserts[s]);
-                    else if (tr->insert_ids[s] && strcmp(tr->insert_ids[s],"reverb")==0) wb_reverb_destroy(tr->inserts[s]);
-                    else if (tr->insert_ids[s] && strcmp(tr->insert_ids[s],"delay")==0)   wb_delay_destroy(tr->inserts[s]);
+            for (int s2 = 0; s2 < WB_MAX_INSERT_SLOTS; s2++) {
+                if (tr->inserts[s2]) {
+                    const wb_unit *u = tr->insert_ids[s2] ? wb_unit_find(tr->insert_ids[s2]) : NULL;
+                    if (u) u->vt->destroy(tr->inserts[s2]);
+                    else if (tr->insert_ids[s2] && strcmp(tr->insert_ids[s2],"comp")==0)   wb_comp_destroy(tr->inserts[s2]);
+                    else if (tr->insert_ids[s2] && strcmp(tr->insert_ids[s2],"reverb")==0) wb_reverb_destroy(tr->inserts[s2]);
+                    else if (tr->insert_ids[s2] && strcmp(tr->insert_ids[s2],"delay")==0)   wb_delay_destroy(tr->inserts[s2]);
                 }
+                if (tr->midifx[s2]) { wb_midifx_destroy(tr->midifx[s2]); tr->midifx[s2] = NULL; }
             }
-            for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++)
-                if (tr->midifx[s]) { wb_midifx_destroy(tr->midifx[s]); tr->midifx[s] = NULL; }
             free(tr->bufL); free(tr->bufR);
             memset(tr, 0, sizeof(*tr));
         }
         free(e->rtracks);
         e->rtracks = NULL;
     }
-    if (!s) return;
+    if (!s) { if (e->lock_initialized) pthread_mutex_unlock(&e->process_lock); return; }
     e->rtracks = calloc(WB_MAX_TRACKS, sizeof(wb_track_runtime));
     for (uint32_t i = 0; i < s->track_count; i++) {
         wb_track_runtime *tr = &e->rtracks[i];
@@ -661,6 +671,14 @@ void wb_engine_set_session(wb_engine *e, wb_session *s) {
         for (int slot = 0; slot < WB_MAX_INSERT_SLOTS; slot++)
             tr->sidechainSrc[slot] = s->tracks[i].sidechain[slot];
     }
+    /* Clear launch state for track indices that no longer exist in the new
+     * session, so a stale launch_clip index can't point at a clip that was
+     * removed (it would otherwise dereference a freed/garbage clip). */
+    for (int t = (int)s->track_count; t < (int)WB_MAX_TRACKS; t++) {
+        e->launch_clip[t] = -1;
+        e->launch_pos[t] = 0;
+    }
+    if (e->lock_initialized) pthread_mutex_unlock(&e->process_lock);
 }
 
 wb_session *wb_engine_get_session(wb_engine *e) { return e->session; }

@@ -181,6 +181,9 @@ typedef struct app {
     wb_transcript *vid_tr;   /* editable transcript for the current video */
     int tr_sel0, tr_sel1;    /* selected word range [sel0, sel1) */
     int tr_row_y;            /* y of first transcript row (CAPTIONS tab) */
+    /* R050: CGI drag-rotate */
+    int cgi_dragging;
+    int cgi_last_x, cgi_last_y;
     SDL_Texture *vid_preview_tex; /* cached preview frame */
 
     /* tool paths */
@@ -2182,6 +2185,13 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
         if (a->tab == 1) { pad_click(a, b.x, b.y); return; }
         if (a->tab == 2) { step_click(a, b.x, b.y); return; }
         if (a->tab == 3) { session_click(a, b.x, b.y); return; }
+        /* R050: on the 3D-CGI tier a left-drag orbits the scene. */
+        if (a->cgi && wb_workspace_cgi_active(a->ws) && a->tab == 5) {
+            a->cgi_dragging = 1;
+            a->cgi_last_x = b.x;
+            a->cgi_last_y = b.y;
+            return;
+        }
         /* seek playhead to click position (scrub-on-click) */
         double pos = x_to_sample(a, b.x);
         wb_engine_seek(a->engine, pos);
@@ -2279,6 +2289,17 @@ static void handle_wheel(app *a, SDL_MouseWheelEvent w) {
 static void handle_motion(app *a, SDL_MouseMotionEvent m) {
     /* R040: dragging the overview strip scrolls the arrangement view */
     if (a->ov_drag) { ov_scroll_to(a, m.x); return; }
+    /* R050: CGI drag-orbit — yaw follows x, pitch follows y */
+    if (a->cgi_dragging && a->cgi) {
+        float rx, ry, rz;
+        wb_cgi_scene_get_rotation(a->cgi, &rx, &ry, &rz);
+        ry += (float)(m.xrel) * 0.01f;
+        rx += (float)(m.yrel) * 0.01f;
+        if (rx >  1.5f) rx =  1.5f;
+        if (rx < -1.5f) rx = -1.5f;
+        wb_cgi_scene_set_rotation(a->cgi, rx, ry, rz);
+        return;
+    }
     /* R043 (G1/G2): clip-handle drag — trim / fade / content-slide.
      * Applied directly to the clip; render path + draw share the geometry. */
     if (a->handle_drag >= 0 && a->session
@@ -2913,7 +2934,7 @@ int main(int argc, char **argv) {
             else if (ev.type==SDL_MOUSEWHEEL) handle_wheel(a, ev.wheel);
             else if (ev.type==SDL_MOUSEMOTION) handle_motion(a, ev.motion);
             else if (ev.type==SDL_MOUSEBUTTONDOWN) handle_mouse(a, ev.button);
-            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; a->handle_drag = -1; a->dragging_fader = -1; }
+            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; a->cgi_dragging = 0; a->handle_drag = -1; a->dragging_fader = -1; }
         }
         render(a);
         perf_tick(a);

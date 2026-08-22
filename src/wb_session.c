@@ -671,6 +671,10 @@ int wb_session_split_video_clip(wb_session *s, int track, int clip, double split
     double right_len = clip_end - split_pos;
     tr->clips = realloc(tr->clips, (tr->clip_count + 1) * sizeof(wb_clip));
     if (!tr->clips) return -1;
+    /* R042 DEEP FIX #2: `cl` pointed into the OLD clips array; realloc may
+     * have moved the buffer, so re-derive it BEFORE any further use (ASan
+     * heap-use-after-free at the cl->video->source_path read below). */
+    cl = &tr->clips[clip];
     /* shift everything right of `clip` by one to open a slot */
     for (uint32_t c = tr->clip_count; c > (uint32_t)(clip + 1); c--)
         tr->clips[c] = tr->clips[c - 1];

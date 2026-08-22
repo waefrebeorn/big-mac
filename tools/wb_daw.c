@@ -326,7 +326,7 @@ static void ui_button(SDL_Renderer *r, int id, int x, int y, int w, int h,
     SDL_RenderFillRect(r, &b);
     if (active) setc(r, 255, 255, 255); else setc(r, C_TEXT);
     wb_ui_draw_text(r, x + 8, y + (h-16)/2, label, 1, 255, 255, 255);
-    setc(r, active ? 150,190,255 : C_GRID);
+    if (active) setc(r, 150,190,255); else setc(r, C_GRID);   /* R046: no ternary on C_* macros */
     SDL_RenderDrawRect(r, &b);
 }
 
@@ -657,6 +657,29 @@ static void draw_arrangement(app *a) {
                 else                   setc(a->ren, b, b, b);
                 SDL_RenderFillRect(a->ren, &bar);
             }
+        }
+    }
+
+    /* R047: volume-automation overlay — each track's recorded fader lane
+     * drawn as a bright curve over its own track row. This is the fader
+     * automation READBACK: what you drew with the 'A'-armed fader is now
+     * visible where it acts. One source of truth with stage_automation. */
+    if (a->session) for (uint32_t l=0; l<a->session->automation_count; l++) {
+        const wb_automation_lane *al = a->session->automation[l];
+        if (!al || al->target < 0 || strcmp(al->param, "volume") != 0) continue;
+        if (al->point_count < 1) continue;
+        int ti = al->target;
+        if (ti >= (int)a->session->track_count) continue;
+        double th = ARRANG_H/(double)a->session->track_count;
+        int base_y = MAIN_Y + RULER_H + (int)(ti*th) + (int)th - 6;
+        setc(a->ren, C_FADE);
+        for (uint32_t p=1; p<al->point_count; p++) {
+            int x0 = arr_x(a, al->points[p-1].time);   /* time is SAMPLES */
+            int x1 = arr_x(a, al->points[p].time);
+            if (x1 < GUTTER_W || x0 > GUTTER_W+ARRANG_W) { continue; }
+            int y0 = base_y - (int)(al->points[p-1].value * (th*0.5));
+            int y1 = base_y - (int)(al->points[p].value   * (th*0.5));
+            SDL_RenderDrawLine(a->ren, x0, y0, x1, y1);
         }
     }
 
@@ -1127,7 +1150,6 @@ static void draw_param_editor(app *a) {
 }
 
 /* forward declarations for video editor tab functions (defined after render) */
-static void draw_tab_bar(app *a);
 static void draw_video_preview(app *a);
 static void draw_video_timeline(app *a);
 static void draw_video_tab_panel(app *a);
@@ -1274,6 +1296,7 @@ static void draw_overview(app *a) {
 }
 
 static SDL_Rect video_preview_rect(app *a) {
+    (void)a;
     SDL_Rect r;
     r.x = GUTTER_W;
     r.y = MAIN_Y + RULER_H + 26;

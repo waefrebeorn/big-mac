@@ -312,7 +312,6 @@ int wb_session_comp_region(wb_session *s, int track, int src_lane, double t0, do
             c = (uint32_t)-1;
         }
         else if (cl->type == 0) {   /* ---- MIDI: copy notes, split straddlers ---- */
-            double off = a - cs;   /* comp clip-relative offset */
             wb_clip comp; memset(&comp, 0, sizeof(comp));
             comp.type = 0; comp.lane = 0; comp.start = a; comp.length = b - a;
             for (uint32_t i = 0; i < cl->note_count; i++) {
@@ -434,6 +433,18 @@ wb_session *wb_session_demo(void) {
     wb_session_add_marker(s, mbar,       "Verse", 1);
     wb_session_add_marker(s, mbar*2.0,   "Chorus", 1);
     wb_session_add_marker(s, mbar*3.0,   "Outro", 1);
+
+    /* R047: demo volume-automation lane on track 0 — the arrangement
+     * overlay (fader automation readback) has real content out of the box.
+     * Session length is SAMPLES (8s = 352800); points are samples too. */
+    {
+        wb_automation_lane *vol = wb_session_add_automation(s, "volume", 0);
+        if (vol) {
+            wb_automation_add_point(vol, 0,               0.45, 0);
+            wb_automation_add_point(vol, 44100.0*4.0,     1.00, 0);
+            wb_automation_add_point(vol, 44100.0*8.0,     0.60, 0);
+        }
+    }
 
     return s;
 }

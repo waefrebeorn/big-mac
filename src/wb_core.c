@@ -270,28 +270,43 @@ static void stage_instruments(wb_engine *e, uint32_t frames) {
                  * the render doesn't drop it after the first (length) window. */
                 double cl_eff_end = cl->start + cl->length;
                 if (ce && ce->loop) cl_eff_end = (double)e->session->length;
-                /* skip clips that don't overlap this block */
-                if (cl_eff_end <= pos || cl->start >= pos + frames) continue;
+                /* skip clips that don't overlap this block. G9: a clip with
+                 * an armed pre-fade ALSO plays pre-roll before its true
+                 * start (material preceding the edit point), so widen the
+                 * window backwards by up to pre_fade_in seconds. */
+                double pre_roll = (ce && ce->pre_fade_in > 0.0f)
+                                ? (double)ce->pre_fade_in * WB_SAMPLE_RATE : 0.0;
+                if (cl_eff_end <= pos || cl->start - pre_roll >= pos + frames) continue;
                 uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
                 for (uint32_t i = 0; i < frames; i++) {
                     double sp = pos + i;
-                    if (sp < cl->start || sp >= cl_eff_end) continue;
+                    if (sp < cl->start - pre_roll || sp >= cl_eff_end) continue;
                     double f = sp - cl->start;               /* position within clip (samples) */
                     /* R043 (G5): content-slide — offset into the owned buffer so
                      * the waveform can be slid inside the clip boundary without
                      * moving the clip on the timeline. */
                     double sis = ce ? ce->start_in_source : 0.0;
                     double bufpos = f + sis;
+                    /* G9 pre-fade: negative f (pre-roll) reads source
+                     * immediately BEFORE the edit point, i.e. [sis-preroll,
+                     * sis), ramping 0->1. If the source has no material that
+                     * far back (bufpos<0), clamp to the buffer head so the
+                     * pre-roll still plays the earliest available material. */
+                    if (f < 0.0) {
+                        bufpos = sis + f;
+                        if (bufpos < 0.0) bufpos = 0.0;
+                    }
                     /* R043 (G3): loop — wrap bufpos within the loop region
                      * [sis, sis + looplen). looplen defaults to the full clip. */
                     double looplen = (ce && ce->loop_len > 0.0) ? ce->loop_len
                                                               : (double)cl->audio_frames;
-                    if (ce && ce->loop && looplen > 0.0) {
+                    if (ce && ce->loop && f >= 0.0) {
                         bufpos = sis + fmod(f, looplen);
                         if (bufpos < sis) bufpos += looplen;
                     }
-                    uint32_t idx = (uint32_t)bufpos;
-                    if (idx >= cl->audio_frames) continue;
+                    int64_t idx64 = (int64_t)bufpos;
+                    if (idx64 < 0 || idx64 >= (int64_t)cl->audio_frames) continue;
+                    uint32_t idx = (uint32_t)idx64;
                     float vL = cl->audio_data[idx*ch];
                     float vR = ch > 1 ? cl->audio_data[idx*ch+1] : vL;
                     /* R022: clip (region) gain — pre-fader, before track vol */

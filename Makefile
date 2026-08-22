@@ -98,12 +98,6 @@ test-clap: build/test-clap/bigmac-test.clap build/wb_test_clap
 test: build/wb_selftest
 	./build/wb_selftest
 
-build/wb_test_captions: build/tools/test_captions.o build/src/wb_captions.o $(CORE_OBJS)
-	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
-
-test_captions: build/wb_test_captions
-	./build/wb_test_captions
-
 test_launchpad_mk2: build/wb_test_launchpad_mk2
 	./build/wb_test_launchpad_mk2
 
@@ -122,7 +116,7 @@ clean:
 build/wb_test_video: build/tools/test_video.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 
-build/wb_e2e_export: tools/test_export_e2e.c $(CORE_OBJS)
+build/wb_test_export_e2e: build/tools/test_export_e2e.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 
 test_video: build/wb_test_video
@@ -234,8 +228,8 @@ build/wb_test_voice_polish: build/tools/test_voice_polish.o $(CORE_OBJS)
 test_voice_polish: build/wb_test_voice_polish
 	./build/wb_test_voice_polish
 
-test_export_e2e: build/wb_e2e_export
-	./build/wb_e2e_export
+test_export_e2e: build/wb_test_export_e2e
+	./build/wb_test_export_e2e
 
 build/wb_test_workspace: build/tools/test_workspace.o build/src/wb_workspace.o
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)

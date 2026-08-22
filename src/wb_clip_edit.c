@@ -73,6 +73,18 @@ float wb_clip_edit_env(const wb_clip_edit *e, double f, double length,
     if (!e) return 1.0f;
     float fin = e->fade_in;
     float fout = e->fade_out;
+    /* G9 pre-fade: material BEFORE the clip's true start ramps 0->1 over
+     * pre_fade_in seconds and reaches full amp exactly at the edit point.
+     * Negative f (pre-roll region) is scaled by the ramp; at/after f>=0 the
+     * pre-fade is done (full gain) so the true start is untouched. */
+    float pre = e->pre_fade_in;
+    if (f < 0.0) {
+        if (pre <= 0.0f) return 0.0f;   /* no pre-roll authorized -> silence */
+        double sec = -f / sample_rate;  /* seconds before the edit point */
+        float env = (float)(1.0 - sec / (double)pre);
+        if (env < 0.0f) env = 0.0f;
+        return env;
+    }
     if (fin <= 0.0f && fout <= 0.0f) return 1.0f;   /* neutral: full gain */
     double sec  = f / sample_rate;
     double dur  = length / sample_rate;

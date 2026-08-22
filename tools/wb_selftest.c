@@ -109,7 +109,10 @@ static void test_wav(void) {
 /* ---- test 4: effect units run without crashing and change signal ----- */
 static void test_units(void) {
     printf("test_units\n");
-    wb_sample L[256], R[256];
+    /* 512-sample buffers: the multiband check below processes 512 frames
+     * (ASan caught L/R sized 256 being overflowed at line ~172 — this was
+     * the source of the selftest's intermittent SIGILL). */
+    wb_sample L[512], R[512];
     for (int i = 0; i < 256; i++) { L[i] = (float)sin(i * 0.1); R[i] = L[i]; }
 
     /* compressor: should reduce a hot signal */
@@ -644,7 +647,8 @@ static void test_clip_gain(void) {
 static void render_offline(wb_engine *e, wb_sample *out, uint32_t n) {
     memset(out, 0, n * 2 * sizeof(wb_sample));
     uint32_t done = 0;
-    wb_sample tmp[WB_MAX_BLOCK * 2];
+    static wb_sample *tmp = NULL;
+    if (!tmp) tmp = malloc(WB_MAX_BLOCK * 2 * sizeof(wb_sample));
     while (done < n) {
         uint32_t blk = n - done; if (blk > WB_MAX_BLOCK) blk = WB_MAX_BLOCK;
         wb_engine_render(e, tmp, blk);
@@ -749,6 +753,106 @@ static void test_clip_content_slide(void) {
     free(out);
     wb_engine_destroy(e);
     wb_session_destroy(s);
+}
+
+/* ---- R043-G8/G9: crossfade overlap + pre-fade -------------------------- */
+/* G8: two overlapping clips on one track with complementary fades sum to a
+ * dip-free crossfade (equal-gain at the midpoint: 0.5+0.5=1.0). G9: a clip
+ * with pre_fade_in plays material BEFORE its edit point, ramping to full
+ * amp exactly at the true start (the edit point is preserved). */
+static void test_crossfade_prefade(void) {
+    printf("test_crossfade_prefade\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 132300.0;   /* 3s */
+    wb_track *tr = wb_session_add_track(s, "XFade", 1);
+    uint32_t nf = 88200;                    /* 2s constant tone buffer */
+    wb_sample *buf = malloc(nf * sizeof(wb_sample));
+    for (uint32_t i = 0; i < nf; i++)
+        buf[i] = (wb_sample)(0.3 * sin(2*M_PI*440.0*(double)i/44100.0));
+
+    /* clip A at t=0 (len 2s), clip B at t=1s (len 2s) -> 1s overlap [1,2).
+     * Clip `length` is SAMPLES for audio clips (wbus.h line 60). */
+    wb_session_add_audio_clip(tr, 0, (double)nf, buf, nf, 1);          /* t=0 */
+    wb_session_add_audio_clip(tr, 44100.0, (double)nf, buf, nf, 1);   /* t=1.0s (SAMPLES) */
+
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    wb_clip_edit_table *et = wb_engine_clip_edit(e);
+    wb_clip_edit *ca = wb_clip_edit_get(et, 0, 0);
+    wb_clip_edit *cb = wb_clip_edit_get(et, 0, 1);
+    /* G8: A fades out over its last 0.5s (the overlap), B fades in over
+     * its first 0.5s. Equal-gain: sum should stay ~constant through the
+     * overlap (linear fades are equal-power-ish for correlated material). */
+    ca->fade_out = 1.0f;   /* ramps over ALL of A's second half [1s,2s) */
+    cb->fade_in  = 1.0f;   /* ramps over ALL of B's first half [1s,2s) */
+
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    wb_sample *out = malloc(44100*3*2 * sizeof(wb_sample));  /* n*2: interleaved */
+    render_offline(e, out, 44100*3);
+    /* measure peak in 0.25s windows across the crossfade region */
+    float pk[12];
+    for (int w = 0; w < 12; w++) {
+        pk[w] = 0;
+        for (int i = w*11025; i < (w+1)*11025; i++) {
+            float v = out[i*2]<0?-out[i*2]:out[i*2];
+            if (v > pk[w]) pk[w] = v;
+        }
+    }
+    /* before overlap (w0-2) full tone; mid-overlap (w5-6) both clips sum;
+     * the sum at the midpoint must be close to the solo level (dip-free),
+     * NOT a dropout. */
+    float solo = pk[1];
+    float mid  = pk[5] > pk[6] ? pk[5] : pk[6];
+    CHECK(solo > 0.2f, "pre-overlap region is the full tone");
+    CHECK(mid > solo * 0.6f, "crossfade midpoint stays loud (no dropout dip)");
+    CHECK(mid < solo * 1.4f, "crossfade midpoint does not double-boost");
+    printf("         solo=%.3f xfade-mid=%.3f\n", solo, mid);
+
+    /* G8 negative control: WITHOUT fades the overlap double-boosts */
+    ca->fade_out = 0.0f; cb->fade_in = 0.0f;
+    wb_engine_seek(e, 0.0); wb_engine_play(e);
+    render_offline(e, out, 44100*3);
+    float raw_mid = 0;
+    for (int i = 5*11025; i < 7*11025; i++) {
+        float v = out[i*2]<0?-out[i*2]:out[i*2];
+        if (v > raw_mid) raw_mid = v;
+    }
+    CHECK(raw_mid > solo * 1.2f, "no-fade overlap sums louder than crossfaded mid (control)");
+    printf("         no-fade overlap peak=%.3f (vs solo %.3f)\n", raw_mid, solo);
+
+    /* G9: pre-fade — clip B's edit point is at t=1.0; arm pre_fade_in=0.5
+     * and verify material plays BEFORE 1.0 (ramping up) while t>=1.0 is
+     * untouched full-amp. */
+    wb_session *s2 = wb_session_create();
+    s2->bpm = 120.0; s2->length = 132300.0;
+    wb_track *tr2 = wb_session_add_track(s2, "PreFade", 1);
+    double edit_pt = 44100.0;   /* audio-clip start is SAMPLES: edit point at t=1.0s */
+    wb_session_add_audio_clip(tr2, edit_pt, (double)nf, buf, nf, 1);  /* len in SAMPLES */
+    wb_engine *e2 = wb_engine_create();
+    wb_engine_set_session(e2, s2);
+    wb_clip_edit *cp = wb_clip_edit_get(wb_engine_clip_edit(e2), 0, 0);
+    cp->pre_fade_in = 0.5f;     /* play 0.5s of pre-roll, ramping in */
+    cp->start_in_source = 44100.0;  /* edit point sits 1s INTO the source, so
+                                     * [sis-0.5s, sis) is REAL material */
+    wb_engine_seek(e2, 0.0); wb_engine_play(e2);
+    render_offline(e2, out, 44100*3);
+    float pre_pk = 0, at_pk = 0;
+    for (int i = (int)(0.55*44100); i < (int)(0.70*44100); i++) {
+        float v = out[i*2]<0?-out[i*2]:out[i*2];
+        if (v > pre_pk) pre_pk = v;
+    }
+    for (int i = (int)(1.05*44100); i < (int)(1.25*44100); i++) {
+        float v = out[i*2]<0?-out[i*2]:out[i*2];
+        if (v > at_pk) at_pk = v;
+    }
+    CHECK(pre_pk > 0.02f, "pre-fade: audio EXISTS before the edit point");
+    CHECK(pre_pk < at_pk * 0.9f, "pre-roll is quieter than the edit point (ramping)");
+    CHECK(at_pk > 0.2f, "edit point itself is full amp (preserved)");
+    printf("         pre-roll peak=%.3f  at-edit peak=%.3f\n", pre_pk, at_pk);
+
+    free(buf); free(out);
+    wb_engine_destroy(e); wb_session_destroy(s);
+    wb_engine_destroy(e2); wb_session_destroy(s2);
 }
 /* ---- test: R043-G4 fader automation write + 0 dB anchor quantization ---- */
 static void test_fader_automation(void) {
@@ -1714,6 +1818,7 @@ int main(void) {
     test_clip_content_slide();
     test_fader_automation();
     test_node_graph();
+    test_crossfade_prefade();
     test_velocity();
     test_meter();
     test_master_meter();

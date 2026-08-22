@@ -274,7 +274,10 @@ static void ws_on_change(void *ctx, wb_workspace_tier old_t, wb_workspace_tier n
     (void)old_t;
     app *a = (app*)ctx;
     if (!a) return;
-    static const int tier_home_tab[WB_WS_COUNT] = { 0, 4, 5, 3, 6 };
+    static const int tier_home_tab[WB_WS_COUNT] = { 0, 4, 5, 5, 5 };
+    /* R046: FUSION/3D-CGI/AGI all host their dedicated view on tab 5 (EDIT);
+     * the draw fn branches on the active tier. Old mapping (3,6) pointed at
+     * SESSION/CAPTIONS — those tiers drew nothing there. */
     if (new_t >= 0 && new_t < WB_WS_COUNT)
         a->tab = tier_home_tab[new_t];
 }
@@ -2606,9 +2609,11 @@ int main(int argc, char **argv) {
     const char *shot_path = NULL;
     const char *file_path = NULL;
     int forced_view = -1;
+    int forced_tier = -1;
     for (int i=1;i<argc;i++) {
         if (strcmp(argv[i],"--screenshot")==0) { shot=1; shot_path = (i+1<argc)?argv[i+1]:"/tmp/wbdaw.ppm"; }
         else if (strcmp(argv[i],"--view")==0 && i+1<argc) { forced_view = atoi(argv[i+1]); }
+        else if (strcmp(argv[i],"--tier")==0 && i+1<argc) { forced_tier = atoi(argv[i+1]); }
         else if (strcmp(argv[i],"--file")==0 && i+1<argc) { file_path = argv[i+1]; }
     }
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
@@ -2660,6 +2665,21 @@ int main(int argc, char **argv) {
              "/Users/waefrebeorn/whisper.cpp/build/bin/whisper-cli");
     snprintf(a->whisper_model_path, sizeof(a->whisper_model_path),
              "/Users/waefrebeorn/whisper.cpp/models/ggml-tiny.en-q5_1.bin");
+
+    /* R046: --tier N (0=AUDIO..4=AGI) unlocks + activates a workspace tier
+     * before the first frame so --screenshot can capture CGI/AGI views. */
+    if (forced_tier >= 0 && forced_tier < WB_WS_COUNT) {
+        wb_workspace_set_unlocked(a->ws, (wb_workspace_tier)forced_tier, 1);
+        wb_workspace_set(a->ws, (wb_workspace_tier)forced_tier);
+    }
+
+    /* R046: screenshot mode seeds demo AGI tasks so the AGI control surface
+     * shows real content (task rows + progress), not an empty list. */
+    if (shot && forced_tier == 4) {
+        wb_agi_submit(a->agi, "render proxy: interview.mp4");
+        wb_agi_submit(a->agi, "voice polish: ep03 narration");
+        wb_agi_submit(a->agi, "auto-cut: silence removal");
+    }
 
     a->win = SDL_CreateWindow("Big Mac DAW", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                               WIN_W, WIN_H, SDL_WINDOW_SHOWN);

@@ -23,6 +23,8 @@
 #include "wbus_workspace.h"
 #include "wbus_clip_edit.h"
 #include "wbus_compositor.h"
+#include "wbus_cgi.h"
+#include "wbus_agi.h"
 #include "wbus_captions.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
@@ -112,6 +114,9 @@ typedef struct app {
     wb_automation_recorder *fader_rec[WB_MAX_TRACKS];   /* per-track volume recorder */
     /* R043 (G6): Fusion-style node-graph view model (self-contained compositor) */
     wb_node_graph *comp_graph;
+    /* R043-G7: 3D-CGI scene + AGI task bridge (self-contained modules) */
+    wb_cgi_scene *cgi;
+    wb_agi       *agi;
     /* R032: comping marquee — shift+drag a time range on a lane, then 'C'
      * commits it to lane 0 (the comp). sel_lane = which lane the drag was on. */
     int marquee_active;
@@ -991,6 +996,75 @@ static void draw_fusion_graph(app *a) {
     }
 }
 
+/* ---- R043 (G7): 3D-CGI viewport + AGI task surface -------------------- */
+/* CGI: rasterize the opaque scene model's projected triangles as a wireframe
+ * with per-face shading; grid lines under the object. The UI knows nothing
+ * about vertices/cameras — only screen-space lines. */
+static void draw_cgi_view(app *a) {
+    if (!a->cgi) return;
+    int ox = GUTTER_W + 16, oy = MAIN_Y + RULER_H + 40;
+    wb_ui_draw_text(a->ren, ox, oy - 26, "3D-CGI  .  scene", 1, C_ACCENT);
+    wb_ui_draw_text(a->ren, ox, oy - 12,
+        "low-poly software renderer  (wheel = zoom; live rotation)", 1, C_TEXT_DIM);
+    /* center the projection in the panel */
+    int cx = ox + 300, cy = oy + 180;
+    /* ground grid first */
+    setc(a->ren, 60, 70, 90);
+    for (int i = 0; i < wb_cgi_scene_grid_count(a->cgi); i++) {
+        float x0,y0,x1,y1;
+        wb_cgi_scene_grid_line(a->cgi, i, &x0,&y0,&x1,&y1);
+        SDL_RenderDrawLine(a->ren, cx+(int)x0, cy+(int)y0/2, cx+(int)x1, cy+(int)y1/2);
+    }
+    /* shaded wireframe triangles, back-to-front by mean depth */
+    for (int pass = 0; pass < 2; pass++) {
+        for (int i = 0; i < wb_cgi_scene_tri_count(a->cgi); i++) {
+            float x0,y0,x1,y1,x2,y2,sh;
+            wb_cgi_scene_tri(a->cgi, i, &x0,&y0,&x1,&y1,&x2,&y2,&sh);
+            int bright = sh > 0.7f;
+            if ((pass == 0) != (!bright)) continue;   /* dim faces behind */
+            setc(a->ren,
+                 (int)(70 + 140*sh), (int)(80 + 130*sh), (int)(110 + 120*sh));
+            SDL_RenderDrawLine(a->ren, cx+(int)x0, cy+(int)y0, cx+(int)x1, cy+(int)y1);
+            SDL_RenderDrawLine(a->ren, cx+(int)x1, cy+(int)y1, cx+(int)x2, cy+(int)y2);
+            SDL_RenderDrawLine(a->ren, cx+(int)x2, cy+(int)y2, cx+(int)x0, cy+(int)y0);
+        }
+    }
+    char zb[32]; snprintf(zb, sizeof(zb), "zoom %.2f", wb_cgi_scene_get_zoom(a->cgi));
+    wb_ui_draw_text(a->ren, ox, oy + 380, zb, 1, C_TEXT);
+}
+
+/* AGI: task list + live progress bars. Submit real work via 'N' in this view. */
+static void draw_agi_view(app *a) {
+    if (!a->agi) return;
+    int ox = GUTTER_W + 16, oy = MAIN_Y + RULER_H + 40;
+    wb_ui_draw_text(a->ren, ox, oy - 26, "AGI  .  control surface", 1, C_ACCENT);
+    wb_ui_draw_text(a->ren, ox, oy - 12,
+        "task bridge: N submits a render/polish/cut task  (queued -> running -> done)",
+        1, C_TEXT_DIM);
+    static const char *st_name[] = { "QUEUED", "RUNNING", "DONE  ", "FAILED" };
+    for (int i = 0; i < wb_agi_task_count(a->agi); i++) {
+        int y = oy + i * 34;
+        wb_agi_status st = wb_agi_task_status(a->agi, i);
+        float pr = wb_agi_task_progress(a->agi, i);
+        wb_ui_draw_text(a->ren, ox, y, wb_agi_task_label(a->agi, i), 1, C_TEXT);
+        wb_ui_draw_text(a->ren, ox + 320, y, st_name[st],
+                        1, st == WB_AGI_DONE ? C_ACCENT : C_FADE);
+        /* progress bar */
+        SDL_Rect bg = { ox + 400, y - 2, 200, 12 };
+        setc(a->ren, C_LANE_B); SDL_RenderFillRect(a->ren, &bg);
+        if (pr > 0.0f) {
+            SDL_Rect fg = { ox + 400, y - 2, (int)(200 * pr), 12 };
+            setc(a->ren, C_ACCENT); SDL_RenderFillRect(a->ren, &fg);
+        }
+    }
+    const char *ev = wb_agi_last_event(a->agi);
+    if (ev[0]) {
+        char line[128];
+        snprintf(line, sizeof(line), "last event: %s", ev);
+        wb_ui_draw_text(a->ren, ox, oy + 380, line, 1, C_TEXT_DIM);
+    }
+}
+
 /* ---- VST3 parameter editor panel -------------------------------------- */
 #define PED_X        GUTTER_W
 #define PED_Y        (MAIN_Y + RULER_H + 8)
@@ -1360,9 +1434,10 @@ static void draw_video_tab_panel(app *a) {
         wb_ui_draw_text(a->ren, px + 6, yy, "^I  import  ^G  captions  ^R  export", 1, C_TEXT_DIM);
         break;
     case 5: /* EDIT */
-        /* R043 (G6): on the FUSION tier, the EDIT tab becomes a node-graph
-         * view (so the tier switch is visibly real, not a shell flip). */
+        /* R043-G6/G7: upper tiers host their own view on this tab. */
         if (wb_workspace_fusion_active(a->ws)) { draw_fusion_graph(a); break; }
+        if (wb_workspace_cgi_active(a->ws))   { draw_cgi_view(a);   break; }
+        if (wb_workspace_agi_active(a->ws))   { draw_agi_view(a);   break; }
         snprintf(buf, sizeof(buf), "Clip editor");
         wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 20;
         if (a->vid_has_clip) {
@@ -1845,6 +1920,9 @@ static void perf_tick(app *a) {
             if (p >= 0) wb_engine_note(a->engine, ti, (uint8_t)p, 100);
         }
     }
+    /* R043-G7: live ticks for the upper-tier views (CGI rotation + AGI pipeline) */
+    if (a->cgi && wb_workspace_cgi_active(a->ws)) wb_cgi_scene_tick(a->cgi, 1.0/60.0);
+    if (a->agi && wb_workspace_agi_active(a->ws)) wb_agi_tick(a->agi, 1.0/60.0);
 }
 
 static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
@@ -2086,6 +2164,12 @@ static double song_len_samples(app *a) {
 /* Mouse wheel: horizontal scroll (shift+wheel) or vertical scroll;
  * plain wheel zooms the timeline around the cursor. */
 static void handle_wheel(app *a, SDL_MouseWheelEvent w) {
+    /* R043-G7: on the 3D-CGI tier the wheel zooms the scene, not the timeline */
+    if (a->cgi && wb_workspace_cgi_active(a->ws) && a->tab == 5) {
+        float z = wb_cgi_scene_get_zoom(a->cgi);
+        wb_cgi_scene_set_zoom(a->cgi, z * (w.y > 0 ? 1.15f : 0.87f));
+        return;
+    }
     if (!a->session) return;
     int mx = ARRANG_W / 2 + GUTTER_W;  /* zoom anchor: center of arrangement */
     if (w.x != 0 || (SDL_GetModState() & KMOD_SHIFT)) {
@@ -2262,6 +2346,18 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_n:
+        /* R043-G7: on the AGI tier, plain N submits a task to the bridge. */
+        if (!ctrl && a->agi && wb_workspace_agi_active(a->ws)) {
+            static const char *tasks[] = {
+                "render episode", "polish voice -16 LUFS", "auto-cut shorts",
+                "detect scenes + captions"
+            };
+            static int ni = 0;
+            int id = wb_agi_submit(a->agi, tasks[ni % 4]);
+            if (id >= 0) printf("agi: submitted task %d (%s)\n", id, tasks[ni % 4]);
+            ni++;
+            break;
+        }
         if (ctrl) {  /* Ctrl+N: new (empty) project */
             wb_session *s = wb_session_create();
             wb_session *old = a->session;
@@ -2524,6 +2620,8 @@ int main(int argc, char **argv) {
     a->engine = wb_engine_create();
     a->ws = wb_workspace_create(ws_on_change, a);  /* R043: tier controller */
     a->comp_graph = wb_node_graph_create();          /* R043-G6: Fusion node view */
+    a->cgi = wb_cgi_scene_create();                  /* R043-G7: 3D-CGI scene */
+    a->agi = wb_agi_create();                        /* R043-G7: AGI task bridge */
     if (file_path) {
         /* open a project from disk instead of the demo */
         a->session = wb_session_load(file_path);
@@ -2711,6 +2809,8 @@ cleanup:
     for (int i = 0; i < WB_MAX_TRACKS; i++)   /* R043 (G4): free fader recorders */
         if (a->fader_rec[i]) wb_automation_recorder_destroy(a->fader_rec[i]);
     if (a->comp_graph) wb_node_graph_destroy(a->comp_graph);  /* R043-G6 */
+    wb_cgi_scene_destroy(a->cgi);
+    wb_agi_destroy(a->agi);
     wb_engine_destroy(a->engine); wb_session_destroy(a->session);
     free(a); SDL_Quit();
     return 0;

@@ -67,6 +67,8 @@ int    wb_video_decoder_get_height(wb_video_decoder *d);
 
 int wb_video_make_proxy(const char *src, const char *proxy);
 double wb_video_proxy_duration(const char *proxy_path);
+/* duration of any media file (Duration: parse; no ffprobe dependency) */
+double wb_video_probe_duration(const char *path);
 
 /* ---- SDL2 preview helpers ---------------------------------------------- */
 

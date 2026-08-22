@@ -22,6 +22,7 @@
 #include "wbus_video.h"
 #include "wbus_workspace.h"
 #include "wbus_clip_edit.h"
+#include "wbus_compositor.h"
 #include "wbus_captions.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
@@ -109,6 +110,8 @@ typedef struct app {
     float fader_vol0;
     int arm[WB_MAX_TRACKS];
     wb_automation_recorder *fader_rec[WB_MAX_TRACKS];   /* per-track volume recorder */
+    /* R043 (G6): Fusion-style node-graph view model (self-contained compositor) */
+    wb_node_graph *comp_graph;
     /* R032: comping marquee — shift+drag a time range on a lane, then 'C'
      * commits it to lane 0 (the comp). sel_lane = which lane the drag was on. */
     int marquee_active;
@@ -941,6 +944,53 @@ static void draw_mixer(app *a) {
     }
 }
 
+/* ---- R043 (G6): Fusion-style node-graph view -------------------------- */
+/* Renders the self-contained comp_graph (Source -> Gain -> Composite) as
+ * boxes + wires. The UI never touches node internals — only the opaque
+ * accessors — so the compositor stays self-contained. */
+static void draw_fusion_graph(app *a) {
+    if (!a->comp_graph) return;
+    int n = wb_node_graph_count(a->comp_graph);
+    int ox = GUTTER_W + 16, oy = MAIN_Y + RULER_H + 40;   /* graph origin */
+    float scale = 1.0f;
+    /* header */
+    wb_ui_draw_text(a->ren, ox, oy - 26, "FUSION  .  node graph", 1, C_ACCENT);
+    wb_ui_draw_text(a->ren, ox, oy - 12,
+        "Source A/B -> Gain -> Composite   (drag-free preview; click a node to select)",
+        1, C_TEXT_DIM);
+    /* wires first (under nodes) */
+    for (int i = 0; i < n; i++) {
+        float x1, y1; wb_node_graph_pos(a->comp_graph, i, &x1, &y1);
+        int ins = wb_node_graph_inputs(a->comp_graph, i);
+        for (int k = 0; k < ins; k++) {
+            int j = wb_node_graph_input_of(a->comp_graph, i, k);
+            if (j < 0) continue;
+            float x2, y2; wb_node_graph_pos(a->comp_graph, j, &x2, &y2);
+            setc(a->ren, 150, 170, 200);
+            SDL_RenderDrawLine(a->ren,
+                (int)(ox + x2*scale) + 90, (int)(oy + y2*scale) + 20,
+                (int)(ox + x1*scale),       (int)(oy + y1*scale) + 20);
+        }
+    }
+    /* nodes */
+    for (int i = 0; i < n; i++) {
+        float x, y; wb_node_graph_pos(a->comp_graph, i, &x, &y);
+        int bx = (int)(ox + x*scale), by = (int)(oy + y*scale);
+        SDL_Rect box = { bx, by, 90, 40 };
+        wb_node_kind k = wb_node_graph_kind(a->comp_graph, i);
+        setc(a->ren, (k==WB_NODE_COMPOSITE)?C_ACCENT:C_PANEL2);
+        SDL_RenderFillRect(a->ren, &box);
+        setc(a->ren, C_TEXT); SDL_RenderDrawRect(a->ren, &box);
+        wb_ui_draw_text(a->ren, bx+5, by+5, wb_node_graph_label(a->comp_graph, i), 1, C_TEXT);
+        /* animate a gain readout on the Gain node to prove liveness */
+        if (k == WB_NODE_EFFECT) {
+            float g = wb_node_graph_param(a->comp_graph, i, (double)a->t.song_pos/WB_SAMPLE_RATE);
+            char gb[16]; snprintf(gb, sizeof(gb), "g%.2f", g);
+            wb_ui_draw_text(a->ren, bx+5, by+22, gb, 1, C_FADE);
+        }
+    }
+}
+
 /* ---- VST3 parameter editor panel -------------------------------------- */
 #define PED_X        GUTTER_W
 #define PED_Y        (MAIN_Y + RULER_H + 8)
@@ -1310,6 +1360,9 @@ static void draw_video_tab_panel(app *a) {
         wb_ui_draw_text(a->ren, px + 6, yy, "^I  import  ^G  captions  ^R  export", 1, C_TEXT_DIM);
         break;
     case 5: /* EDIT */
+        /* R043 (G6): on the FUSION tier, the EDIT tab becomes a node-graph
+         * view (so the tier switch is visibly real, not a shell flip). */
+        if (wb_workspace_fusion_active(a->ws)) { draw_fusion_graph(a); break; }
         snprintf(buf, sizeof(buf), "Clip editor");
         wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 20;
         if (a->vid_has_clip) {
@@ -2470,6 +2523,7 @@ int main(int argc, char **argv) {
     a->dragging_clip = -1;
     a->engine = wb_engine_create();
     a->ws = wb_workspace_create(ws_on_change, a);  /* R043: tier controller */
+    a->comp_graph = wb_node_graph_create();          /* R043-G6: Fusion node view */
     if (file_path) {
         /* open a project from disk instead of the demo */
         a->session = wb_session_load(file_path);
@@ -2656,6 +2710,7 @@ cleanup:
     wb_workspace_destroy(a->ws);  /* R043 */
     for (int i = 0; i < WB_MAX_TRACKS; i++)   /* R043 (G4): free fader recorders */
         if (a->fader_rec[i]) wb_automation_recorder_destroy(a->fader_rec[i]);
+    if (a->comp_graph) wb_node_graph_destroy(a->comp_graph);  /* R043-G6 */
     wb_engine_destroy(a->engine); wb_session_destroy(a->session);
     free(a); SDL_Quit();
     return 0;

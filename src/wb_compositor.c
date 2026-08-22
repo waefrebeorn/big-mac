@@ -9,7 +9,7 @@
 
 /* ---- G1: global quality-of-service dial (0..1) ----------------------- */
 static double g_quality = 1.0;   /* default full quality */
-static int    g_backend = WB_BACKEND_CPU;  /* G12: CPU authoritative */
+static int    g_backend = WB_RENDER_CPU;  /* G12: CPU authoritative */
 
 void wb_compositor_set_quality(double q) {
     if (q < 0.0) q = 0.0;
@@ -25,12 +25,12 @@ int wb_compositor_tile_size(void) {
 }
 
 /* ---- G12: GPU-offload boundary -------------------------------------- */
-void wb_compositor_set_backend(wb_backend b) {
+void wb_compositor_set_backend(wb_render_backend b) {
     /* CPU path is authoritative; flipping to GPU only marks the boundary
      * where a Metal interop layer would wrap wb_px buffers. */
-    g_backend = (b == WB_BACKEND_GPU) ? WB_BACKEND_GPU : WB_BACKEND_CPU;
+    g_backend = (b == WB_RENDER_GPU) ? WB_RENDER_GPU : WB_RENDER_CPU;
 }
-wb_backend wb_compositor_get_backend(void) { return (wb_backend)g_backend; }
+wb_render_backend wb_compositor_get_backend(void) { return (wb_render_backend)g_backend; }
 void wb_frame_set_gpu(wb_frame *f, int gpu) { if (f) f->gpu = gpu ? 1 : 0; }
 int  wb_frame_get_gpu(const wb_frame *f) { return f ? f->gpu : 0; }
 
@@ -658,3 +658,104 @@ int wb_node_cache_stats(const wb_node *n, int *hits, int *count) {
 
 /* expose comp_add for tests via a small public wrapper */
 void wb_composite_add(wb_node *comp, wb_node *child) { comp_add(comp, child); }
+
+/* ---- R043 (G6): self-contained node-graph view model ------------------ */
+/* Fusion-style demo chain:
+ *   0 Source (color) -> 1 Effect (gain) -> 2 Composite -> 3 Output
+ * The Output is a synthetic sink node (no pull); the UI draws it as the
+ * graph terminus. Layout is a left-to-right column flow. */
+struct wb_node_graph {
+    wb_node *nodes[8];
+    int      n_nodes;
+    char     labels[8][24];
+    float    x[8], y[8];        /* screen-space layout (logical px) */
+    int      in_idx[8][4];      /* node indices feeding each input */
+    int      in_n[8];
+};
+
+static const char *kind_label(wb_node_kind k) {
+    switch (k) {
+        case WB_NODE_SOURCE:    return "Source";
+        case WB_NODE_EFFECT:    return "Effect";
+        case WB_NODE_COMPOSITE: return "Composite";
+        case WB_NODE_COLORSPACE:return "ColorSpace";
+        case WB_NODE_TONEMAP:   return "Tonemap";
+        case WB_NODE_CACHE:     return "Cache";
+        default:                return "Node";
+    }
+}
+
+wb_node_graph *wb_node_graph_create(void) {
+    wb_node_graph *g = calloc(1, sizeof(*g));
+    if (!g) return NULL;
+    /* OWNERSHIP: the graph owns every node exactly once. Do NOT wire
+     * node->inputs / wb_composite_add here — wb_node_destroy RECURSES into
+     * inputs, so any cross-wiring would double-free (comp would own src/src2,
+     * eff would own src, and the graph would destroy them again). The graph's
+     * in_idx metadata below encodes the wiring for drawing only. */
+    wb_node *src  = wb_node_source_color(0.2f, 0.5f, 0.9f, 1.0f, 640, 360);
+    wb_node *eff  = wb_node_effect(1, 1.0f);          /* WB_NODE_EFFECT (gain) */
+    wb_node *comp = wb_node_composite();              /* WB_NODE_COMPOSITE */
+    wb_node *src2 = wb_node_source_color(0.9f, 0.3f, 0.2f, 0.6f, 640, 360);
+    if (!src || !eff || !comp || !src2) {
+        wb_node_destroy(src); wb_node_destroy(eff);
+        wb_node_destroy(comp); wb_node_destroy(src2);
+        free(g);
+        return NULL;
+    }
+
+    g->nodes[0] = src;  snprintf(g->labels[0],sizeof(g->labels[0]),"Source A");
+    g->nodes[1] = src2; snprintf(g->labels[1],sizeof(g->labels[1]),"Source B");
+    g->nodes[2] = eff;  snprintf(g->labels[2],sizeof(g->labels[2]),"Gain");
+    g->nodes[3] = comp; snprintf(g->labels[3],sizeof(g->labels[3]),"Composite");
+    g->n_nodes = 4;
+
+    /* layout: two sources on the left, gain middle, composite right */
+    g->x[0] = 40;  g->y[0] = 60;
+    g->x[1] = 40;  g->y[1] = 220;
+    g->x[2] = 260; g->y[2] = 140;
+    g->x[3] = 480; g->y[3] = 140;
+
+    /* wiring (graph metadata only — the UI draws these; nodes are owned
+     * independently by the graph and destroyed once each). Do NOT wire
+     * node->inputs here or wb_node_destroy would double-free. */
+    g->in_n[2] = 1; g->in_idx[2][0] = 0;
+    g->in_n[3] = 2; g->in_idx[3][0] = 2; g->in_idx[3][1] = 1;
+    return g;
+}
+
+void wb_node_graph_destroy(wb_node_graph *g) {
+    if (!g) return;
+    for (int i = 0; i < g->n_nodes; i++)
+        if (g->nodes[i]) wb_node_destroy(g->nodes[i]);
+    free(g);
+}
+
+int wb_node_graph_count(const wb_node_graph *g) { return g ? g->n_nodes : 0; }
+
+const char *wb_node_graph_label(const wb_node_graph *g, int i) {
+    if (!g || i < 0 || i >= g->n_nodes) return "";
+    return g->labels[i];
+}
+wb_node_kind wb_node_graph_kind(const wb_node_graph *g, int i) {
+    if (!g || i < 0 || i >= g->n_nodes) return WB_NODE_SOURCE;
+    return wb_node_get_kind(g->nodes[i]);
+}
+int wb_node_graph_inputs(const wb_node_graph *g, int i) {
+    if (!g || i < 0 || i >= g->n_nodes) return 0;
+    return g->in_n[i];
+}
+int wb_node_graph_input_of(const wb_node_graph *g, int i, int k) {
+    if (!g || i < 0 || i >= g->n_nodes || k < 0 || k >= g->in_n[i]) return -1;
+    return g->in_idx[i][k];
+}
+void wb_node_graph_pos(const wb_node_graph *g, int i, float *x, float *y) {
+    if (!g || i < 0 || i >= g->n_nodes) { if (x)*x=0; if (y)*y=0; return; }
+    if (x) *x = g->x[i];
+    if (y) *y = g->y[i];
+}
+float wb_node_graph_param(const wb_node_graph *g, int i, double t) {
+    if (!g || i < 0 || i >= g->n_nodes) return 0.0f;
+    return wb_node_param_value(g->nodes[i], "gain", t);
+}
+

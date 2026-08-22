@@ -14,6 +14,7 @@
 #include "wbus_midi.h"
 #include "wbus_modulation.h"
 #include "wbus_midifx.h"
+#include "wbus_compositor.h"
 #include "wb_internal.h"
 
 static int failures = 0;
@@ -808,6 +809,47 @@ static void test_fader_automation(void) {
     wb_automation_recorder_destroy(rec);
     wb_engine_destroy(e);
     wb_session_destroy(s);
+}
+
+/* ---- test: R043-G6 Fusion node-graph view model (opaque API) ---------- */
+static void test_node_graph(void) {
+    printf("test_node_graph\n");
+    wb_node_graph *g = wb_node_graph_create();
+    CHECK(g != NULL, "node graph created");
+    int n = wb_node_graph_count(g);
+    CHECK(n >= 4, "graph has Source A/B, Gain, Composite (>=4 nodes)");
+
+    /* wiring: Gain <- Source A; Composite <- Gain, Source B */
+    int gain_idx = -1, comp_idx = -1, srcA = -1, srcB = -1;
+    for (int i = 0; i < n; i++) {
+        const char *l = wb_node_graph_label(g, i);
+        if (!strcmp(l, "Gain")) gain_idx = i;
+        else if (!strcmp(l, "Composite")) comp_idx = i;
+        else if (!strcmp(l, "Source A")) srcA = i;
+        else if (!strcmp(l, "Source B")) srcB = i;
+    }
+    CHECK(gain_idx >= 0 && comp_idx >= 0 && srcA >= 0 && srcB >= 0,
+          "all four labeled nodes present");
+    CHECK(wb_node_graph_inputs(g, gain_idx) == 1, "Gain has 1 input");
+    CHECK(wb_node_graph_input_of(g, gain_idx, 0) == srcA, "Gain <- Source A");
+    CHECK(wb_node_graph_inputs(g, comp_idx) == 2, "Composite has 2 inputs");
+    int a0 = wb_node_graph_input_of(g, comp_idx, 0);
+    int a1 = wb_node_graph_input_of(g, comp_idx, 1);
+    CHECK((a0 == gain_idx && a1 == srcB) || (a0 == srcB && a1 == gain_idx),
+          "Composite <- {Gain, Source B}");
+
+    /* layout positions are sane (left-to-right flow) */
+    float gx = 0, gy = 0, cx = 0, cy = 0;
+    wb_node_graph_pos(g, gain_idx, &gx, &gy);
+    wb_node_graph_pos(g, comp_idx, &cx, &cy);
+    CHECK(cx > gx, "Composite is to the right of Gain (left-to-right flow)");
+
+    /* animated param accessor returns a finite value (no crash on opaque node) */
+    float pv = wb_node_graph_param(g, gain_idx, 1.0);
+    CHECK(pv == pv, "gain param read returns finite value");
+
+    wb_node_graph_destroy(g);
+    CHECK(1, "node graph destroyed cleanly");
 }
 static void test_velocity(void) {
     printf("test_velocity\n");
@@ -1671,6 +1713,7 @@ int main(void) {
     test_clip_loop();
     test_clip_content_slide();
     test_fader_automation();
+    test_node_graph();
     test_velocity();
     test_meter();
     test_master_meter();

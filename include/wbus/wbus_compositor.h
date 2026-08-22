@@ -36,9 +36,9 @@ typedef struct wb_frame {
  * GPU is the future Metal-interop slot — pixel buffers are swappable so a
  * GPU tile can wrap `wb_px` without changing the node contract. */
 typedef enum {
-    WB_BACKEND_CPU = 0,
-    WB_BACKEND_GPU
-} wb_backend;
+    WB_RENDER_CPU = 0,
+    WB_RENDER_GPU
+} wb_render_backend;
 
 typedef enum {
     WB_NODE_SOURCE = 0,   /* wraps a producer (e.g. decoded clip) */
@@ -103,8 +103,8 @@ float wb_node_param_value(const wb_node *n, const char *name, double t);
 /* G12: GPU-offload boundary. The CPU path is always authoritative; the
  * backend flag marks where a future Metal interop layer slots in. Frames
  * carry a `gpu` ownership flag for the swap boundary. */
-void wb_compositor_set_backend(wb_backend b);
-wb_backend wb_compositor_get_backend(void);
+void wb_compositor_set_backend(wb_render_backend b);
+wb_render_backend wb_compositor_get_backend(void);
 void wb_frame_set_gpu(wb_frame *f, int gpu);
 int  wb_frame_get_gpu(const wb_frame *f);
 
@@ -190,5 +190,23 @@ void wb_node_destroy(wb_node *n);
 
 /* attach an input to a composite (caller keeps ownership of child) */
 void wb_composite_add(wb_node *comp, wb_node *child);
+
+/* R043 (G6): self-contained Fusion-style node-graph view model.
+ * Owns a demo compositing chain (Source -> Effect -> Composite -> Output)
+ * plus per-node 2D layout so the UI can render a node graph WITHOUT the
+ * UI knowing the node internals. The graph is opaque; the UI iterates via
+ * the accessors below. */
+typedef struct wb_node_graph wb_node_graph;
+
+wb_node_graph *wb_node_graph_create(void);   /* builds the demo chain + layout */
+void            wb_node_graph_destroy(wb_node_graph *g);
+int             wb_node_graph_count(const wb_node_graph *g);
+/* per-node accessors for drawing (no node internals leaked to the UI) */
+const char     *wb_node_graph_label(const wb_node_graph *g, int i);
+wb_node_kind    wb_node_graph_kind(const wb_node_graph *g, int i);
+int             wb_node_graph_inputs(const wb_node_graph *g, int i);  /* # inputs */
+int             wb_node_graph_input_of(const wb_node_graph *g, int i, int k); /* node idx feeding input k */
+void            wb_node_graph_pos(const wb_node_graph *g, int i, float *x, float *y);
+float           wb_node_graph_param(const wb_node_graph *g, int i, double t); /* animated param preview */
 
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

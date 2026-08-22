@@ -214,8 +214,8 @@ int main(void) {
 
     /* ---- G12: GPU-offload boundary ----------------------------------- */
     printf("\n-- G12 GPU boundary --\n");
-    wb_compositor_set_backend(WB_BACKEND_GPU);
-    CHECK(wb_compositor_get_backend() == WB_BACKEND_GPU, "backend set to GPU");
+    wb_compositor_set_backend(WB_RENDER_GPU);
+    CHECK(wb_compositor_get_backend() == WB_RENDER_GPU, "backend set to GPU");
     wb_node *gs = wb_node_source_color(0.5f, 0.5f, 0.5f, 1.0f, 16, 16);
     wb_frame *gf = wb_node_pull(gs, 0.0, 0, 0, 16, 16);
     CHECK(gf != NULL, "frame produced under GPU backend flag");
@@ -226,8 +226,8 @@ int main(void) {
         CHECK(wb_frame_get_gpu(gf) == 1, "frame marked GPU-eligible for interop");
         wb_frame_free(gf);
     }
-    wb_compositor_set_backend(WB_BACKEND_CPU);   /* reset to authoritative */
-    CHECK(wb_compositor_get_backend() == WB_BACKEND_CPU, "backend reset to CPU");
+    wb_compositor_set_backend(WB_RENDER_CPU);   /* reset to authoritative */
+    CHECK(wb_compositor_get_backend() == WB_RENDER_CPU, "backend reset to CPU");
     wb_node_destroy(gs);
 
     /* ---- R018-B: HDR / wide-gamut color pipeline -------------------- */

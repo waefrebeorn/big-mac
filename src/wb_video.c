@@ -228,6 +228,9 @@ int wb_video_make_proxy(const char *src, const char *proxy) {
 }
 
 /* Get proxy duration (matches source, checked via ffprobe). */
+double wb_video_probe_duration(const char *path) {
+    return wb_video_proxy_duration(path);
+}
 double wb_video_proxy_duration(const char *proxy_path) {
     char cmd[512];
     char buf[256];
@@ -240,10 +243,24 @@ double wb_video_proxy_duration(const char *proxy_path) {
         char *p = strstr(buf, "Duration: ");
         if (p) {
             p += 10;
-            int h, m, s;
-            if (sscanf(p, "%d:%d:%d", &h, &m, &s) == 3) {
+            int h, m, s, frac = 0;
+            /* parse HH:MM:SS[.frac] — the fraction matters for short clips
+             * (a 2.62s file must not truncate to 2s or accuracy checks
+             * compare apples-to-oranges). */
+            if (sscanf(p, "%d:%d:%d.%d", &h, &m, &s, &frac) >= 3) {
+                double fr = 0.0;
+                const char *dot = strchr(p, '.');
+                if (dot) {
+                    /* scale the digits we read by how many were present */
+                    int nd = 0;
+                    const char *q = dot + 1;
+                    while (*q >= '0' && *q <= '9') { nd++; q++; }
+                    double scale = 1.0;
+                    while (nd--) scale *= 10.0;
+                    fr = frac / scale;
+                }
                 pclose(f);
-                return h * 3600.0 + m * 60.0 + s;
+                return h * 3600.0 + m * 60.0 + s + fr;
             }
         }
     }
@@ -465,6 +482,43 @@ int wb_video_lossless_trim(const char *src, const wb_video_segment *segs,
 
     int rc = system(cmd);
     unlink(tmpl);
+
+    /* ACCURACY FALLBACK (R044): stream-copy inpoints snap BACK to the
+     * previous keyframe (GOP boundary), so each kept segment can overshoot
+     * by up to one GOP. Probe the copied output; if the total overshoots
+     * the requested span beyond a small tolerance, redo with an accurate
+     * re-encode (-ss/-t per segment through the concat filter). */
+    double want = 0.0;
+    for (int i = 0; i < nsegs; i++) {
+        if (segs[i].end > 0.0 && segs[i].end > segs[i].start)
+            want += segs[i].end - segs[i].start;
+    }
+    double got = wb_video_probe_duration(out_path);
+    if (want > 0.25 && got > want * 1.15 + 0.15) {
+        /* Accurate re-encode: -ss/-t trims each input exactly, then a single
+         * concat filter joins them. One -filter_complex, one output. */
+        char acc[4096];
+        int off = snprintf(acc, sizeof(acc), "\"%s\" -y ", FFmpeg_BIN);
+        int idx = 0;
+        char ins[256];
+        for (int i = 0; i < nsegs && off < (int)sizeof(acc) - 512; i++) {
+            double s = segs[i].start, e = segs[i].end;
+            if (e <= 0.0 || e <= s) continue;
+            off += snprintf(acc + off, sizeof(acc) - off,
+                            "-ss %f -t %f -i \"%s\" ", s, e - s, src);
+            idx++;
+        }
+        if (idx == 0) return rc == 0 ? 0 : -1;
+        off = 0;
+        for (int i = 0; i < idx; i++)
+            off += snprintf(ins + off, sizeof(ins) - off, "[%d:v]", i);
+        snprintf(acc + strlen(acc), sizeof(acc) - strlen(acc),
+                 "-filter_complex \"%sconcat=n=%d:v=1:a=0[outv]\" "
+                 "-map \"[outv]\" -c:v mpeg4 -q:v 4 \"%s\" >/dev/null 2>&1",
+                 ins, idx, out_path);
+        rc = system(acc);
+        return rc == 0 ? 0 : -1;
+    }
     return rc == 0 ? 0 : -1;
 }
 

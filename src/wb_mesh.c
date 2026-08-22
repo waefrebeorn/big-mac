@@ -55,6 +55,9 @@ static void mesh_add_tri(wb_mesh *m, int a, int b, int c,
     m->ntris++;
 }
 
+const wb_rast_vertex *wb_mesh_vert_src(const wb_mesh *m) { return m ? m->verts : NULL; }
+const wb_rast_tri    *wb_mesh_tri_src(const wb_mesh *m)  { return m ? m->tris : NULL; }
+
 int wb_mesh_vert_count(const wb_mesh *m) { return m ? m->nverts : 0; }
 int wb_mesh_tri_count(const wb_mesh *m)  { return m ? m->ntris : 0; }
 

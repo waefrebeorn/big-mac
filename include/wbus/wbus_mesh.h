@@ -26,6 +26,12 @@ void     wb_mesh_free(wb_mesh *m);
 
 /* Extract into wb_rast scene format (arrays are caller-allocated; pass
  * NULL capacity pointers to just query sizes). Returns 0 on success. */
+/* Direct (read-only) access to the internal arrays — for renderers that
+ * bake transforms per-frame without copying. Pointers stay valid until
+ * the mesh is mutated/freed. */
+const wb_rast_vertex *wb_mesh_vert_src(const wb_mesh *m);
+const wb_rast_tri    *wb_mesh_tri_src(const wb_mesh *m);
+
 int  wb_mesh_vert_count(const wb_mesh *m);
 int  wb_mesh_tri_count(const wb_mesh *m);
 void wb_mesh_emit(const wb_mesh *m, wb_rast_vertex *verts, wb_rast_tri *tris);

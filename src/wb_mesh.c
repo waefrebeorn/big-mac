@@ -55,6 +55,24 @@ static void mesh_add_tri(wb_mesh *m, int a, int b, int c,
     m->ntris++;
 }
 
+wb_mesh *wb_mesh_build(const wb_rast_vertex *verts, int nverts,
+                       const wb_rast_tri *tris, int ntris) {
+    if (!verts || !tris || nverts <= 0 || ntris <= 0) return NULL;
+    wb_mesh *m = wb_mesh_create();
+    if (!m) return NULL;
+    for (int i = 0; i < nverts; i++)
+        if (mesh_add_vert(m, verts[i].x, verts[i].y, verts[i].z) < 0) {
+            wb_mesh_free(m); return NULL;
+        }
+    for (int i = 0; i < ntris; i++) {
+        if (tris[i].v0 >= m->nverts || tris[i].v1 >= m->nverts ||
+            tris[i].v2 >= m->nverts) { wb_mesh_free(m); return NULL; }
+        mesh_add_tri(m, tris[i].v0, tris[i].v1, tris[i].v2,
+                     tris[i].r, tris[i].g, tris[i].b);
+    }
+    return m;
+}
+
 const wb_rast_vertex *wb_mesh_vert_src(const wb_mesh *m) { return m ? m->verts : NULL; }
 const wb_rast_tri    *wb_mesh_tri_src(const wb_mesh *m)  { return m ? m->tris : NULL; }
 

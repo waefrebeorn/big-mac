@@ -26,6 +26,12 @@ void     wb_mesh_free(wb_mesh *m);
 
 /* Extract into wb_rast scene format (arrays are caller-allocated; pass
  * NULL capacity pointers to just query sizes). Returns 0 on success. */
+/* R055b: build a mesh from raw arrays (copies both). The canonical way
+ * for modifier/procedural code to materialize geometry. Returns NULL on
+ * alloc failure or bad counts. */
+wb_mesh *wb_mesh_build(const wb_rast_vertex *verts, int nverts,
+                       const wb_rast_tri *tris, int ntris);
+
 /* Direct (read-only) access to the internal arrays — for renderers that
  * bake transforms per-frame without copying. Pointers stay valid until
  * the mesh is mutated/freed. */

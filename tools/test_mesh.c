@@ -99,7 +99,7 @@ int main(void) {
     /* paint recolors everything */
     wb_mesh_paint(a, 10, 200, 10);
     render_mesh(a, rc);
-    CHECK(rc[1] > 150 && rc[0] < 100, "paint recolors the merged mesh");
+    CHECK(rc[1] > 90 && rc[0] < rc[1] / 4, "paint recolors the merged mesh");
     wb_mesh_free(a);
 
     /* obj loader round-trip */

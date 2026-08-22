@@ -60,6 +60,20 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba);
 /* Back-face culling toggle (default on). */
 void wb_rast_set_cull(wb_rast_ctx *r, int on);
 
+/* ---- R055: lights & depth (MiniBlender shading) ------------------------ */
+
+/* Directional light direction (normalized internally) + intensity 0..1.
+ * Set dir to 0,0,0 to disable lighting (raw flat colors). */
+void wb_rast_set_sun(wb_rast_ctx *r, float dx, float dy, float dz,
+                     float intensity);
+
+/* Specular highlight strength (0 = off). View is fixed at -z. */
+void wb_rast_set_specular(wb_rast_ctx *r, float strength);
+
+/* Enable a depth buffer for correct interpenetration (disables the
+ * painter's sort path). Default: off (painter). */
+void wb_rast_set_zbuffer(wb_rast_ctx *r, int on);
+
 #ifdef __cplusplus
 }
 #endif

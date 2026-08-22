@@ -42,6 +42,9 @@ int main(void) {
     CHECK(wb_rast_set_scene(r, verts, 3, &tri, 1) == 0, "scene set");
     wb_rast_set_camera(r, 0, 0, 0, 6.0f, 0);
     wb_rast_set_cull(r, 0);   /* off for the geometric tests */
+    /* R055: kill shading so raw flat colors are testable */
+    wb_rast_set_sun(r, 0,0,0, 0.0f);
+    wb_rast_set_specular(r, 0.0f);
     wb_rast_render(r, img);
     int px = count_pixels(img, W, H);
     /* projected tri spans roughly focal*4/6 = 200px wide, 150 tall -> ~15000px */

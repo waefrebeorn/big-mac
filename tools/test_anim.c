@@ -82,7 +82,7 @@ int main(void) {
     wb_anim_render_frame(a, 1.0, img);
     int nboth = 0, nblue = 0;
     for (int i = 0; i < W*H; i++)
-        if (img[i*4+3] == 255) { nboth++; if (img[i*4+2] > 150) nblue++; }
+        if (img[i*4+3] == 255) { nboth++; if (img[i*4+2] > 100 && img[i*4+2] >= img[i*4]) nblue++; }
     CHECK(nboth > 2500, "both objects render into one frame");
     CHECK(nblue > 300, "sphere (blue) visible alongside cube");
 

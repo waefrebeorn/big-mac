@@ -26,6 +26,7 @@
 #include "wbus_cgi.h"
 #include "wbus_agi.h"
 #include "wbus_captions.h"
+#include "wbus/wbus_transcript.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
 
@@ -176,6 +177,10 @@ typedef struct app {
     char vid_export[512];    /* path for exported output */
     char vid_srt[512];       /* path to SRT captions file */
     int vid_captions_ready;  /* 1 when SRT has been generated */
+    wb_captions *vid_caps;   /* R049: persistent captions ctx (word model) */
+    wb_transcript *vid_tr;   /* editable transcript for the current video */
+    int tr_sel0, tr_sel1;    /* selected word range [sel0, sel1) */
+    int tr_row_y;            /* y of first transcript row (CAPTIONS tab) */
     SDL_Texture *vid_preview_tex; /* cached preview frame */
 
     /* tool paths */
@@ -1502,8 +1507,38 @@ static void draw_video_tab_panel(app *a) {
             wb_ui_draw_text(a->ren, px + 6, yy, "SRT: not generated yet", 1, C_TEXT_DIM); yy += 16;
             wb_ui_draw_text(a->ren, px + 6, yy, "Burn captions: disabled", 1, C_TEXT_DIM); yy += 18;
         }
+        /* R049: editable transcript — words as clickable rows. Click a word
+         * to select it; shift-click extends; BACKSPACE cuts [sel0,sel1)
+         * from BOTH the transcript and the media (Descript text editing). */
+        if (a->vid_tr && wb_transcript_count(a->vid_tr) > 0) {
+            int n = wb_transcript_count(a->vid_tr);
+            snprintf(buf, sizeof(buf), "TRANSCRIPT (%d words) — click=select, DEL=cut media", n);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 18;
+            a->tr_row_y = yy;
+            for (int i = 0; i < n && i < 18; i++) {
+                const wb_word *w = wb_transcript_word(a->vid_tr, i);
+                if (!w) break;
+                int sel = (i >= a->tr_sel0 && i < a->tr_sel1) ||
+                          (i >= a->tr_sel1 && i < a->tr_sel0);
+                SDL_Rect row = { px, yy - 2, 300, 16 };
+                if (sel) { setc(a->ren, 60, 90, 140); SDL_RenderFillRect(a->ren, &row); }
+                /* register hit region: id = 70000 + i */
+                region_add(70000 + i, row.x, row.y, row.w, row.h);
+                setc(a->ren, sel ? C_TEXT : C_TEXT_DIM);
+                char wbuf[96];
+                snprintf(wbuf, sizeof(wbuf), "%d  %s   [%d-%dms]", i,
+                         w->word ? w->word : "?",
+                         (int)w->start_ms, (int)w->end_ms);
+                wb_ui_draw_text(a->ren, px + 8, yy, wbuf, 1,
+                                sel ? C_TEXT : C_TEXT_DIM);
+                yy += 17;
+            }
+        } else {
+            wb_ui_draw_text(a->ren, px + 6, yy, "(no transcript — press ^G)", 1, C_TEXT_DIM);
+            yy += 18;
+        }
         wb_ui_draw_text(a->ren, px + 6, yy, "Shortcuts:", 1, C_TEXT); yy += 16;
-        wb_ui_draw_text(a->ren, px + 6, yy, "^G generate  ^B burn", 1, C_TEXT_DIM);
+        wb_ui_draw_text(a->ren, px + 6, yy, "^G generate  ^B burn  click words  BKSP cut", 1, C_TEXT_DIM);
         break;
     case 7: /* EXPORT */
         snprintf(buf, sizeof(buf), "Export / Deliver");
@@ -1916,7 +1951,12 @@ static void handle_action(app *a, int act) {
                 int rc = wb_video_captions_generate(a->vid_source, srt_path,
                                                      a->whisper_cli_path, a->whisper_model_path);
                 if (rc == 0) { snprintf(a->vid_srt, sizeof(a->vid_srt), "%s", srt_path);
-                              a->vid_captions_ready = 1; printf("captions: ok\n"); }
+                              a->vid_captions_ready = 1;
+                              if (a->vid_tr) wb_transcript_free(a->vid_tr);
+                              a->vid_tr = wb_transcript_from_srt(srt_path);
+                              a->tr_sel0 = a->tr_sel1 = 0;
+                              printf("captions: ok (%d words)\n",
+                                     a->vid_tr ? wb_transcript_count(a->vid_tr) : 0); }
             }
         } else if (act == 2) {  /* EXPORT */
             if (a->vid_has_clip) {
@@ -2068,6 +2108,20 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                         if (ti < (int)a->session->track_count) {
                             a->session->tracks[ti].solo = !a->session->tracks[ti].solo;
                             wb_engine_set_session(a->engine, a->session);
+                        }
+                    } else if (id >= 70000 && id < 71000) {  /* R049: transcript word row */
+                        int wi = id - 70000;
+                        if (a->vid_tr && wi < wb_transcript_count(a->vid_tr)) {
+                            if (SDL_GetModState() & KMOD_SHIFT) {
+                                a->tr_sel1 = wi + 1;   /* shift-click extends */
+                            } else {
+                                a->tr_sel0 = wi;
+                                a->tr_sel1 = wi + 1;
+                                /* click also seeks the playhead to that word */
+                                double sec = wb_transcript_word(a->vid_tr, wi)->start_ms / 1000.0;
+                                wb_engine_seek(a->engine, sec * WB_SAMPLE_RATE);
+                            }
+                            printf("transcript: selection [%d,%d)\n", a->tr_sel0, a->tr_sel1);
                         }
                     } else if (id >= 3000 && id < 4000) {  /* scene-launch column (launch all tracks' clip on that scene) */
                         int sc = id - 3000;
@@ -2515,7 +2569,13 @@ static void handle_key(app *a, SDL_Keycode k) {
                 if (rc == 0) {
                     snprintf(a->vid_srt, sizeof(a->vid_srt), "%s", srt_path);
                     a->vid_captions_ready = 1;
-                    printf("captions: generated %s\n", srt_path);
+                    /* R049: parse the word model so the CAPTIONS tab can
+                     * render + text-edit the transcript. */
+                    if (a->vid_tr) wb_transcript_free(a->vid_tr);
+                    a->vid_tr = wb_transcript_from_srt(srt_path);
+                    a->tr_sel0 = a->tr_sel1 = 0;
+                    printf("captions: generated %s (%d words)\n",
+                           srt_path, a->vid_tr ? wb_transcript_count(a->vid_tr) : 0);
                 }
             }
         }
@@ -2577,8 +2637,25 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_DELETE:
-    case SDLK_BACKSPACE:  /* R025: ripple delete (Shift) or plain delete (lift) */
-        if (a->tab == 5 && a->vid_has_clip && a->session) {
+    case SDLK_BACKSPACE:
+        if (a->tab == 6 && a->vid_tr && a->session && a->vid_has_clip &&
+            a->tr_sel1 > a->tr_sel0 && a->vid_track >= 0) {
+            /* R049: Descript-style text editing — delete selected words from
+             * BOTH transcript and media (ripple cut). */
+            int n = a->tr_sel1 - a->tr_sel0;
+            int rc = wb_session_transcript_cut(a->session, a->vid_track,
+                                               a->vid_tr, a->tr_sel0, a->tr_sel1);
+            if (rc == 0) {
+                printf("transcript: cut %d words -> media ripple\n", n);
+                a->tr_sel0 = a->tr_sel1 = 0;
+                /* refresh burned-in SRT so export matches the edit */
+                if (a->vid_srt[0]) wb_transcript_write_srt(a->vid_tr, a->vid_srt);
+                if (a->vid_preview_tex) { SDL_DestroyTexture(a->vid_preview_tex); a->vid_preview_tex = NULL; }
+            } else {
+                printf("transcript: cut failed rc=%d\n", rc);
+            }
+        } else if (a->tab == 5 && a->vid_has_clip && a->session) {
+            /* R025: ripple delete (Shift) or plain delete (lift) */
             if (mod & KMOD_SHIFT) {
                 int r = wb_session_ripple_delete_video_clip(a->session, a->vid_track, a->vid_clip);
                 a->vid_has_clip = 0;

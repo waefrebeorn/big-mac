@@ -264,6 +264,12 @@ build/wb_test_mod: build/tools/test_mod.o build/src/wb_mod.o build/src/wb_mesh.o
 test_mod: build/wb_test_mod
 	./build/wb_test_mod
 
+build/wb_test_anim2: build/tools/test_anim2.o build/src/wb_anim.o build/src/wb_mesh.o build/src/wb_rast.o
+	$(CC) $(CFLAGS) $(INC) -o $@ $^ -lm
+
+test_anim2: build/wb_test_anim2
+	./build/wb_test_anim2
+
 
 test_cgi_agi: build/wb_test_cgi_agi
 	./build/wb_test_cgi_agi

@@ -35,11 +35,27 @@ int  wb_anim_add_object(wb_anim *a, const wb_mesh *m,
                         uint8_t r, uint8_t g, uint8_t b);
 
 /* Keyframe an object's transform at time t (seconds). All channels set
- * together — simplest possible model, matches motion-graphics needs. */
+ * together — simplest possible model, matches motion-graphics needs.
+ * ease: 0=linear 1=ease-in-out 2=ease-out-bounce 3=elastic-out 4=ease-in */
 int  wb_anim_key(wb_anim *a, int obj, double t,
                  float px, float py, float pz,
                  float rx, float ry, float rz,
                  float scale);
+int  wb_anim_key_ease(wb_anim *a, int obj, double t,
+                      float px, float py, float pz,
+                      float rx, float ry, float rz,
+                      float scale, int ease);
+
+/* R055c: camera as a first-class animated object. Same keyframe API but
+ * affecting the render camera (orbit angles + distance). */
+int  wb_anim_set_camera(wb_anim *a, float rx, float ry, float dist);
+int  wb_anim_key_camera(wb_anim *a, double t,
+                        float rx, float ry, float dist);
+/* per-frame camera override used during render (set by camera keys) */
+
+/* R055c: parenting — child's transform composes after parent's. Objects
+ * render in index order; parent must have a LOWER index than child. */
+int  wb_anim_parent(wb_anim *a, int child, int parent);
 
 /* Render frame at time t into out_rgba (w*h*4, alpha-keyed). Samples all
  * objects' channels at t, transforms each mesh's copy, renders once. */

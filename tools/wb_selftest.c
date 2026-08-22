@@ -1052,6 +1052,11 @@ static void test_contrast(void) {
     printf("test_contrast\n");
     /* mirror of the wb_daw.c palette (MUST be kept in sync) */
     int TEXT_DIM[3]={165,169,179}, MUTE[3]={235,140,140}, ACCENT[3]={96,155,235};
+    /* R046: graphical lines (grid/borders) — AA large-graphic minimum is 3.0:1 */
+    int GRID[3]={112,118,132};
+    for (i=0;i<5;i++)
+        if (_cr(GRID, bgs[i]) < 3.0) { pass=0; printf("  FAIL GRID on bg#%d = %.2f\n", i, _cr(GRID,bgs[i])); }
+    printf("  GRID on LANE_A=%.2f (AA-graphics >=3.0)\n", _cr(GRID,LANE_A));
     int bgs[][3] = {{24,26,30},{36,39,45},{28,30,35},{44,48,55},{38,41,47}};
     int LANE_A[3]={44,48,55};
     int pass=1, i;

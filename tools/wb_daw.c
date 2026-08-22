@@ -206,7 +206,7 @@ static int running = 1;
 #define C_TEXT_DIM 165, 169, 179   /* R029: brightened to clear WCAG AA (>=4.5:1) on every bg */
 #define C_NOTE   255, 198, 90
 #define C_NOTE2  210, 130, 80
-#define C_GRID   54, 58, 66
+#define C_GRID  112, 118, 132  /* R046: brightened from (54,58,66) — grid was ~1.2:1 on lanes, near-invisible */
 #define C_SOLO   120, 200, 120
 #define C_MUTE   235, 140, 140   /* R029: brightened to clear WCAG AA on lane bg */
 #define C_FADE   120, 220, 110   /* R043 (G1/G2): clip fade handles (bright green) */

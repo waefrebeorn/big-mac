@@ -21,6 +21,10 @@
 #ifndef WUBUS_WBUS_AGENT_H
 #define WUBUS_WBUS_AGENT_H
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdio.h>
 #include "wbus/wbus.h"
 
@@ -30,4 +34,8 @@ int wb_agent_run(FILE *in, wb_session *s, wb_engine *e);
 /* Run a single command line (already stripped). Returns 0/-1. */
 int wb_agent_command(wb_session *s, wb_engine *e, const char *line);
 
+
+#ifdef __cplusplus
+}
+#endif
 #endif /* WUBUS_WBUS_AGENT_H */

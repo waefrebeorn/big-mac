@@ -15,6 +15,10 @@
 #ifndef WUBUS_WBUS_COMPOSITOR_H
 #define WUBUS_WBUS_COMPOSITOR_H
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdint.h>
 #include <stddef.h>
 
@@ -209,4 +213,8 @@ int             wb_node_graph_input_of(const wb_node_graph *g, int i, int k); /*
 void            wb_node_graph_pos(const wb_node_graph *g, int i, float *x, float *y);
 float           wb_node_graph_param(const wb_node_graph *g, int i, double t); /* animated param preview */
 
+
+#ifdef __cplusplus
+}
+#endif
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

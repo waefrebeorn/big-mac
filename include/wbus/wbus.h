@@ -13,6 +13,7 @@
 #include "wbus_video.h"
 #include "wbus_captions.h"
 #include "wbus_clip_edit.h"
+#include "wbus_transcript.h"
 
 /* Forward declarations for cross-referenced types. */
 typedef struct wb_mod_matrix wb_mod_matrix;
@@ -371,6 +372,12 @@ int  wb_session_ripple_delete_video_clip(wb_session *s, int track, int clip);
 int  wb_session_slip_video_clip(wb_session *s, int track, int clip, double delta);
 /* Roll: slide the cut between clip and the next clip (total duration fixed). */
 int  wb_session_roll_video_clip(wb_session *s, int track, int clip, double delta);
+
+/* R048: transcript text-editing — delete the word range [w0, w1) from the
+ * transcript AND ripple-cut that time span out of the track's video clips
+ * (Descript's "delete words = delete media"). Returns 0 on success. */
+int  wb_session_transcript_cut(wb_session *s, int track,
+                               struct wb_transcript *tr, int w0, int w1);
 
 #ifdef __cplusplus
 }

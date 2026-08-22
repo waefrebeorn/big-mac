@@ -11,6 +11,10 @@
 #ifndef WUBUS_WBUS_AGI_H
 #define WUBUS_WBUS_AGI_H
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 typedef struct wb_agi wb_agi;
 
 typedef enum {
@@ -42,4 +46,8 @@ int  wb_agi_done_count(const wb_agi *a);
 /* Last human-readable event line ("task 3 done: render episode"). */
 const char *wb_agi_last_event(const wb_agi *a);
 
+
+#ifdef __cplusplus
+}
+#endif
 #endif /* WUBUS_WBUS_AGI_H */

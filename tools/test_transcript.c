@@ -7,6 +7,7 @@
 #include <string.h>
 #include <math.h>
 #include "wbus/wbus_transcript.h"
+#include "wbus.h"
 
 static int failures = 0, checks = 0;
 #define CHECK(c, m) do { checks++; if (c) printf("  [PASS] %s\n", m); \
@@ -91,6 +92,68 @@ int main(void) {
         CHECK(fabs(wb_transcript_duration_ms(t2) - 5000.0) < 1.0,
               "duration survived round-trip");
         wb_transcript_free(t2);
+    }
+
+    /* ---- R048: word-range delete (Descript text editing) ---- */
+    wb_transcript *t3 = wb_transcript_from_srt(path);   /* fresh: 5 words */
+    CHECK(t3 && wb_transcript_count(t3) == 5, "fresh transcript for delete test");
+    int nrem = wb_transcript_remove_range(t3, 1, 3);    /* drop 'quick','brown' */
+    CHECK(nrem == 2, "remove_range removed 2 words");
+    CHECK(wb_transcript_count(t3) == 3, "3 words remain");
+    CHECK(strcmp(wb_transcript_word(t3, 0)->word, "the") == 0 &&
+          strcmp(wb_transcript_word(t3, 1)->word, "fox") == 0,
+          "remaining words are 'the','fox','jumps' (order kept)");
+    const wb_word *rj = wb_transcript_word(t3, 2);
+    CHECK(rj && strcmp(rj->word, "jumps") == 0 &&
+          fabs(rj->end_ms - 5000.0) < 1e-6,
+          "kept word keeps its ORIGINAL timing (gap is real)");
+    CHECK(wb_transcript_remove_range(t3, 2, 5) == -1, "bad range rejected");
+    CHECK(wb_transcript_remove_range(NULL, 0, 1) == -1, "NULL rejected");
+    wb_transcript_free(t3);
+
+    /* ---- R048: session-level transcript cut (words -> media ripple cut) -- */
+    {
+        wb_session *s = wb_session_create();
+        s->length = 44100.0 * 10.0;
+        int vt = wb_session_add_video_track(s, "V");
+        /* two clips on the video track: [0,3)s and [3,6)s of a fake source */
+        wb_session_add_video_clip(s, vt, "/tmp/fake_src.mp4", 0.0);
+        wb_session_add_video_clip(s, vt, "/tmp/fake_src.mp4", 3.0);
+        wb_track *vtr = &s->tracks[vt];
+        vtr->clips[0].length = 3.0;
+        vtr->clips[1].length = 3.0;
+        CHECK(vtr->clip_count == 2, "two video clips laid down");
+
+        wb_transcript *tt = wb_transcript_create();
+        /* words spanning the timeline: w1..w2 live in [1.0, 2.5)s — fully
+         * inside clip 0's span; cutting them must split + shrink it. */
+        wb_transcript_add(tt, 0.0,    1000.0, "alpha");
+        wb_transcript_add(tt, 1000.0, 1750.0, "beta");
+        wb_transcript_add(tt, 1750.0, 2500.0, "gamma");
+        wb_transcript_add(tt, 2500.0, 4000.0, "delta");
+
+        int rc = wb_session_transcript_cut(s, vt, tt, 1, 3);
+        CHECK(rc == 0, "transcript_cut succeeded");
+        CHECK(wb_transcript_count(tt) == 2, "transcript now 2 words");
+        CHECK(strcmp(wb_transcript_word(tt, 1)->word, "delta") == 0,
+              "'delta' remains after cut");
+        printf("         clips after cut=%u\n", vtr->clip_count);
+        for (uint32_t c = 0; c < vtr->clip_count; c++)
+            printf("         clip[%u] start=%.2f len=%.2f\n",
+                   c, vtr->clips[c].start, vtr->clips[c].length);
+        /* total media must have shrunk by exactly 1.5s (2500-1000 ms) */
+        double total = 0;
+        for (uint32_t c = 0; c < vtr->clip_count; c++) total += vtr->clips[c].length;
+        CHECK(fabs(total - 4.5) < 0.01, "total media shrank by exactly 1.5s");
+        /* no clip may still overlap the deleted span [1.0,2.5) at its old
+         * position — verify contiguity instead: starts must be monotonic
+         * and adjacent (no gap where the cut happened). */
+        for (uint32_t c = 1; c < vtr->clip_count; c++)
+            CHECK(fabs(vtr->clips[c].start -
+                       (vtr->clips[c-1].start + vtr->clips[c-1].length)) < 0.02,
+                  "clips remain contiguous after ripple (no hole)");
+        wb_transcript_free(tt);
+        wb_session_destroy(s);
     }
 
     wb_transcript_free(t);

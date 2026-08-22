@@ -11,6 +11,10 @@
 #ifndef WUBUS_WBUS_VIDEO_H
 #define WUBUS_WBUS_VIDEO_H
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdint.h>
 #include <stddef.h>
 
@@ -121,4 +125,8 @@ int wb_session_split_video_clip(wb_session *s, int track, int clip, double split
 int wb_session_export_edl(const wb_session *s, const char *edl_path);
 int wb_session_export_fcpxml(const wb_session *s, const char *xml_path);
 
+
+#ifdef __cplusplus
+}
+#endif
 #endif /* WUBUS_WBUS_VIDEO_H */

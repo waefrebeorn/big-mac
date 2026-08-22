@@ -10,6 +10,10 @@
 #ifndef WUBUS_WBUS_CGI_H
 #define WUBUS_WBUS_CGI_H
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 typedef struct wb_cgi_scene wb_cgi_scene;
 
 /* Create the demo scene: a rotating cube (8 verts / 12 tris) + ground grid. */
@@ -39,4 +43,8 @@ int  wb_cgi_scene_grid_count(const wb_cgi_scene *sc);
 void wb_cgi_scene_grid_line(const wb_cgi_scene *sc, int i,
                             float *x0, float *y0, float *x1, float *y1);
 
+
+#ifdef __cplusplus
+}
+#endif
 #endif /* WUBUS_WBUS_CGI_H */

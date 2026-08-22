@@ -711,9 +711,65 @@ int wb_session_split_video_clip(wb_session *s, int track, int clip, double split
 
     tr->clip_count++;
     return clip + 1;
-}
+    }
 
-/* ---- G5: EDL / FCPXML interchange (R017 G5) ----------------------------
+    /* ---- R048: transcript text-editing (Descript-style word->media cut) ----
+    * Delete words [w0,w1) from the transcript and ripple-cut their time span
+    * out of the track's video clips: split at the span edges, then ripple-
+    * delete every clip that lies fully inside the span. Partially-overlapping
+    * edge clips are trimmed by the span. Timeline shrinks by the cut length. */
+    int wb_session_transcript_cut(wb_session *s, int track,
+                             struct wb_transcript *tr, int w0, int w1) {
+    if (!s || track < 0 || track >= (int)s->track_count || !tr) return -1;
+    if (w0 < 0 || w1 <= w0 || w1 > wb_transcript_count(tr)) return -1;
+
+    /* word-range -> time span (ms -> seconds). The span is [first.start,
+    * last.end) of the words being deleted. */
+    const wb_word *wa = wb_transcript_word(tr, w0);
+    const wb_word *wb_ = wb_transcript_word(tr, w1 - 1);
+    if (!wa || !wb_) return -1;
+    double cut0 = wa->start_ms / 1000.0;
+    double cut1 = wb_->end_ms   / 1000.0;
+    if (cut1 <= cut0) return -1;
+
+    /* 1) split any clip straddling cut0 and any straddling cut1 so the
+    *    span edges land exactly on clip boundaries. Do the LATER split
+    *    first so the earlier index isn't invalidated. */
+    wb_track *tk = &s->tracks[track];
+    for (int pass = 0; pass < 2; pass++) {
+       double edge = (pass == 0) ? cut1 : cut0;
+       for (uint32_t c = 0; c < tk->clip_count; c++) {
+           wb_clip *cl = &tk->clips[c];
+           if (cl->type != 2 || !cl->video) continue;
+           double cs = cl->start;
+           double ce = cs + (cl->length > 0 ? cl->length : cl->video->duration);
+           if (edge > cs + 1e-4 && edge < ce - 1e-4) {
+               if (wb_session_split_video_clip(s, track, (int)c, edge) < 0)
+                   return -1;
+               break;   /* one split per edge per pass */
+           }
+       }
+    }
+
+    /* 2) ripple-delete every clip fully inside [cut0, cut1), back-to-front */
+    for (int c = (int)tk->clip_count - 1; c >= 0; c--) {
+       wb_clip *cl = &tk->clips[c];
+       if (cl->type != 2 || !cl->video) continue;
+       double cs = cl->start;
+       double ce = cs + (cl->length > 0 ? cl->length : cl->video->duration);
+       if (cs >= cut0 - 1e-4 && ce <= cut1 + 1e-4)
+           wb_session_ripple_delete_video_clip(s, track, c);
+    }
+    /* 3) (removed R048-fix: after exact splits + full-interior deletes, no
+     *    remaining clip overlaps the span; trimming here corrupted the
+     *    already-ripple-shifted right neighbor.) */
+
+    /* 4) remove the words from the transcript */
+    wb_transcript_remove_range(tr, w0, w1);
+    return 0;
+    }
+
+    /* ---- G5: EDL / FCPXML interchange (R017 G5) ----------------------------
  * Serialize the session's video tracks to standard edit-decision formats so
  * projects can travel to Resolve/Premiere/ Final Cut. CMX3600 is plain text;
  * FCPXML is XML. Both describe each video clip as (reel/source, src in/out,

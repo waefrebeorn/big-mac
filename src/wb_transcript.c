@@ -81,6 +81,16 @@ void wb_transcript_set_word(wb_transcript *t, int i, const char *word) {
     t->words[i].word = dup_str(word);
 }
 
+int wb_transcript_remove_range(wb_transcript *t, int i0, int i1) {
+    if (!t || i0 < 0 || i1 <= i0 || i1 > t->count) return -1;
+    for (int i = i0; i < i1; i++) free(t->words[i].word);
+    int nrem = i1 - i0;
+    for (int i = i1; i < t->count; i++)
+        t->words[i - nrem] = t->words[i];
+    t->count -= nrem;
+    return nrem;
+}
+
 int wb_transcript_write_srt(const wb_transcript *t, const char *srt_path) {
     if (!t || !srt_path) return -1;
     FILE *f = fopen(srt_path, "w");

@@ -10,6 +10,10 @@
 #ifndef WUBUS_WBUS_PARAM_TRACK_H
 #define WUBUS_WBUS_PARAM_TRACK_H
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdint.h>
 
 typedef enum {
@@ -52,4 +56,8 @@ float wb_param_track_value_at(const wb_param_track *tr, double t);
  * (0 = clamp/hold at endpoints, 1 = linear-extrapolate). Default 0. */
 void wb_param_track_set_extrapolate(wb_param_track *tr, int on);
 
+
+#ifdef __cplusplus
+}
+#endif
 #endif /* WUBUS_WBUS_PARAM_TRACK_H */

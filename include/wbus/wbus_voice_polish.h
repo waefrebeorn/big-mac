@@ -15,6 +15,10 @@
 #ifndef WUBUS_WBUS_VOICE_POLISH_H
 #define WUBUS_WBUS_VOICE_POLISH_H
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdint.h>
 #include <stddef.h>
 #include "wbus/wbus_param_track.h"   /* G7: param-track-driven graph */
@@ -78,4 +82,8 @@ void wb_loudness_meter_process(wb_loudness_meter *m, const float *buf,
 float wb_loudness_meter_integrated(wb_loudness_meter *m);
 float wb_loudness_meter_short_term(wb_loudness_meter *m);
 
+
+#ifdef __cplusplus
+}
+#endif
 #endif /* WUBUS_WBUS_VOICE_POLISH_H */

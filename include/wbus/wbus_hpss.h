@@ -12,6 +12,10 @@
 #ifndef WBUS_HPSS_H
 #define WBUS_HPSS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 
 typedef struct wb_hpss wb_hpss;
@@ -28,4 +32,8 @@ void      wb_hpss_destroy(wb_hpss *h);
 int wb_hpss_separate(wb_hpss *h, const float *in, uint32_t frames,
                      float *harmonic, float *percussive);
 
+
+#ifdef __cplusplus
+}
+#endif
 #endif /* WBUS_HPSS_H */

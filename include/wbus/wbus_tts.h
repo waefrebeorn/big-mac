@@ -17,6 +17,10 @@
 #ifndef WUBUS_WBUS_TTS_H
 #define WUBUS_WBUS_TTS_H
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdint.h>
 #include <stddef.h>
 
@@ -60,4 +64,8 @@ void wb_tts_set_voice(wb_tts *t, int index);
 void wb_tts_set_pitch(wb_tts *t, float hz);
 void wb_tts_set_rate(wb_tts *t, float rate);
 
+
+#ifdef __cplusplus
+}
+#endif
 #endif /* WUBUS_WBUS_TTS_H */

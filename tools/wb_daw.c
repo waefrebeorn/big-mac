@@ -181,6 +181,7 @@ typedef struct app {
     wb_transcript *vid_tr;   /* editable transcript for the current video */
     int tr_sel0, tr_sel1;    /* selected word range [sel0, sel1) */
     int tr_row_y;            /* y of first transcript row (CAPTIONS tab) */
+    int tr_scroll;           /* R051: first visible transcript row */
     /* R050: CGI drag-rotate */
     int cgi_dragging;
     int cgi_last_x, cgi_last_y;
@@ -1518,7 +1519,9 @@ static void draw_video_tab_panel(app *a) {
             snprintf(buf, sizeof(buf), "TRANSCRIPT (%d words) — click=select, DEL=cut media", n);
             wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 18;
             a->tr_row_y = yy;
-            for (int i = 0; i < n && i < 18; i++) {
+            int rows_visible = 18;
+            if (a->tr_scroll > n - 1) a->tr_scroll = n - 1 > 0 ? n - 1 : 0;
+            for (int i = a->tr_scroll; i < n && i < a->tr_scroll + rows_visible; i++) {
                 const wb_word *w = wb_transcript_word(a->vid_tr, i);
                 if (!w) break;
                 int sel = (i >= a->tr_sel0 && i < a->tr_sel1) ||
@@ -2258,6 +2261,14 @@ static void handle_wheel(app *a, SDL_MouseWheelEvent w) {
     if (a->cgi && wb_workspace_cgi_active(a->ws) && a->tab == 5) {
         float z = wb_cgi_scene_get_zoom(a->cgi);
         wb_cgi_scene_set_zoom(a->cgi, z * (w.y > 0 ? 1.15f : 0.87f));
+        return;
+    }
+    /* R051: on CAPTIONS the wheel scrolls the transcript word list */
+    if (a->tab == 6 && a->vid_tr) {
+        a->tr_scroll -= w.y;
+        if (a->tr_scroll < 0) a->tr_scroll = 0;
+        int n = wb_transcript_count(a->vid_tr);
+        if (a->tr_scroll > n - 1) a->tr_scroll = n - 1 > 0 ? n - 1 : 0;
         return;
     }
     if (!a->session) return;

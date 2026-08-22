@@ -102,10 +102,10 @@ model) — exactly what the R043 ribbon does, extended with FUSION/3D-CGI/AGI ti
 | G3 | **Loop region** handle on clips / arrangement | repeat is a core musical action (Bitwig/Reaper) | clip `loop` flag + loop-bar handle; render honors it | open |
 | G4 | **Mixer fader readout + automation arm** | fader feels dead without a live dB value + write mode (research 8) | draw dB value near cap on drag; `automation_write` per track | open |
 | G5 | **Content/offset slide** handle (Bitwig-style) | slide audio inside the clip boundary without moving the clip | top-half drag → `start_in_source` shift; draw + hit-test | open |
-| G6 | **FUSION page** node graph view (we have `wb_compositor`) | the FUSION tier is wired but has no dedicated view yet | tab 5 (EDIT) → host the compositor node editor when FUSION active | open |
-| G7 | **3D-CGI / AGI** tiers: real views | tiers unlockable but empty; user wants low-poly CGI + AGI control surface | stub a `wb_cgi` module (opaque, C11) + AGI command bridge; wire to ribbon | open |
-| G8 | **Crossfade needs real overlap + material past the edge** | cosmetic crossfades that ignore this feel fake (Bitwig: only renders when clips overlap AND have audio extending past their edges) | G2/G1 must drag the fade *past* the boundary onto the other clip; draw the overlap region, not a fake gradient | open |
-| G9 | **Pre-fade preserves the edit point** | fading in earlier audio *before* the clip while keeping the clip's true start at full amp is a distinct operation (Bitwig pre-fade) | G2 handle model must separate *clip-edge fade* from *content-before-edge fade-in* | open |
+| G6 | **FUSION page** node graph view (we have `wb_compositor`) | the FUSION tier is wired but has no dedicated view yet | landed R043-G6 (wb_node_graph view) | done |
+| G7 | **3D-CGI / AGI** tiers: real views | tiers unlockable but empty; user wants low-poly CGI + AGI control surface | landed R043-G7 (wb_cgi/wb_agi modules + views) | done |
+| G8 ✅ | **Crossfade needs real overlap + material past the edge** | cosmetic crossfades that ignore this feel fake (Bitwig: only renders when clips overlap AND have audio extending past their edges) | G2/G1 must drag the fade *past* the boundary onto the other clip; draw the overlap region, not a fake gradient | open |
+| G9 ✅ | **Pre-fade preserves the edit point** | fading in earlier audio *before* the clip while keeping the clip's true start at full amp is a distinct operation (Bitwig pre-fade) | G2 handle model must separate *clip-edge fade* from *content-before-edge fade-in* | open |
 
 ---
 
@@ -124,7 +124,13 @@ model) — exactly what the R043 ribbon does, extended with FUSION/3D-CGI/AGI ti
   `volume` automation lane via wb_automation_recorder — verified end-to-end
   (selftest: 0 dB anchor snaps exactly; armed capture attenuates the rendered
   output). Reuses the existing automation model (no new subsystem).
-- **open:** G6 (Fusion view), G7 (CGI/AGI views), G8/G9 (crossfade overlap + pre-fade).
+- **R045: G8/G9 LANDED** — real crossfade overlap (equal-gain linear fades across
+  the clip overlap; negative control proves the no-fade overlap double-boosts) and
+  Bitwig-style PRE-FADE (`wb_clip_edit.pre_fade_in`): material before the edit
+  point ramps 0→1 while the true start stays full amp. Verified end-to-end through
+  the engine render path. Commit 332475b.
+- **open:** G7 polish only — CGI/AGI tiers have real views (wb_cgi/wb_agi, R043-G7);
+  G6 Fusion view landed (R043-G6).
 
 ## Build order for next loop
 G1 → G2 → G3 (the "clips feel real" cluster, cheapest high-leverage) → G4 (fader

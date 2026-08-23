@@ -87,6 +87,10 @@ int  wb_mesh_append(wb_mesh *dst, const wb_mesh *src);
 
 wb_mesh *wb_mesh_load_obj(const char *path);
 
+/* R056: export a mesh as Wavefront OBJ (+ MTL with per-face Kd colors so
+ * round-trips keep flat shading). Returns 0 on success. */
+int wb_mesh_write_obj(const wb_mesh *m, const char *obj_path);
+
 #ifdef __cplusplus
 }
 #endif

@@ -337,3 +337,50 @@ wb_mesh *wb_mesh_load_obj(const char *path) {
     if (m->ntris == 0) { wb_mesh_free(m); return NULL; }
     return m;
 }
+
+/* ---- OBJ export (R056) -------------------------------------------------- */
+
+int wb_mesh_write_obj(const wb_mesh *m, const char *obj_path) {
+    if (!m || !obj_path || m->nverts == 0) return -1;
+    char mtl_path[1024];
+    snprintf(mtl_path, sizeof mtl_path, "%s", obj_path);
+    char *dot = strrchr(mtl_path, '.');
+    if (dot) *dot = 0;
+    char mtl_file[1100];
+    snprintf(mtl_file, sizeof mtl_file, "%s.mtl", mtl_path);
+
+    FILE *mf = fopen(mtl_file, "w");
+    FILE *f = fopen(obj_path, "w");
+    if (!f || !mf) { if(f)fclose(f); if(mf)fclose(mf); return -1; }
+
+    /* one material per distinct color (meshes have few) */
+    fprintf(f, "mtllib %s.mtl\n", mtl_path);
+    for (int i = 0; i < m->nverts; i++)
+        fprintf(f, "v %f %f %f\n", m->verts[i].x, m->verts[i].y, m->verts[i].z);
+
+    int written = 0;
+    for (int i = 0; i < m->ntris; i++) {
+        wb_rast_tri *t = &m->tris[i];
+        char matname[32];
+        snprintf(matname, sizeof matname, "mat_%02x%02x%02x", t->r, t->g, t->b);
+        fprintf(f, "usemtl %s\n", matname);
+        fprintf(f, "f %d %d %d\n",
+                t->v0+1, t->v1+1, t->v2+1);
+        written++;
+        (void)written;
+    }
+    /* write materials deduped */
+    for (int i = 0; i < m->ntris; i++) {
+        wb_rast_tri *t = &m->tris[i];
+        int seen = 0;
+        for (int j = 0; j < i; j++)
+            if (m->tris[j].r==t->r && m->tris[j].g==t->g && m->tris[j].b==t->b)
+            { seen = 1; break; }
+        if (seen) continue;
+        fprintf(mf, "newmtl mat_%02x%02x%02x\nKd %.4f %.4f %.4f\n",
+                t->r, t->g, t->b,
+                t->r/255.0f, t->g/255.0f, t->b/255.0f);
+    }
+    fclose(f); fclose(mf);
+    return 0;
+}

@@ -306,6 +306,12 @@ build/wb_test_thumbnail: build/tools/test_thumbnail.o $(CORE_OBJS)
 test_thumbnail: build/wb_test_thumbnail
 	./build/wb_test_thumbnail
 
+build/wb_test_perf_export: build/tools/test_perf_export.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_perf_export: build/wb_test_perf_export
+	./build/wb_test_perf_export
+
 build/wb_test_perf_freeze: build/tools/test_perf_freeze.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 

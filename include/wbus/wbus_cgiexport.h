@@ -55,6 +55,15 @@ int wb_video_export_delivery(wb_session *s, wb_engine *e,
                              const wb_cgi_overlay *overlay,
                              double target_lufs);
 
+/* R070: composite every perf-clip on the session's video tracks into the
+ * export. Each perf-clip is replayed deterministically, rasterized at the
+ * export resolution, and overlaid during its [start, start+length) window.
+ * Runs AFTER any CGI overlay. Returns 0 on success. */
+int wb_video_export_perf_overlays(wb_session *s, wb_engine *e,
+                                  const char *output_path,
+                                  const char *srt_path,
+                                  wb_video_codec codec);
+
 #ifdef __cplusplus
 }
 #endif

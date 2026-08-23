@@ -41,6 +41,13 @@ int  wb_perfclip_event_count(const wb_perfclip *pc);
 /* JSON round-trip (matches shadow-bin schema: atomic tmp+rename). */
 int wb_perfclip_save(const wb_perfclip *pc, const char *path);
 
+/* R070: rasterize the perf clip over [t0, t0+dur) at `fps` into a raw
+ * RGBA file (one frame after another, W*H*4 each) — the same interchange
+ * format wb_video_export_cgi's overlay path consumes. Returns 0 or -1. */
+int wb_perfclip_render_seq(const wb_perfclip *pc,
+                           double t0, double dur, double fps,
+                           int w, int h, const char *raw_path);
+
 #ifdef __cplusplus
 }
 #endif

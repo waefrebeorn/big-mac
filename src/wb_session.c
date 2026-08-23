@@ -534,7 +534,8 @@ int wb_session_add_perf_clip(wb_session *s, int track, void *perfclip,
     cl->length = duration;
     cl->lane = 0;
     cl->perfclip = perfclip;
-    double clip_end_samples = (cl->start + cl->length) * WB_SAMPLE_RATE;
+    /* start is in SAMPLES (audio-clip convention); length is SECONDS. */
+    double clip_end_samples = cl->start + cl->length * WB_SAMPLE_RATE;
     if (clip_end_samples > s->length) s->length = clip_end_samples;
     return (int)(tr->clip_count - 1);
 }

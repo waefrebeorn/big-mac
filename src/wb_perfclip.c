@@ -1,6 +1,7 @@
 /* wb_perfclip.c — performance recordings as nested timeline clips (R068). */
 
 #include "wbus/wbus_perfclip.h"
+#include "wbus/wbus_mesh.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -56,12 +57,75 @@ int wb_perfclip_event_count(const wb_perfclip *pc) {
 
 int wb_perfclip_render(wb_perfclip *pc, double t,
                        uint8_t *rgba, int w, int h) {
-    (void)pc; (void)t; (void)rgba; (void)w; (void)h;
-    /* R068: a perf-clip is reproducible by feeding its event snapshot
-     * into a fresh wb_perf (see test_perfclip). Full pixel rasterization
-     * of decks into the caller's framebuffer is left as a compositor
-     * pass — here we validate the clip is renderable. */
-    return pc && rgba && w > 0 && h > 0 ? 0 : -1;
+    if (!pc || !rgba || w <= 0 || h <= 0) return -1;
+    /* R070: real rasterization — replay the event snapshot into a fresh
+     * private wb_perf (deterministic: same events → same pixels) and
+     * render its state at t. The live session perf is untouched. */
+    wb_perf *tmp = wb_perf_create(w, h);
+    if (!tmp) return -1;
+    /* seed decks: one per deck in the snapshot (tints carried; meshes
+     * default to a box since deck geometry lives with the host perf) */
+    for (int d = 0; d < pc->deck_count; d++) {
+        uint8_t r = pc->color[d][0], g = pc->color[d][1], b = pc->color[d][2];
+        if (!r && !g && !b) { r = 120; g = 120; b = 140; }
+        wb_mesh *m = wb_mesh_box(1, 1, 0.2f, r, g, b);
+        if (m) { wb_perf_add_deck(tmp, m, r, g, b); wb_mesh_free(m); }
+    }
+    /* replay the event list */
+    wb_perf_reset_for_replay(tmp);
+    for (uint32_t i = 0; i < pc->event_count; i++) {
+        const wb_perf_event_view *e = &pc->events[i];
+        if (e->t > t) break;
+        switch (e->type) {
+        case WB_PERF_FIRE: {
+            /* apply directly to the replay state at the recorded time */
+            wb_perf_set_clock(tmp, e->t);
+            wb_perf_fire(tmp, e->deck);
+            break;
+        }
+        case WB_PERF_UNFIRE:
+            wb_perf_set_clock(tmp, e->t);
+            wb_perf_unfire(tmp, e->deck);
+            break;
+        case WB_PERF_FADE:
+            wb_perf_set_clock(tmp, e->t);
+            wb_perf_fade(tmp, e->v);
+            break;
+        case WB_PERF_PARAM:
+            wb_perf_set_clock(tmp, e->t);
+            wb_perf_param(tmp, e->deck, e->which, e->v);
+            break;
+        default: break;
+        }
+    }
+    /* NOTE: firing while recording would append to tmp's log too — but we
+     * never armed recording on tmp, so its log stays empty; the replay
+     * above mutated deck state directly. Render the state as-is. */
+    wb_perf_render_frame(tmp, rgba);
+    wb_perf_free(tmp);
+    return 0;
+}
+
+int wb_perfclip_render_seq(const wb_perfclip *pc,
+                           double t0, double dur, double fps,
+                           int w, int h, const char *raw_path) {
+    if (!pc || !raw_path || dur <= 0 || fps <= 0 || w <= 0 || h <= 0)
+        return -1;
+    FILE *f = fopen(raw_path, "wb");
+    if (!f) return -1;
+    int frames = (int)(dur * fps);
+    uint8_t *rgba = malloc((size_t)w * h * 4);
+    if (!rgba) { fclose(f); return -1; }
+    for (int i = 0; i < frames; i++) {
+        double t = t0 + (double)i / fps;
+        if (wb_perfclip_render((wb_perfclip *)pc, t, rgba, w, h) != 0) {
+            free(rgba); fclose(f); return -1;
+        }
+        fwrite(rgba, 1, (size_t)w * h * 4, f);
+    }
+    free(rgba);
+    fclose(f);
+    return frames > 0 ? 0 : -1;
 }
 
 int wb_perfclip_save(const wb_perfclip *pc, const char *path) {

@@ -14,6 +14,7 @@
 
 #include "wbus/wbus_cgiexport.h"
 #include "wbus/wbus_delivery.h"
+#include "wbus/wbus_perfclip.h"
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -192,4 +193,87 @@ int wb_video_export_cgi(wb_session *s, wb_engine *e,
     int rc = system(cmd);
     unlink(raw);
     return rc == 0 ? 0 : -1;
+}
+
+/* R070: composite every perf-clip on the session's video tracks into the
+ * export. Each perf-clip replays deterministically, rasterizes at export
+ * resolution, and overlays during [start, start+length). Chained ffmpeg
+ * passes: one per perf-clip (base -> base2 -> ... -> output_path). */
+int wb_video_export_perf_overlays(wb_session *s, wb_engine *e,
+                                  const char *output_path,
+                                  const char *srt_path,
+                                  wb_video_codec codec) {
+    if (!s || !output_path) return -1;
+
+    /* collect perf-clips */
+    const wb_clip *perfclips[64];
+    int nperf = 0;
+    for (uint32_t t = 0; t < s->track_count && nperf < 64; t++) {
+        wb_track *tr = &s->tracks[t];
+        if (tr->kind != WB_TRACK_KIND_VIDEO) continue;
+        for (uint32_t c = 0; c < tr->clip_count && nperf < 64; c++) {
+            wb_clip *cl = &tr->clips[c];
+            if (cl->type == 3 && cl->perfclip) perfclips[nperf++] = cl;
+        }
+    }
+    if (nperf == 0)
+        return wb_video_export_codec(s, e, output_path, srt_path, codec);
+
+    const int W = 640, H = 360;
+    const double FPS = 24.0;
+    char src[512], dst[512], cmd[3072];
+
+    /* Step 1: plain session video as the base layer. When the session has
+     * NO media video clips (perf-only session), synthesize a black base of
+     * the right duration so the perf has something to composite over. */
+    snprintf(src, sizeof src, "%s", "/tmp/bigmac_perf_base.mp4");
+    int has_media = 0;
+    for (uint32_t t = 0; t < s->track_count && !has_media; t++)
+        for (uint32_t c = 0; c < s->tracks[t].clip_count; c++)
+            if (s->tracks[t].clips[c].type == 2) { has_media = 1; break; }
+    if (has_media) {
+        if (wb_video_export_codec(s, e, src, srt_path, codec) != 0)
+            return -1;
+    } else {
+        /* black base at session length (or first perf end), silent audio.
+         * s->length is in SAMPLES — convert to seconds. */
+        double dur = s->length / (double)WB_SAMPLE_RATE;
+        if (dur <= 0) dur = 2.0;
+        snprintf(cmd, sizeof cmd,
+            "\"%s\" -y -f lavfi -i color=c=black:s=%dx%d:r=%f:d=%f "
+            "-c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p "
+            "\"%s\" >/dev/null 2>&1",
+            WB_CGI_FFMPEG, W, H, FPS, dur, src);
+        if (system(cmd) != 0) return -1;
+    }
+
+    /* Step 2: one overlay pass per perf-clip. */
+    for (int i = 0; i < nperf; i++) {
+        const wb_clip *cl = perfclips[i];
+        const char *raw = "/tmp/bigmac_perf_overlay.raw";
+        double dur = cl->length > 0 ? cl->length : 2.0;
+        if (wb_perfclip_render_seq((wb_perfclip *)cl->perfclip,
+                                   0.0, dur, FPS, W, H, raw) != 0) {
+            unlink(src);
+            return -1;
+        }
+        snprintf(dst, sizeof dst, "%s", output_path);
+        /* intermediate target except the last pass writes the final path */
+        if (i < nperf - 1) snprintf(dst, sizeof dst,
+                                    "/tmp/bigmac_perf_pass%d.mp4", i);
+        snprintf(cmd, sizeof cmd,
+            "\"%s\" -y -i \"%s\" -f rawvideo -pix_fmt rgba -s %dx%d -r %f "
+            "-i \"%s\" "
+            "-filter_complex \"[0:v][1:v]overlay=x=(W-w)/2:y=(H-h)/2:"
+            "enable='between(t,%.3f,%.3f)'[v]\" "
+            "-map \"[v]\" -c:v libx264 -preset fast -crf 20 "
+            "-pix_fmt yuv420p -shortest \"%s\" >/dev/null 2>&1",
+            WB_CGI_FFMPEG, src, W, H, FPS, raw, cl->start,
+            cl->start + dur, dst);
+        int rc = system(cmd);
+        unlink(raw);
+        if (rc != 0) { unlink(src); return -1; }
+        if (i < nperf - 1) snprintf(src, sizeof src, "%s", dst);
+    }
+    return 0;
 }

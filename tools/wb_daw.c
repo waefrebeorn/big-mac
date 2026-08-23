@@ -31,6 +31,7 @@
 #include "wbus/wbus_agent.h"
 #include "wbus/wbus_wavcache.h"
 #include "wbus/wbus_capture.h"      /* G93/G94 */
+#include "wbus_precision.h"   /* Wave2 lane B: G15/G16/G65/G66 */
 #include "wbus/wbus_export_job.h"   /* G38 background render queue */
 #include "wbus_perfclip.h"
 #include "wbus_cgiexport.h"
@@ -200,6 +201,14 @@ typedef struct app {
     /* R067: JKL scrubbing + I/O loop points */
     int      jkl_speed;      /* -8..+8 (0 = stopped) */
     double   io_in, io_out;  /* sample positions; out<=in means unset */
+    /* Wave2 lane B: G15 trim mode + G16 razor + G66 drop mode */
+    int      trim_mode;      /* 1 = TRIM MODE active (EDIT tab) */
+    int      trim_edge;      /* 0 = in-point, 1 = out-point */
+    int      trim_clip;      /* clip index on vid_track being trimmed */
+    int      razor_on;       /* G16: next timeline click splits (then exits) */
+    int      drop_insert;    /* G66: 0 = OVERWRITE (default), 1 = INSERT */
+    SDL_Texture *trim_tex[2];        /* G65 cached two-up frame textures */
+    char     trim_tex_key[2][640];   /* proxy path + timecode per texture */
     /* R050: CGI drag-rotate */
     int cgi_dragging;
     int cgi_last_x, cgi_last_y;
@@ -723,9 +732,10 @@ static void draw_arrangement(app *a) {
                     const wb_clip_edit *ce = wb_clip_edit_get(wb_engine_clip_edit(a->engine), ti, (int)c);
                     float fin  = ce ? ce->fade_in  : 0.0f;
                     float fout = ce ? ce->fade_out : 0.0f;
-                    /* fade handles: only meaningful when a fade is > 0 OR the
-                     * clip is tall enough; draw a corner triangle either way so
-                     * it's discoverable (Ableton/Logic show them on-hover). */
+                    /* G23/G64: fade handles as small draggable squares (when
+                     * the lane is tall enough) with the curve drawn as a
+                     * diagonal over the clip; right-click cycles the G64
+                     * crossfade curve type (linear/equal-power/smoothstep). */
                     setc(a->ren, C_FADE);
                     /* fade-in corner (top-left): width ~ fade_in in px */
                     double dur = cl->length / WB_SAMPLE_RATE;
@@ -737,6 +747,19 @@ static void draw_arrangement(app *a) {
                     if (fout_px < 4) fout_px = 4; if (fout_px > clipbox.w) fout_px = clipbox.w;
                     SDL_RenderDrawLine(a->ren, rx, clipbox.y, rx - (int)fout_px, clipbox.y + (int)fout_px);
                     SDL_RenderDrawLine(a->ren, rx, clipbox.y, rx - (int)fout_px, clipbox.y);
+                    /* G23: solid square grips at both fade corners so the
+                     * drag target is visible (Pro Tools/Ableton style) */
+                    if (clipbox.h >= 12) {
+                        SDL_Rect sq_in  = { clipbox.x - 2, clipbox.y - 2, 6, 6 };
+                        SDL_Rect sq_out = { rx - 4,       clipbox.y - 2, 6, 6 };
+                        SDL_RenderFillRect(a->ren, &sq_in);
+                        SDL_RenderFillRect(a->ren, &sq_out);
+                        /* G64: tiny curve glyph — L/E/S for the active type */
+                        if (ce && ce->curve != 0) {
+                            char cg[2] = { ce->curve == 1 ? 'E' : 'S', 0 };
+                            wb_ui_draw_text(a->ren, clipbox.x + 8, clipbox.y + 2, cg, 1, C_FADE);
+                        }
+                    }
                     /* trim-edge caps (drawn as a 2px tall accent bar at edges) */
                     setc(a->ren, C_ACCENT);
                     SDL_RenderDrawLine(a->ren, clipbox.x, clipbox.y, clipbox.x, clipbox.y+clipbox.h);
@@ -762,7 +785,8 @@ static void draw_arrangement(app *a) {
                 }
                 /* register handle hit regions: id = 50000 + ti*1000 + c*8 + h
                  * h: 0 left-trim, 1 right-trim, 2 fade-in, 3 fade-out,
-                 *    4 content-slide (top half of waveform), 5 loop-toggle.
+                 *    4 content-slide (top half), 5 loop-toggle,
+                 *    6 clip-body MOVE (bottom half) — G14.
                  * decode: ti=(id-50000)/1000; rem%1000; c=rem/8; h=rem%8. */
                 int base = 50000 + ti*1000 + (int)c*8;
                 region_add(base+0, clipbox.x, clipbox.y, hw, clipbox.h);          /* LEFT trim  */
@@ -771,6 +795,8 @@ static void draw_arrangement(app *a) {
                 region_add(base+3, clipbox.x+clipbox.w-hw-2, clipbox.y, hw+2, hw+2); /* FADE_OUT */
                 region_add(base+4, clipbox.x+hw, clipbox.y, clipbox.w-2*hw, clipbox.h/2); /* CONTENT-SLIDE (top half) */
                 region_add(base+5, rx-10, clipbox.y+clipbox.h-10, 10, 10);          /* LOOP toggle (bottom-right) */
+                region_add(base+6, clipbox.x+hw, clipbox.y+clipbox.h/2,
+                           clipbox.w-2*hw, clipbox.h/2);                            /* BODY MOVE (G14) */
                 a->clip_handle_base[ti] = (clipbox.w > 16) ? base : -1;
                 /* R022: clip (region) gain readout — pre-fader, like Pro Tools */
                 if (cl->clip_gain > 1.001f || cl->clip_gain < 0.999f) {
@@ -778,6 +804,29 @@ static void draw_arrangement(app *a) {
                     wb_ui_draw_text(a->ren, clipbox.x+3, clipbox.y+3, gb, 1, C_ACCENT);
                 }
                 continue;
+            }
+            /* G14: MIDI clips get a clip box with trim/move handles, same
+             * region encoding as audio clips (fades apply via the shared
+             * wb_clip_edit_env render path). */
+            if (cl->type == 0 && cl->note_count > 0) {
+                int wx = arr_x(a, cl->start);
+                int ww = (int)((cl->length/WB_SAMPLE_RATE)*arr_px_per_sec(a));
+                if (ww < 4) ww = 4;
+                int clip_h = lh - 4;
+                if (clip_h < 6) clip_h = 6;
+                SDL_Rect mbox = { wx, y+4 + cl->lane*lh, ww, clip_h };
+                if (mbox.x < GUTTER_W) { int over = GUTTER_W-mbox.x; mbox.w -= over; mbox.x = GUTTER_W; }
+                if (mbox.w > 4) {
+                    setc(a->ren, C_FADE);
+                    SDL_RenderDrawRect(a->ren, &mbox);
+                    int mbase = 50000 + ti*1000 + (int)c*8;
+                    int hw2 = 6;
+                    region_add(mbase+0, mbox.x, mbox.y, hw2, mbox.h);                  /* LEFT trim */
+                    region_add(mbase+1, mbox.x+mbox.w-hw2, mbox.y, hw2, mbox.h);       /* RIGHT trim */
+                    region_add(mbase+6, mbox.x+hw2, mbox.y+1,
+                               mbox.w-2*hw2, mbox.h-2);                                /* BODY MOVE (G14) */
+                    a->clip_handle_base[ti] = mbase;
+                }
             }
             for (uint32_t k=0;k<cl->note_count;k++) {
                 wb_note *nt = &cl->notes[k];
@@ -1820,6 +1869,153 @@ static void draw_video_timeline(app *a) {
     wb_ui_draw_text(a->ren, tl.x + tl.w - 80, tl.y + 8, tc, 1, C_ACCENT);
 }
 
+/* ---- Wave2 lane B: G15 TRIM MODE + G65 precision two-up display -------- */
+
+#define WB_TRIM_FRAME (1.0 / 25.0)   /* frame-wise nudge step (1/25 s) */
+
+static void trim_mode_exit(app *a) {
+    a->trim_mode = 0;
+    for (int i = 0; i < 2; i++) {
+        if (a->trim_tex[i]) { SDL_DestroyTexture(a->trim_tex[i]); a->trim_tex[i] = NULL; }
+        a->trim_tex_key[i][0] = 0;
+    }
+}
+
+/* Enter TRIM MODE on the edit point of clip `ci` nearest the playhead. */
+static void trim_mode_enter(app *a, int ci) {
+    if (!a->session || !a->vid_has_clip) return;
+    if (ci < 0 || (uint32_t)ci >= a->session->tracks[a->vid_track].clip_count)
+        ci = a->vid_clip;
+    if (ci < 0) return;
+    wb_clip *cl = &a->session->tracks[a->vid_track].clips[ci];
+    if (cl->type != 2 || !cl->video) return;
+    double ph = a->t.song_pos / WB_SAMPLE_RATE;
+    int edge = 1;
+    wb_precision_nearest_edge(a->session, a->vid_track, ci, ph, &edge);
+    trim_mode_exit(a);
+    a->trim_clip = ci;
+    a->trim_edge = edge;
+    a->trim_mode = 1;
+    snprintf(a->last_status, sizeof(a->last_status),
+             "TRIM MODE: %s of clip %d (arrows/,/. nudge, JKL shuttle, ESC exits)",
+             edge == 0 ? "IN" : "OUT", ci);
+    printf("trim: ENTER on %s of clip %d\n", edge == 0 ? "in" : "out", ci);
+}
+
+static void trim_nudge(app *a, double delta) {
+    if (!a->session || !a->vid_has_clip || !a->trim_mode) return;
+    int rc = wb_session_nudge_edit_point(a->session, a->vid_track,
+                                         a->trim_clip, a->trim_edge, delta);
+    if (rc == 0)
+        snprintf(a->last_status, sizeof(a->last_status), "TRIM %+d frames",
+                 (int)(delta / WB_TRIM_FRAME + (delta >= 0 ? 0.5 : -0.5)));
+    printf("trim: nudge %+.3fs rc=%d\n", delta, rc);
+}
+
+/* G65: grab one frame near the cut into a cached texture. side 0 = outgoing
+ * (last frame before cut), side 1 = incoming (first frame after cut). */
+static SDL_Texture *trim_frame_tex(app *a, int side, double src_time) {
+    wb_clip *cl = &a->session->tracks[a->vid_track].clips[a->trim_clip];
+    wb_clip *other = &a->session->tracks[a->vid_track].clips[
+        a->trim_clip + (side == 0 ? 0 : 1)];
+    wb_video_clip *vc = side == 0 ? cl->video : other->video;
+    if (!vc || !vc->proxy_path[0]) vc = cl->video;
+    char key[640];
+    snprintf(key, sizeof(key), "%s@%.3f", vc->proxy_path, src_time);
+    if (a->trim_tex[side] && strcmp(key, a->trim_tex_key[side]) == 0)
+        return a->trim_tex[side];
+    if (a->trim_tex[side]) { SDL_DestroyTexture(a->trim_tex[side]); a->trim_tex[side] = NULL; }
+    wb_video_decoder *vd = wb_video_decoder_open(vc->proxy_path);
+    if (!vd) return NULL;
+    uint8_t *rgba = malloc(854 * 480 * 4);
+    int ow = 0, oh = 0;
+    if (rgba && wb_video_decoder_seek(vd, src_time) == 0 &&
+        wb_video_decoder_decode_frame(vd, rgba, &ow, &oh) == 0)
+        a->trim_tex[side] = wb_video_frame_to_texture(a->ren, rgba, ow, oh);
+    free(rgba);
+    wb_video_decoder_close(vd);
+    snprintf(a->trim_tex_key[side], sizeof(a->trim_tex_key[side]), "%s", key);
+    return a->trim_tex[side];
+}
+
+/* G65: two-up display — outgoing last frames | incoming first frames with a
+ * center divider at the edit point. Falls back to note/waveform context bars
+ * for MIDI/audio clips or when no decoder is available. */
+static void draw_trim_twoup(app *a, int px, int py, int pw) {
+    if (!a->session || !a->vid_has_clip || !a->trim_mode) return;
+    wb_track *tr = &a->session->tracks[a->vid_track];
+    if ((uint32_t)a->trim_clip >= tr->clip_count) return;
+    wb_clip *l = &tr->clips[a->trim_clip];
+    wb_clip *r = a->trim_clip + 1 < (int)tr->clip_count
+               ? &tr->clips[a->trim_clip + 1] : NULL;
+
+    /* G15 badge */
+    SDL_Rect badge = { px + 6, py, 110, 16 };
+    setc(a->ren, 200, 60, 60);
+    SDL_RenderFillRect(a->ren, &badge);
+    setc(a->ren, 255, 255, 255);
+    wb_ui_draw_text(a->ren, px + 12, py + 2,
+                    a->trim_edge == 0 ? "TRIM: IN PT" : "TRIM: OUT PT",
+                    1, 255, 255, 255);
+
+    int ty = py + 22, th = 90, half = (pw - 16) / 2;
+    double cut_src_l = l->video->start_in_source
+                     + (l->length > 0 ? l->length : l->video->duration)
+                     - WB_TRIM_FRAME / 2.0;
+    if (cut_src_l < 0) cut_src_l = 0;
+    SDL_Texture *tl_tex = trim_frame_tex(a, 0, cut_src_l);
+
+    int lx = px + 6, rx = px + 6 + half + 4;
+    SDL_Rect lrect = { lx, ty, half, th }, rrect = { rx, ty, half, th };
+    setc(a->ren, C_PANEL2); SDL_RenderFillRect(a->ren, &lrect);
+    SDL_RenderFillRect(a->ren, &rrect);
+    if (tl_tex) wb_video_blit_scaled(a->ren, tl_tex, &lrect);
+    if (r && r->type == 2 && r->video) {
+        double cut_src_r = r->video->start_in_source < 0 ? 0
+                         : r->video->start_in_source + WB_TRIM_FRAME / 2.0;
+        SDL_Texture *tr_tex = trim_frame_tex(a, 1, cut_src_r);
+        if (tr_tex) wb_video_blit_scaled(a->ren, tr_tex, &rrect);
+    } else if (r && r->type == 0 && r->notes && r->note_count) {
+        /* MIDI context: first notes of the incoming clip as pitch bars */
+        setc(a->ren, 90, 160, 240);
+        for (uint32_t n = 0; n < r->note_count && n < 24; n++) {
+            int bh = 4 + (r->notes[n].pitch % 24) * 3;
+            SDL_Rect bar = { rx + 4 + (int)n * ((half - 8) / 24), ty + th - bh - 2,
+                             (half - 8) / 24 - 1, bh };
+            SDL_RenderFillRect(a->ren, &bar);
+        }
+    } else if (r && r->type == 1 && r->audio_data && r->audio_frames) {
+        /* waveform context: coarse envelope of the incoming audio head */
+        setc(a->ren, 90, 220, 120);
+        int bars = half - 8;
+        for (int bxi = 0; bxi < bars; bxi += 3) {
+            size_t idx = (size_t)((double)bxi / bars * r->audio_frames)
+                       * r->audio_channels;
+            float v = fabsf(r->audio_data[idx]);
+            int bh = (int)(v * (th - 6));
+            if (bh > th - 6) bh = th - 6;
+            SDL_Rect bar = { rx + 4 + bxi, ty + th - bh - 2, 2, bh };
+            SDL_RenderFillRect(a->ren, &bar);
+        }
+    } else if (r) {
+        wb_ui_draw_text(a->ren, rx + 6, ty + th / 2 - 6, "(end of track)",
+                        1, C_TEXT_DIM);
+    }
+
+    /* center divider AT the edit point */
+    setc(a->ren, 255, 210, 70);
+    for (int i = 0; i < 2; i++)
+        SDL_RenderDrawLine(a->ren, rx - 3 + i, ty - 2, rx - 3 + i, ty + th + 2);
+
+    setc(a->ren, C_TEXT_DIM);
+    wb_ui_draw_text(a->ren, lx + 4, ty + th + 2, "OUTGOING (last frame)", 1, C_TEXT_DIM);
+    wb_ui_draw_text(a->ren, rx + 4, ty + th + 2, "INCOMING (first frame)", 1, C_TEXT_DIM);
+    char tc[64];
+    snprintf(tc, sizeof(tc), "cut @ %.2fs  (%s)", l->start + l->length,
+             a->trim_edge == 0 ? "IN" : "OUT");
+    wb_ui_draw_text(a->ren, lx + 4, ty + th + 14, tc, 1, C_ACCENT);
+}
+
 static void draw_video_tab_panel(app *a) {
     int px = WIN_W - MIXER_W + 4;
     int py = MAIN_Y + RULER_H + 26;
@@ -1880,6 +2076,16 @@ static void draw_video_tab_panel(app *a) {
         } else {
             wb_ui_draw_text(a->ren, px + 6, yy, "No clip selected. Import in MEDIA tab.", 1, C_TEXT_DIM); yy += 18;
         }
+        /* Wave2 G15/G65: trim-mode badge + precision two-up preview */
+        if (a->trim_mode && a->vid_has_clip) {
+            draw_trim_twoup(a, px, yy + 2, pw);
+            yy += 140;
+            wb_ui_draw_text(a->ren, px + 6, yy,
+                            "< > or , . nudge 1 frame | JKL shuttle", 1, C_ACCENT); yy += 14;
+        }
+        wb_ui_draw_text(a->ren, px + 6, yy, "T trim mode  R razor  O drop mode:", 1, C_ACCENT); yy += 14;
+        wb_ui_draw_text(a->ren, px + 6, yy,
+                        a->drop_insert ? "  INSERT (later clips shift)" : "  OVERWRITE", 1, C_ACCENT); yy += 14;
         /* R025: edit-tool shortcuts are ALWAYS visible (tools must be discoverable) */
         wb_ui_draw_text(a->ren, px + 6, yy, "Edit tools:", 1, C_TEXT); yy += 16;
         wb_ui_draw_text(a->ren, px + 6, yy, "^T trim start  ^E trim end", 1, C_TEXT_DIM); yy += 14;
@@ -2066,6 +2272,12 @@ static int video_import(app *a, const char *path) {
         return -1;
     }
     wb_session_set_video_proxy(a->session, vt, ci, proxy_path);
+    /* G66: INSERT drop — ripple existing video clips right to make room */
+    if (a->drop_insert && a->vid_dur > 0) {
+        int shifted = wb_session_drop_place(a->session, vt, 0.0,
+                                            a->vid_dur, WB_DROP_INSERT);
+        if (shifted > 0) printf("drop: INSERT shifted %d clip(s) on import\n", shifted);
+    }
     a->vid_track = vt;
     a->vid_clip = ci;
     a->vid_tl_start = 0.0;
@@ -2279,6 +2491,19 @@ static void daw_capture(app *a) {
                                 a->t.song_pos,
                                 a->capture_window > 0 ? a->capture_window : 8.0,
                                 bpm);
+    if (n >= 0 && a->drop_insert) {
+        /* G66: INSERT drop — ripple later clips right by the new clip span */
+        double t0s = a->t.song_pos / WB_SAMPLE_RATE
+                   - (a->capture_window > 0 ? a->capture_window : 8.0);
+        if (t0s < 0) t0s = 0;
+        int shifted = wb_session_drop_place(a->session, a->selected_track,
+                                            t0s * WB_SAMPLE_RATE,
+                                            (a->capture_window > 0 ? a->capture_window : 8.0)
+                                              * WB_SAMPLE_RATE,
+                                            WB_DROP_INSERT);
+        if (shifted > 0) wb_engine_set_session(a->engine, a->session);
+        printf("drop: INSERT shifted %d later clip(s)\n", shifted);
+    }
     if (n >= 0)
         snprintf(a->last_status, sizeof a->last_status,
                  "CAPTURED %d notes -> track %d (quantized)", n, a->selected_track);
@@ -2984,6 +3209,15 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                         printf("loop: track %d clip %d -> %s\n", ti, c, te&&te->loop?"ON":"off");
                         return;
                     }
+                    /* G64: RIGHT-click a fade handle cycles the crossfade
+                     * curve type: linear -> equal-power -> smoothstep. */
+                    if ((h == 2 || h == 3) && b.button == SDL_BUTTON_RIGHT && te) {
+                        static const char *names[3] = { "linear", "equal-power", "smoothstep" };
+                        te->curve = (te->curve + 1) % 3;
+                        printf("fade curve: track %d clip %d -> %s\n",
+                               ti, c, names[te->curve]);
+                        return;
+                    }
                     a->handle_drag = h;
                     a->hd_track = ti;
                     a->hd_clip  = c;
@@ -3006,6 +3240,47 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
 
     Uint32 btn = b.button;
     if (btn == SDL_BUTTON_LEFT) {
+        /* G16: razor armed -> split ALL clips under this x, then auto-exit */
+        if (a->razor_on && !a->trim_mode &&
+            (a->tab == 0 || a->tab == 5)) {
+            double t_sec = x_to_sample(a, b.x) / WB_SAMPLE_RATE;
+            int all = (SDL_GetModState() & KMOD_SHIFT) ? 1 : 0;
+            int n = wb_session_razor_split_all_at_time(a->session, t_sec,
+                                                       a->selected_track, all);
+            if (n > 0) {
+                wb_engine_set_session(a->engine, a->session);
+                snprintf(a->last_status, sizeof(a->last_status),
+                         "RAZOR: %d cut(s) @ %.2fs", n, t_sec);
+                printf("razor: %d clip(s) split at %.2fs%s\n", n, t_sec,
+                       all ? " (all tracks)" : "");
+            } else {
+                printf("razor: nothing under blade at %.2fs\n", t_sec);
+            }
+            a->razor_on = 0;   /* one cut per arm */
+            return;
+        }
+        /* G15: clicking near a cut on the EDIT timeline enters TRIM MODE
+         * pinned to that boundary (nearest edge of that clip). */
+        if (a->tab == 5 && a->vid_has_clip && !a->trim_mode &&
+            a->vid_track >= 0 && a->vid_track < (int)a->session->track_count) {
+            double t_sec = x_to_sample(a, b.x) / WB_SAMPLE_RATE;
+            double best_px = 7.0 / arr_px_per_sec(a);   /* ~7px window */
+            int hit = -1, hedge = 0;
+            wb_track *vtr = &a->session->tracks[a->vid_track];
+            for (uint32_t c = 0; c < vtr->clip_count; c++) {
+                double cs = vtr->clips[c].start;
+                double ce = cs + vtr->clips[c].length;
+                if (fabs(t_sec - cs) < best_px) { best_px = fabs(t_sec - cs); hit = (int)c; hedge = 0; }
+                if (fabs(ce - t_sec) < best_px) { best_px = fabs(ce - t_sec); hit = (int)c; hedge = 1; }
+            }
+            if (hit >= 0) {
+                trim_mode_enter(a, hit);
+                a->trim_edge = hedge;
+                printf("trim: clicked cut of clip %d (%s)\n", hit,
+                       hedge == 0 ? "in" : "out");
+                return;
+            }
+        }
         /* R035: PAD / STEP / SESSION are distinct performance views */
         if (a->tab == 1) { pad_click(a, b.x, b.y); return; }
         if (a->tab == 2) { step_click(a, b.x, b.y); return; }
@@ -3151,23 +3426,19 @@ static void handle_motion(app *a, SDL_MouseMotionEvent m) {
         double pps = arr_px_per_sec(a);
         double dsec = (double)(m.x - a->hd_start_x) / pps;       /* px -> seconds */
         double dsmp = (double)(m.x - a->hd_start_x) / ARRANG_W * a->visible_secs * WB_SAMPLE_RATE;
-        wb_clip_edit *ce = wb_clip_edit_get(wb_engine_clip_edit(a->engine), a->hd_track, a->hd_clip);
+        wb_clip_edit_table *et = wb_engine_clip_edit(a->engine);
+        wb_clip_edit *ce = wb_clip_edit_get(et, a->hd_track, a->hd_clip);
         switch (a->handle_drag) {
-        case 0: {  /* LEFT trim: move start, shrink length (anchor right edge) */
-            double newstart = a->hd_clip_start0 + dsmp;
-            double right = a->hd_clip_start0 + a->hd_clip_len0;
-            if (newstart >= right - WB_SAMPLE_RATE*0.05) newstart = right - WB_SAMPLE_RATE*0.05;
-            if (newstart < 0) newstart = 0;
-            cl->start = newstart;
-            cl->length = right - newstart;
-            /* content stays put: shift start_in_source so the waveform doesn't jump */
-            ce->start_in_source = a->hd_sis0 + (newstart - a->hd_clip_start0);
+        case 0: {  /* LEFT trim: move start, shrink length (G14 helper keeps
+                      audio buffer alignment via start_in_source; MIDI clips
+                      get their notes clamped). */
+            wb_session_trim_clip_head(a->session, et, a->hd_track, a->hd_clip,
+                                      dsmp);
             break;
         }
         case 1: {  /* RIGHT trim: change length, anchor left edge */
-            double newlen = a->hd_clip_len0 + dsmp;
-            if (newlen < WB_SAMPLE_RATE*0.05) newlen = WB_SAMPLE_RATE*0.05;
-            cl->length = newlen;
+            wb_session_trim_clip_tail(a->session, et, a->hd_track, a->hd_clip,
+                                      dsmp);
             break;
         }
         case 2: {  /* FADE_IN: seconds (0..clip length) */
@@ -3191,9 +3462,34 @@ static void handle_motion(app *a, SDL_MouseMotionEvent m) {
             ce->start_in_source = sis;
             break;
         }
+        case 6: {  /* G14: BODY MOVE — horizontal drag relocates the clip in
+                     time; vertical drag moves it across tracks hosting the
+                     same media kind. Uses wb_session_move_clip so the model
+                     op is testable headless; the side-table entry travels
+                     via wb_clip_edit_move. */
+            double newstart = a->hd_clip_start0 + dsmp;
+            if (newstart < 0) newstart = 0;
+            int nti = y_to_track(a, m.y);
+            if (nti >= 0 && nti < (int)a->session->track_count
+                && (nti == a->hd_track
+                    || cl->type == a->session->tracks[nti].kind)) {
+                int rc = wb_session_move_clip(a->session, a->hd_track,
+                                              a->hd_clip, nti, newstart);
+                if (rc == 0 && (nti != a->hd_track)) {
+                    /* clip was re-appended on dst: index = count-1 */
+                    int nci = (int)a->session->tracks[nti].clip_count - 1;
+                    wb_clip_edit_move(et, a->hd_track, a->hd_clip, nti, nci);
+                    a->hd_track = nti;
+                    a->hd_clip  = nci;
+                }
+            }
+            break;
         }
-        /* keep the session length covering the clip (so export/playback span it) */
-        double end = cl->start + cl->length;
+        }
+        /* keep the session length covering the clip (so export/playback span it).
+         * Re-read the clip: a G14 move reallocates/migrates it. */
+        wb_clip *cl2 = &a->session->tracks[a->hd_track].clips[a->hd_clip];
+        double end = cl2->start + cl2->length;
         if (end > a->session->length) a->session->length = end;
         return;
     }
@@ -3318,7 +3614,7 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_l:
-        if (a->tab == 0 || a->tab == 1) {
+        if (a->tab == 0 || a->tab == 1 || (a->tab == 5 && a->trim_mode)) {
             if (a->jkl_speed < 0) a->jkl_speed = 1;
             else if (a->jkl_speed < 8) a->jkl_speed++;
             else a->jkl_speed = 0;
@@ -3326,7 +3622,7 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_k:
-        if (a->tab == 0 || a->tab == 1) {
+        if (a->tab == 0 || a->tab == 1 || (a->tab == 5 && a->trim_mode)) {
             a->jkl_speed = 0;
             if (a->t.playing) wb_engine_stop(a->engine);
         } else {
@@ -3334,7 +3630,13 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_o:
-        if (!ctrl && (a->tab == 0 || a->tab == 1)) {
+        if (!ctrl && a->tab == 5) {
+            /* G66: cycle the global drop mode */
+            a->drop_insert = a->drop_insert ? 0 : 1;
+            snprintf(a->last_status, sizeof(a->last_status), "DROP: %s",
+                     a->drop_insert ? "INSERT" : "OVERWRITE");
+            printf("drop mode: %s\n", a->drop_insert ? "INSERT" : "OVERWRITE");
+        } else if (!ctrl && (a->tab == 0 || a->tab == 1)) {
             a->io_out = a->t.song_pos;
             printf("mark OUT: %.2fs\n", a->io_out / WB_SAMPLE_RATE);
         } else if (ctrl) {
@@ -3427,7 +3729,9 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_ESCAPE:
-        if (a->browser_open) a->browser_open = 0;          /* Wave1 G01 */
+        if (a->trim_mode) { trim_mode_exit(a); printf("trim: EXIT\n"); }
+        else if (a->razor_on) { a->razor_on = 0; printf("razor: off\n"); }
+        else if (a->browser_open) a->browser_open = 0;          /* Wave1 G01 */
         else if (a->param_view) { a->param_view = 0; a->param_drag = -1; }
         else { running = 0; }
         break;
@@ -3466,6 +3770,14 @@ static void handle_key(app *a, SDL_Keycode k) {
             int rc = wb_video_export(a->session, a->engine, a->vid_export,
                                      a->vid_captions_ready ? a->vid_srt : NULL);
             printf("video: export rc=%d (%s)\n", rc, rc == 0 ? "ok" : "failed");
+        } else if (a->tab == 5) {
+            /* G16: toggle the razor; next timeline click splits ALL clips
+             * under the cursor on the selected track (SHIFT = all tracks),
+             * then the razor auto-exits. */
+            a->razor_on = !a->razor_on;
+            snprintf(a->last_status, sizeof(a->last_status), "RAZOR %s",
+                     a->razor_on ? "ARMED (click timeline)" : "off");
+            printf("razor: %s\n", a->razor_on ? "ARMED" : "off");
         } else {  /* audio-editor: cycle scale root up */
             a->scale_root = (a->scale_root + 1) % 12;
             a->param_drag = -1;
@@ -3517,8 +3829,10 @@ static void handle_key(app *a, SDL_Keycode k) {
             printf("video: clip deleted\n");
         }
         break;
-    case SDLK_t:  /* trim start to playhead (EDIT tab) */
-        if (a->tab == 5 && a->vid_has_clip) {
+    case SDLK_t:  /* EDIT tab: T = G15 TRIM MODE (Ctrl+T = legacy trim start) */
+        if (a->tab == 5 && a->vid_has_clip && !ctrl) {
+            trim_mode_enter(a, -1);
+        } else if (a->tab == 5 && a->vid_has_clip) {
             double ph = a->t.song_pos / WB_SAMPLE_RATE;
             if (ph > a->vid_tl_start && ph < a->vid_tl_end) {
                 a->vid_tl_start = ph;
@@ -3573,9 +3887,14 @@ static void handle_key(app *a, SDL_Keycode k) {
             printf("video: roll %+.1fs -> rc=%d\n", d, r);
         }
         break;
-    case SDLK_COMMA: {  /* ripple-trim clip start to playhead (EDIT tab) —
-                         * trims the head AND shifts this + later clips back so
-                         * no gap opens (Sony Vegas "ripple trim in"). */
+    case SDLK_COMMA: {  /* G15 trim nudge; else ripple-trim clip start to
+                         * playhead (EDIT tab) — trims the head AND shifts this
+                         * + later clips back so no gap opens (Vegas "ripple
+                         * trim in"). */
+        if (a->tab == 5 && a->trim_mode) {
+            trim_nudge(a, -WB_TRIM_FRAME);
+            break;
+        }
         if (a->tab == 5 && a->vid_has_clip && a->session) {
             double ph = a->t.song_pos / WB_SAMPLE_RATE;
             wb_track *tr = &a->session->tracks[a->vid_track];
@@ -3598,7 +3917,11 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     }
-    case SDLK_PERIOD: {  /* ripple-trim clip end to playhead (EDIT tab) */
+    case SDLK_PERIOD: {  /* G15 trim nudge; else ripple-trim clip end */
+        if (a->tab == 5 && a->trim_mode) {
+            trim_nudge(a, WB_TRIM_FRAME);
+            break;
+        }
         if (a->tab == 5 && a->vid_has_clip && a->session) {
             double ph = a->t.song_pos / WB_SAMPLE_RATE;
             wb_track *tr = &a->session->tracks[a->vid_track];

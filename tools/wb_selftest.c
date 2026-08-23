@@ -2725,6 +2725,67 @@ static void test_lufs(void) {
     if (buf) free(buf);
 }
 
+/* ---- Wave3 G80/G81/G87/G88: scale lock, chord stamp, step vel/prob ---- */
+static void test_scale_chord_step(void) {
+    /* G80: scale containment — C major contains C E G, not C# or F# */
+    CHECK(wb_scale_contains(0, 0, 60), "C major contains C4");
+    CHECK(wb_scale_contains(0, 0, 64) && wb_scale_contains(0, 0, 67),
+          "C major contains E4 and G4");
+    CHECK(!wb_scale_contains(0, 0, 61), "C major rejects C#4");
+    CHECK(!wb_scale_contains(0, 0, 66), "C major rejects F#4");
+    CHECK(wb_scale_contains(9, 1, 69), "A minor contains A4");
+    CHECK(wb_scale_contains(2, 3, 62), "D mixolydian contains D2-pc note");
+
+    /* G80: snap moves out-of-key notes to nearest in-key pitch */
+    CHECK(wb_scale_snap(0, 0, 61) == 60 || wb_scale_snap(0, 0, 61) == 62,
+          "snap C#4 lands on an in-scale neighbor");
+    CHECK(wb_scale_snap(0, 0, 60) == 60, "snap of in-scale note is identity");
+    int sn = wb_scale_snap(0, 0, 66);   /* F#4 -> F4(65) or G4(67) */
+    CHECK(sn == 65 || sn == 67, "snap F#4 lands on F4 or G4");
+    CHECK(wb_scale_snap(0, 0, -5) == 0 && wb_scale_snap(0, 0, 200) == 127,
+          "snap clamps to MIDI range");
+
+    /* G81: chord tones — C major triad/7th/9th */
+    int tones[8];
+    CHECK(wb_chord_tones(0, 0, 0, tones) == 0, "chord mode off yields no tones");
+    int nt = wb_chord_tones(0, 0, 1, tones);
+    CHECK(nt == 3, "triad has 3 tones");
+    CHECK(nt == 3 && tones[0] == 0 && tones[1] == 4 && tones[2] == 7,
+          "C major triad = C E G");
+    nt = wb_chord_tones(0, 0, 2, tones);
+    CHECK(nt == 4 && tones[3] == 11, "C major 7th adds B (11 semitones)");
+    nt = wb_chord_tones(0, 0, 3, tones);
+    CHECK(nt == 5 && tones[4] == 14, "C major 9th adds D an octave up (14)");
+    nt = wb_chord_tones(2, 2, 1, tones);   /* D dorian triad */
+    CHECK(nt == 3 && tones[0] == 2 && tones[1] == 5 && tones[2] == 9,
+          "D dorian triad = D F A (minor triad)");
+
+    /* G87/G88 helpers live in wb_daw.c (UI layer); engine contract is that
+     * commit + playback read step_vel/step_prob. Verify session notes carry
+     * arbitrary velocity through add_note (what commit now passes). */
+    wb_session *s = wb_session_create();
+    wb_track *tr = wb_session_add_track(s, "vel", 0);
+    CHECK(tr != NULL, "track created for velocity test");
+    if (tr) {
+        /* notes live inside clips (see test_step_commit pattern) */
+        if (tr->clip_count == 0) {
+            tr->clips = calloc(1, sizeof(wb_clip));
+            tr->clip_count = 1;
+        }
+        wb_clip *cl = &tr->clips[tr->clip_count - 1];
+        wb_session_add_note(tr, 0, 100, 60, 37);
+        wb_session_add_note(tr, 200, 100, 64, 112);
+        uint32_t nc = cl->note_count;
+        CHECK(nc >= 2 &&
+              cl->notes[nc-2].vel == 37 &&
+              cl->notes[nc-1].vel == 112,
+              "session notes preserve per-note velocity (G87 path)");
+    }
+    wb_session_destroy(s);
+
+    printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0); /* unbuffered so we see output on crash */
     printf("=== Big Mac DAW self-test gate ===\n");
@@ -2787,6 +2848,7 @@ int main(void) {
     test_media_bin();           /* Wave3 G04 */
     test_relink_offline();      /* Wave3 G70 */
     test_lufs();                /* Wave3 G78 */
+    test_scale_chord_step();    /* Wave3 G80/G81/G87/G88 */
 
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

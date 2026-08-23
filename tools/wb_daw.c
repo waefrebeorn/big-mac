@@ -74,69 +74,10 @@ static const char *scale_root_name(int root) {
     return roots[root % 12];
 }
 
-/* ---- G80: scale interval tables (semitones from root, ascending) ------ */
-static const int scale_dims[5] = { 7, 7, 7, 7, 7 };   /* all 7-note diatonic */
-static const int scale_intervals[5][7] = {
-    {0, 2, 4, 5, 7, 9, 11},   /* 0 = major          (Ionian)    */
-    {0, 2, 3, 5, 7, 8, 10},   /* 1 = minor          (Aeolian)   */
-    {0, 2, 3, 5, 7, 9, 10},   /* 2 = dorian                      */
-    {0, 2, 4, 5, 7, 9, 10},   /* 3 = mixolydian                    */
-    {0, 1, 3, 5, 7, 8, 10},   /* 4 = phrygian                      */
-};
+/* ---- G81: chord tones (engine-owned in wb_midi_coremidi.c, see wbus_midi.h) */
+/* Clamp velocity/probability helpers (engine-owned in wb_step.h) */
 
-/* 1 if pitch is a member of (root, type) scale within +/-1 octave band. */
-static int scale_in(int pitch, int root, int type) {
-    const int *iv = scale_intervals[type % 5];
-    int n = scale_dims[type % 5];
-    for (int o = -1; o <= 1; o++)
-        for (int i = 0; i < n; i++)
-            if (pitch == root + 12 * o + iv[i]) return 1;
-    return 0;
-}
-
-/* Snap pitch to the nearest in-scale pitch (prefers the lower octave on a
- * tie, matching a piano-roll "draw in key" feel). */
-static int scale_snap(int pitch, int root, int type) {
-    int best = pitch, best_dist = 999;
-    for (int p = pitch - 12; p <= pitch + 12; p++) {
-        if (!scale_in(p, root, type)) continue;
-        int d = abs(p - pitch);
-        if (d < best_dist) { best_dist = d; best = p; }
-    }
-    return best;
-}
-
-/* ---- G81: chord tones from root + current scale ---------------------- */
-/* modes: 0=off(none),1=triad,2=7th,3=9th. Fills out with chord tones
- * (root + extensions up to the 9th) and returns count. All tones are
- * derived from the scale interval table so the chord is diatonic to the
- * current key. */
-static int chord_tones(int root, int type, int mode, int out[8]) {
-    const int *iv = scale_intervals[type % 5];
-    int n = scale_dims[type % 5];
-    int cnt = 0;
-    if (mode <= 0) return 0;
-    /* triad core: root, 3rd, 5th */
-    int thirds[] = { 0, 2, 4 };
-    for (int i = 0; i < 3 && cnt < 8; i++) {
-        int deg = thirds[i] % n;
-        int note = root + (thirds[i] / n) * 12 + iv[deg];
-        out[cnt++] = note;
-    }
-    if (mode >= 2 && cnt < 8) {                              /* 7th */
-        int deg = 6 % n;                                     /* 7th scale degree */
-        out[cnt++] = root + iv[deg];
-    }
-    if (mode >= 3 && cnt < 8) {                              /* 9th = octave + 2nd */
-        int deg = 1 % n;
-        out[cnt++] = root + 12 + iv[deg];
-    }
-    return cnt;
-}
-
-/* Clamp velocity/probability helpers */
-static int clamp_vel(int v) { return v < 0 ? 0 : (v > 127 ? 127 : v); }
-static int clamp_pct(int v) { return v < 0 ? 0 : (v > 100 ? 100 : v); }
+/* ---- geometry --------------------------------------------------------- */
 
 /* ---- geometry --------------------------------------------------------- */
 #define WIN_W 1360
@@ -2664,9 +2605,36 @@ static void step_click(app *a, int x, int y) {
         int px = x0 + pad + s*(cw+pad), py = y0 + r*(rh+pad);
         if (x >= px && x < px+cw && y >= py && y < py+rh) {
             int pitch = 60 - r;
-            if (a->step_pitch[ti][s] == pitch) a->step_pitch[ti][s] = -1;
-            else { a->step_pitch[ti][s] = pitch;
-                   daw_note(a, ti, (uint8_t)pitch, 100); }
+            /* G87: clicking a step also selects it for velocity edit */
+            a->step_sel = s;
+            if (a->step_pitch[ti][s] == pitch) { a->step_pitch[ti][s] = -1; return; }
+            /* G87: shift+click arms a vertical velocity drag on this step */
+            if (SDL_GetModState() & KMOD_SHIFT) {
+                a->vel_drag_step    = s;
+                a->vel_drag_start_y = y;
+                a->vel_drag_start_vel = a->step_vel[ti][s];
+                return;
+            }
+            /* G80: scale-lock snaps the drawn pitch into the current key */
+            if (a->scale_lock)
+                pitch = wb_scale_snap(a->scale_root, a->scale_type, pitch);
+            a->step_pitch[ti][s] = pitch;
+            daw_note(a, ti, (uint8_t)pitch, 100);
+            /* G81: chord stamp — fill following rows with diatonic tones */
+            if (a->chord_mode > 0) {
+                int tones[8];
+                int nt = wb_chord_tones(a->scale_root, a->scale_type,
+                                        a->chord_mode, tones);
+                for (int k = 0; k < nt; k++) {
+                    /* each chord tone lands on its own step slot after s,
+                     * pitched as a diatonic offset above the clicked note */
+                    int ss = s + 1 + k;
+                    int tp = pitch + (tones[k] - tones[0]);
+                    if (ss < 16 && tp >= 0 && tp <= 127 &&
+                        a->step_pitch[ti][ss] < 0)
+                        a->step_pitch[ti][ss] = tp;
+                }
+            }
             return;
         }
     }
@@ -2719,7 +2687,9 @@ static void step_commit_to_clip(app *a) {
     for (int s = 0; s < 16; s++) {
         int p = a->step_pitch[ti][s];
         if (p < 0) continue;
-        wb_session_add_note(tr, s * step_smp, step_smp * 0.9, p, 100);
+        /* G87: use the per-step velocity instead of a hardcoded 100 */
+        wb_session_add_note(tr, s * step_smp, step_smp * 0.9, p,
+                            a->step_vel[ti][s]);
         n++;
     }
     wb_engine_set_session(a->engine, a->session);  /* rebuild runtime */
@@ -2907,7 +2877,16 @@ static void perf_tick(app *a) {
             a->last_step = cur;
             int ti = a->selected_track;
             int p = a->step_pitch[ti][cur];
-            if (p >= 0) daw_note(a, ti, (uint8_t)p, 100);
+            if (p >= 0) {
+                /* G88: probabilistic triggering — roll against step_prob */
+                int prob = a->step_prob[ti][cur];
+                int fire = (prob >= 100) ||
+                           ((rand() % 100) < prob);
+                if (fire)
+                    /* G87: fire with the per-step velocity */
+                    daw_note(a, ti, (uint8_t)p,
+                             (uint8_t)a->step_vel[ti][cur]);
+            }
         }
     }
     /* R067: JKL shuttle — advance the playhead at shuttle speed when
@@ -3672,6 +3651,14 @@ static void handle_motion(app *a, SDL_MouseMotionEvent m) {
             return;
         }
     }
+    /* G87: step-sequencer velocity drag (STEP tab) */
+    if (a->vel_drag_step >= 0 && a->selected_track >= 0) {
+        int dy = a->vel_drag_start_y - m.y;              /* up = louder */
+        int nv = a->vel_drag_start_vel + (int)(dy * 0.8f);
+        if (nv < 1) nv = 1; if (nv > 127) nv = 127;
+        a->step_vel[a->selected_track][a->vel_drag_step] = nv;
+        return;
+    }
     /* R023: velocity drag ... */
     if (a->vel_drag_track >= 0 && a->session) {
         wb_track *tr = &a->session->tracks[a->vel_drag_track];
@@ -4407,7 +4394,7 @@ int main(int argc, char **argv) {
             else if (ev.type==SDL_MOUSEWHEEL) handle_wheel(a, ev.wheel);
             else if (ev.type==SDL_MOUSEMOTION) handle_motion(a, ev.motion);
             else if (ev.type==SDL_MOUSEBUTTONDOWN) handle_mouse(a, ev.button);
-            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; a->cgi_dragging = 0; a->handle_drag = -1; a->dragging_fader = -1; }
+            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; a->cgi_dragging = 0; a->handle_drag = -1; a->vel_drag_step = -1; a->dragging_fader = -1; }
         }
         render(a);
         perf_tick(a);

@@ -410,6 +410,30 @@ int wb_scale_snap(int scale_root, int scale_type, int note) {
     return note;  /* fallback (shouldn't happen) */
 }
 
+/* G81: chord tones from root + scale. mode: 0=off, 1=triad, 2=7th, 3=9th.
+ * All tones derived diatonically from the scale table. Fills `out` (cap 8). */
+int wb_chord_tones(int scale_root, int scale_type, int mode, int out[8]) {
+    if (mode <= 0 || !out) return 0;
+    int root = scale_root % 12; if (root < 0) root += 12;
+    if (scale_type < 0 || scale_type > 3) return 0;
+    const int *iv = wb_scale_steps[scale_type];
+    int n = wb_scale_sizes[scale_type];
+    int cnt = 0;
+    /* triad core: root, 3rd, 5th (scale degrees 0, 2, 4) */
+    int thirds[] = { 0, 2, 4 };
+    for (int i = 0; i < 3 && cnt < 8; i++) {
+        int deg = thirds[i] % n;
+        out[cnt++] = root + iv[deg];
+    }
+    if (mode >= 2 && cnt < 8) {                              /* 7th */
+        out[cnt++] = root + iv[6 % n];
+    }
+    if (mode >= 3 && cnt < 8) {                              /* 9th = octave + 2nd */
+        out[cnt++] = root + 12 + iv[1 % n];
+    }
+    return cnt;
+}
+
 /* Map a named state color to its RGB triple (each channel 0..63).
  * This is the public mirror of the internal lp_color_rgb() used by wb_lp_mk2_led. */
 void wb_lp_color_rgb(wb_lp_color c, uint8_t *r, uint8_t *g, uint8_t *b) {

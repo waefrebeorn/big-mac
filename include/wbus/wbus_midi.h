@@ -104,6 +104,9 @@ void wb_lp_color_rgb(wb_lp_color c, uint8_t *r, uint8_t *g, uint8_t *b);
 int  wb_scale_contains(int scale_root, int scale_type, int note);
 /* Snap a raw MIDI note to the nearest in-scale note (returns a MIDI note). */
 int  wb_scale_snap(int scale_root, int scale_type, int note);
+/* G81: chord tones from root + scale. mode: 0=off(none),1=triad,2=7th,3=9th.
+ * Fills `out` with chord tones (root + extensions), returns count (0..8). */
+int  wb_chord_tones(int scale_root, int scale_type, int mode, int out[8]);
 
 /* ---- Launchpad LED feedback (classic LP — kept for backward compat) --- */
 /* A Launchpad shows its 8x8 grid as MIDI notes; sending a note-on sets the

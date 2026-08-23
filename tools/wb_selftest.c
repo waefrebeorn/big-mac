@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 
 #include "wbus.h"
+#include "wbus_lufs.h"
 #include "wbus_midi.h"
 #include "wbus_modulation.h"
 #include "wbus_midifx.h"
@@ -2633,6 +2634,97 @@ static void test_modulation(void) {
     wb_mod_matrix_destroy(m);
 }
 
+/* ---- test: Wave3 G04 media bin persistence ------------------------------- */
+static void test_media_bin(void) {
+    printf("test_media_bin\n");
+    wb_session *s = wb_session_create();
+    CHECK(s != NULL, "session create");
+    int k1 = wb_session_add_bin_entry(s, "/tmp/wb_bin_test_audio.wav", 0, 10.0);
+    int k2 = wb_session_add_bin_entry(s, "/tmp/wb_bin_test_vid.mp4", 1, 30.0);
+    CHECK(k1 == 0 && k2 == 1, "two bin entries appended");
+    CHECK(s->bin_count == 2, "bin count is 2");
+    /* save + reload */
+    wb_session_save(s, "/tmp/wb_bin_test.wbus");
+    wb_session_destroy(s);
+    wb_session *s2 = wb_session_load("/tmp/wb_bin_test.wbus");
+    CHECK(s2 != NULL, "reloaded session");
+    CHECK(s2 && s2->bin_count == 2, "round-trip bin count");
+    CHECK(s2 && s2->bin_entries[0].kind == 0, "audio entry round-trips");
+    CHECK(s2 && s2->bin_entries[1].kind == 1, "video entry round-trips");
+    CHECK(s2 && s2->bin_entries[0].duration == 10.0, "audio duration round-trips");
+    remove("/tmp/wb_bin_test.wbus");
+    if (s2) wb_session_destroy(s2);
+}
+
+/* ---- test: Wave3 G70 relink + offline flagging --------------------------- */
+static void test_relink_offline(void) {
+    printf("test_relink_offline\n");
+    /* create a real file, add to bin, then delete — it must go offline */
+    FILE *f = fopen("/tmp/wb_relink_src.wav", "wb");
+    CHECK(f != NULL, "temp file created");
+    if (f) { fputc(0, f); fclose(f); }
+    wb_session *s = wb_session_create();
+    CHECK(s != NULL, "session create for relink");
+    int idx = wb_session_add_bin_entry(s, "/tmp/wb_relink_src.wav", 0, 1.0);
+    CHECK(idx == 0, "bin entry added");
+    CHECK(s && !s->bin_entries[0].offline, "file present => online");
+    remove("/tmp/wb_relink_src.wav");
+    wb_session_update_offline(s);
+    CHECK(s->bin_entries[0].offline == 1, "missing file => offline");
+    /* relink: create file at a different path with same basename IN ~/Movies */
+    mkdir("/Users/waefrebeorn/Movies", 0755); /* ensure exists */
+    f = fopen("/Users/waefrebeorn/Movies/wb_relink_src.wav", "wb");
+    if (f) { fputc(0, f); fclose(f); }
+    int relinked = wb_session_relink_bin(s);
+    CHECK(relinked >= 1, "relink found file by basename");
+    CHECK(!s->bin_entries[0].offline, "relink => online");
+    CHECK(s && strstr(s->bin_entries[0].path, "Movies") != NULL, "path updated to new dir");
+    wb_session_destroy(s);
+    remove("/Users/waefrebeorn/Movies/wb_relink_src.wav");
+}
+
+/* ---- test: Wave3 G78 live LUFS meter ------------------------------------- */
+static void test_lufs(void) {
+    printf("test_lufs\n");
+    wb_lufs l; wb_lufs_create(&l, WB_SAMPLE_RATE);
+    CHECK(1, "lufs create");
+    /* 1 kHz sine at -20 dBFS (0.1 amplitude) for 3 seconds */
+    double phase = 0.0;
+    double w = 2.0 * M_PI * 1000.0 / WB_SAMPLE_RATE;
+    int n = (int)(3.0 * WB_SAMPLE_RATE);
+    float *buf = malloc(n * sizeof(float));
+    CHECK(buf != NULL, "lufs test buffer");
+    if (buf) {
+        for (int i = 0; i < n; i++) {
+            buf[i] = (float)(0.1 * sin(phase));
+            phase += w;
+        }
+        /* process in 400ms blocks (one gate = 400ms = ~17640 samples @ 44.1k) */
+        int block = (int)(WB_SAMPLE_RATE * 0.4);
+        for (int off = 0; off < n; off += block) {
+            int sz = block; if (off + sz > n) sz = n - off;
+            wb_lufs_process(&l, buf + off, sz);
+        }
+    }
+    double lufs = wb_lufs_short_term_lufs(&l);
+    /* -20 dBFS sine has RMS ~ 0.1/sqrt(2) => ~ -23 LUFS */
+    CHECK(lufs != 0.0, "lufs produced a value");
+    CHECK(lufs > -26.0 && lufs < -20.0, "1kHz -20dBFS sine => LUFS in [-26,-20]");
+    /* silence => st_lufs == 0.0 (-inf sentinel)
+     * Gate block is 400ms = 17640 samples @ 44.1kHz. After the sine test,
+     * gate_n may hold a partial block, so feed 2x gate_cap zeros: the first
+     * chunk closes the partial block, the second closes a pure-silence block
+     * with mean_sq=0 triggering the -inf sentinel. */
+    float *zero = malloc(2 * 17640 * sizeof(float));
+    if (zero) { memset(zero, 0, 2 * 17640 * sizeof(float)); wb_lufs_process(&l, zero, 2 * 17640); free(zero); }
+    double st = wb_lufs_short_term_lufs(&l);
+    CHECK(st == 0.0 || st < -50.0, "silence => -inf/flag");
+    /* peak: 0.1 amplitude sine => peak ~0.1 */
+    double pk = wb_lufs_peak(&l);
+    CHECK(pk > 0.08 && pk < 0.15, "peak tracks sine amplitude");
+    if (buf) free(buf);
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0); /* unbuffered so we see output on crash */
     printf("=== Big Mac DAW self-test gate ===\n");
@@ -2692,6 +2784,9 @@ int main(void) {
     test_clip_move_trim();      /* Wave2 G14 */
     test_crossfade_curves();    /* Wave2 G64 */
     test_loop_brace();          /* Wave3 G10 */
+    test_media_bin();           /* Wave3 G04 */
+    test_relink_offline();      /* Wave3 G70 */
+    test_lufs();                /* Wave3 G78 */
 
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

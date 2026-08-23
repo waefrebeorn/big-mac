@@ -17,9 +17,9 @@ Big Mac has fragments of each loop but no loop is closed end-to-end;
 every gap below is a break in one of those seven loops.
 
 ## A. CAPTURE / INPUT loop
-[G01] P0 — File browser / OS open dialog for import. Import is hardcoded paths.
+[G01] P0 WIRED(file browser) — File browser / OS open dialog for import. Import is hardcoded paths.
       Every NLE starts here (Premiere Cmd+I opens a browser).
-[G02] P0 — Audio-file import into audio tracks via GUI (WAV/AIFF/MP3).
+[G02] P0 WIRED(audio import wb_import) — Audio-file import into audio tracks via GUI (WAV/AIFF/MP3).
 [G03] P1 — Drag-and-drop import zone (Finder → timeline).
 [G04] P1 — Media bin: persistent list of imported assets with thumbnails,
       durations, search/rename (Kdenlive "media bin", FCP "browser").
@@ -30,7 +30,7 @@ every gap below is a break in one of those seven loops.
 [G07] P3 — Screen/camera capture ingest.
 
 ## B. ORGANIZE loop
-[G08] P0 — Undo/redo UI + history panel (Premiere History panel; trimming
+[G08] P0 WIRED(undo/redo UI buttons + auto-checkpoints) — Undo/redo UI + history panel (Premiere History panel; trimming
       actions tracked per edit).
 [G09] P1 — Track management: rename, delete, reorder (drag), rec-arm button,
       height resize (audit-confirmed missing).
@@ -75,7 +75,7 @@ every gap below is a break in one of those seven loops.
       take-folder visual).
 
 ## E. SWEETEN loop (mix + fx)
-[G30] P0 — Sends/returns FX buses with pre/post fader sends (universally cited
+[G30] P0 WIRED(aux sends SEND A/B -> bus tracks) — Sends/returns FX buses with pre/post fader sends (universally cited
       as THE mixing workflow; we have route bus only, no send knobs).
       [WIRED Wave1-B: wb_track.send_level/send_target[2] + stage_bus send pass
       into kind-2 buses; mixer strip SEND A/B -/+ buttons, % readout, target
@@ -93,11 +93,11 @@ every gap below is a break in one of those seven loops.
 [G37] P3 — Surround/spatial monitoring paths (5.1/Atmos trend; stereo-only today).
 
 ## F. DELIVER loop
-[G38] P0 — Render queue: background export with progress bar, cancel, multiple
+[G38] P0 WIRED(render queue wb_export_job pthread + progress + cancel) — Render queue: background export with progress bar, cancel, multiple
       outputs (Media Encoder model; Resolve users demand separate queue; our
       export blocks the UI thread).
-[G39] P1 — Export range: selection / in-out / whole (audit-confirmed missing).
-[G40] P1 — Export settings UI: resolution/fps/bitrate/audio format fields
+[G39] P1 WIRED(export range IN/OUT) — Export range: selection / in-out / whole (audit-confirmed missing).
+[G40] P1 WIRED(resolution row 480p/720p/1080p) — Export settings UI: resolution/fps/bitrate/audio format fields
       (audit-confirmed static text only).
 [G41] P1 — Stems export: selected tracks → individual files, same start
       (Logic stems workflow; collaboration requirement).
@@ -136,14 +136,14 @@ Premiere metadata panel, packafoma Premiere wishlist.
 [G53] P2 — Batch render matrix: per-region/marker wildcard naming, multiple
       simultaneous outputs per job (Reaper $region wildcards; Resolve multi-codec).
 [G54] P2 — Watch-folder auto-render (AME model; pairs with G43).
-[G55] P1 — Named loudness profiles: EBU R128 -23/-1dBTP, ATSC A/85 -24 LKFS,
+[G55] P1 WIRED(named loudness profiles EBU/A85/NETFLIX/YT/PODCAST) — Named loudness profiles: EBU R128 -23/-1dBTP, ATSC A/85 -24 LKFS,
       Netflix -27 LKFS dialogue-gated LRA 4-18 -2dBTP, streaming -14/-16 —
       selectable target + true-peak ceiling, not one hardcoded -14.
       Rejected deliveries are an explicit failure mode (Netflix spec).
 [G56] P3 — IMF (SMPTE ST 2067) packaging awareness — document as roadmap.
 
 ### Recover loop additions
-[G57] P0 — Autosave to dated Auto-Save folder on an interval (Premiere default;
+[G57] P0 WIRED(autosave 120s to /tmp/bigmac_autosave keep-5) — Autosave to dated Auto-Save folder on an interval (Premiere default;
       Kdenlive autosave credited with rescuing projects). We save ONLY on Ctrl+S.
 [G58] P2 — Crash recovery on relaunch from latest autosave (Premiere behavior).
 [G59] P2 — Versioned project backups/timeline snapshots (Resolve Live Save/DRP).
@@ -180,7 +180,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
 [G73] P3 — Default-duration batch transitions across all cuts (Shotcut FR 552).
 
 ### Music-production additions
-[G74] P1 — Per-send pre/post-fader switch (Pro Tools standard) — refines G30.
+[G74] P1 WIRED(per-send pre/post-fader switch) — Per-send pre/post-fader switch (Pro Tools standard) — refines G30.
       [WIRED Wave1-B: wb_track.send_pre[2] per-send toggle; post = tap after
       fader gain (default), pre = raw buffer; mixer PRE button per send;
       test_sends asserts pre > post when fader < 1.]
@@ -206,16 +206,16 @@ Premiere metadata panel, packafoma Premiere wishlist.
       the STEP checklist item.
 [G88] P2 — Per-step probability/chance (Logic Step Sequencer chance; Bitwig
       Operators) — static binary grids sound robotic.
-[G89] P1 — Swing/shuffle % MPC-spec 50-75% (Roger Linn canonical swing).
+[G89] P1 WIRED(swing % MPC spec odd-16th delay, SWING control) — Swing/shuffle % MPC-spec 50-75% (Roger Linn canonical swing).
       [WIRED Wave1-B: session->swing 0..0.6 fraction of a 16th delayed on odd
       steps; wb_swing_offset helper applied in wb_transport_schedule_notes_sw
       and STEP perf_tick; toolbar SWING -/+ + % readout; test_swing.]
 [G90] P2 — Pattern chaining/song mode (MPC chaining; FL patterns-as-clips).
 [G91] P3 — Step-fill utilities (every 2nd/4th, random fill).
 [G92] P3 — Note repeats/retrigs with accents (Bitwig Note Repeats).
-[G93] P1 — Capture-quantize: record what you JUST played without pre-arming
+[G93] P1 WIRED(capture-quantize rolling note log -> 16th-grid clip) — Capture-quantize: record what you JUST played without pre-arming
       (Live capture MIDI) — jamming becomes material.
-[G94] P1 — Record session-launcher performance INTO the arrangement
+[G94] P1 WIRED(session-record-to-arrangement wb_launchrec) — Record session-launcher performance INTO the arrangement
       (Ableton §7.5; Bitwig Record-to-Arranger) — closes the launcher loop.
 [G95] P2 — Chance-weighted follow actions incl. Jump/Other/Fill/Legato
       (Live 11+ two-action chance model).

@@ -174,6 +174,28 @@ typedef struct wb_session {
     double    swing;
 } wb_session;
 
+/* G69: multiple timelines (sequences) per project. A wb_project owns N
+ * sessions; exactly one is "active" (the one the engine renders). Session
+ * 0 is always present so single-timeline users see no difference. The
+ * project file format appends "sequence" sections after the base grammar;
+ * a file without them loads as a one-sequence project (backward compat). */
+#define WB_MAX_SEQUENCES 16
+typedef struct wb_project wb_project;
+
+/* ---- project (multi-sequence container) --------------------------------- */
+wb_project *wb_project_create(void);              /* one empty sequence */
+wb_project *wb_project_from_session(wb_session *owned); /* adopt a session */
+void         wb_project_destroy(wb_project *p);
+int          wb_project_sequence_count(const wb_project *p);
+wb_session  *wb_project_sequence(const wb_project *p, int i);
+wb_session  *wb_project_active(const wb_project *p);
+int          wb_project_active_index(const wb_project *p);
+int          wb_project_add_sequence(wb_project *p, const char *name); /* ret idx */
+int          wb_project_remove_sequence(wb_project *p, int i);   /* never 0 */
+int          wb_project_set_active(wb_project *p, int i);
+int          wb_project_save(const wb_project *p, const char *path);
+wb_project  *wb_project_load(const char *path);
+
 /* ---- session lifecycle -------------------------------------------------- */
 wb_session *wb_session_create(void);       /* empty session */
 wb_session *wb_session_demo(void);         /* 2-track demo song */
@@ -197,6 +219,22 @@ void        wb_session_set_active_lane(wb_session *s, int track, int lane);
 /* R031: comping — promote the time-region [t0,t1] of a take-lane audio clip
  * onto lane 0 (the comp). Returns # comp clips made, or -1 on error. */
 int         wb_session_comp_region(wb_session *s, int track, int src_lane, double t0, double t1);
+/* G14: direct-manipulation clip move/trim (mouse drag model ops).
+ * move_clip relocates clip `clip` of `track` to (new_track, new_start).
+ * Only allowed between tracks hosting the same clip type; new_start is
+ * clamped to >= 0. Returns 0 on success, -1 on bad indices/type mismatch.
+ * NOTE: callers that keep a wb_clip_edit_table must migrate the entry with
+ * wb_clip_edit_move() (the table keys are (track,clip) indices). */
+int         wb_session_move_clip(wb_session *s, int track, int clip,
+                                 int new_track, double new_start);
+/* G14: trim the head/tail by `delta` samples (positive delta = shorten head /
+ * extend tail). Audio clips keep buffer alignment via start_in_source in
+ * `ed` (may be NULL to skip side-table bookkeeping). MIDI clips shift start
+ * and clamp notes into [0,length]. Returns 0 on success, -1 on error. */
+int         wb_session_trim_clip_head(wb_session *s, void *ed,
+                                      int track, int clip, double delta);
+int         wb_session_trim_clip_tail(wb_session *s, void *ed,
+                                      int track, int clip, double delta);
 
 /* ---- undo/redo (session snapshots) -------------------------------------- */
 typedef struct wb_undo wb_undo;

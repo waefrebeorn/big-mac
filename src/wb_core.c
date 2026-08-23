@@ -776,6 +776,13 @@ void wb_engine_play(wb_engine *e) { wb_cmd c = { .type = WB_CMD_PLAY }; wb_cmd_p
 void wb_engine_stop(wb_engine *e) { wb_cmd c = { .type = WB_CMD_STOP }; wb_cmd_push(&e->queue, c); }
 void wb_engine_seek(wb_engine *e, double p) { wb_cmd c = { .type = WB_CMD_SEEK, .f0 = p }; wb_cmd_push(&e->queue, c); }
 void wb_engine_set_bpm(wb_engine *e, double bpm) { wb_cmd c = { .type = WB_CMD_SET_BPM, .f0 = bpm }; wb_cmd_push(&e->queue, c); }
+void wb_engine_set_loop(wb_engine *e, double start, double end) { /* G10 */
+    if (!e) return;
+    e->t.loop_start = start; e->t.loop_end = end;
+}
+void wb_engine_set_snap(wb_engine *e, int on) { /* G10 */
+    if (!e) return;
+    e->t.snap = on; }
 void wb_engine_set_clap_host(wb_engine *e, struct wb_clap_host *h) { if (e) e->clap_host = h; }
 void wb_engine_get_transport(wb_engine *e, wb_transport *out) { if (out) *out = e->t; }
 

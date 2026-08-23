@@ -45,6 +45,7 @@ typedef struct wb_transport {
     double loop_start;      /* samples */
     double loop_end;        /* samples */
     double sample_rate;
+    int   snap;             /* G10: quantize edits to grid */
 } wb_transport;
 
 /* ---- events (notes/automation on the timeline) ------------------------ */
@@ -154,6 +155,18 @@ typedef struct wb_marker {
     int    kind;       /* 0 = cue (locator), 1 = section (song part) */
 } wb_marker;
 
+/* ---- media bin entry (G04) ----------------------------------------------- */
+/* One row in the app-level media bin: a source asset that has been imported
+ * (or scanned in the browser). `offline` is 1 when the source file no longer
+ * exists on disk (G70 relink/offline handling). */
+typedef struct wb_bin_entry {
+    char     path[1024];     /* source file path (absolute or relative) */
+    int      kind;           /* 0 = audio, 1 = video */
+    double   duration;       /* seconds */
+    char     name[256];      /* display name (basename of the file) */
+    int      offline;        /* 1 if the source file is missing on disk */
+} wb_bin_entry;
+
 /* ---- session (the editable model) ------------------------------------- */
 typedef struct wb_session {
     char      name[128];
@@ -172,6 +185,12 @@ typedef struct wb_session {
      * (Roger Linn MPC spec: 50% = straight .. 75%; stored 0..0.6 as the
      * DELAY FRACTION, i.e. 0.25 == MPC 75%). 0 = straight. */
     double    swing;
+    /* G04/G70 (Wave 3 lane C): app-level media bin — the persistent list of
+     * imported assets. Each entry records the source path, kind, duration and
+     * display name; `offline` is set on load when the source is missing. */
+    uint32_t  bin_count;
+#define WB_MAX_BIN 256
+    wb_bin_entry bin_entries[WB_MAX_BIN];
 } wb_session;
 
 /* G69: multiple timelines (sequences) per project. A wb_project owns N
@@ -300,6 +319,8 @@ void wb_engine_stop(wb_engine *e);
 void wb_engine_seek(wb_engine *e, double sample_pos);
 void wb_engine_set_bpm(wb_engine *e, double bpm);
 void wb_engine_get_transport(wb_engine *e, wb_transport *out);
+void wb_engine_set_loop(wb_engine *e, double start, double end);   /* G10 */
+void wb_engine_set_snap(wb_engine *e, int on);                    /* G10 */
 
 /* ---- parameter/note injection from UI (thread-safe) ------------------- */
 void wb_engine_set_track_volume(wb_engine *e, int track, float vol);
@@ -406,6 +427,23 @@ int  wb_session_set_video_proxy(wb_session *s, int track, int clip,
 /* Get the video clip on a track at a given timeline position (seconds).
  * Returns clip index or -1 if no clip at that position. */
 int  wb_session_video_clip_at(wb_session *s, int track, double timeline_pos);
+
+/* ---- G04/G70 (Wave 3 lane C): media bin + relink/offline ----------------- */
+/* Append an asset to the session's media bin (called by every import path:
+ * browser click, audio/video import). The entry is marked offline if the file
+ * does not yet exist. Returns the new bin index, or -1 if the bin is full. */
+int  wb_session_add_bin_entry(wb_session *s, const char *path, int kind,
+                              double duration);
+
+/* (Re)compute the `offline` flag of every bin entry and video clip from disk
+ * existence. Called on project load (G70) and before relink searches. */
+void wb_session_update_offline(wb_session *s);
+
+/* G70: scan each offline bin entry's original directory plus ~/Movies,
+ * ~/Desktop and ~/Documents for a file with the same basename; when found,
+ * update the bin entry's path (and mirror it onto any matching video clip's
+ * source_path) and clear the offline flag. Returns the number relinked. */
+int  wb_session_relink_bin(wb_session *s);
 
 /* Export codec selection (R018-A): H.264 for delivery, ProRes for
  * professional editorial interchange (the standard NLE exchange format). */

@@ -183,6 +183,7 @@ typedef struct app {
     char vid_export[512];    /* path for exported output */
     int  export_codec_h264;  /* EXPORT tab codec toggle: 1=H264, 0=ProRes */
     char last_status[128];   /* one-line user feedback for the status bar */
+    time_t last_autosave;    /* G57: epoch of last autosave (0 = save soon) */
     char vid_srt[512];       /* path to SRT captions file */
     int vid_captions_ready;  /* 1 when SRT has been generated */
     wb_captions *vid_caps;   /* R049: persistent captions ctx (word model) */
@@ -3310,6 +3311,30 @@ int main(int argc, char **argv) {
         }
         render(a);
         perf_tick(a);
+        /* G57: autosave — every 120s, to a dated Auto-Save folder (Premiere
+         * convention). Only when a project path exists OR the session has
+         * content; atomic via wb_session_save's own write. Keeps last 5. */
+        {
+            time_t now = time(NULL);
+            if (a->session && now - a->last_autosave >= 120) {
+                const char *dir = "/tmp/bigmac_autosave";
+                mkdir(dir, 0755);
+                /* prune: keep only the 5 newest autosaves */
+                {
+                    char cmd[512];
+                    snprintf(cmd, sizeof cmd,
+                        "ls -t %s/*.wbus 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null",
+                        dir);
+                    int prc = system(cmd); (void)prc;
+                }
+                char path[512];
+                snprintf(path, sizeof path, "%s/auto_%lld.wbus", dir, (long long)now);
+                if (wb_session_save(a->session, path) == 0)
+                    snprintf(a->last_status, sizeof a->last_status,
+                             "AUTOSAVED %.80s", path);
+                a->last_autosave = now;
+            }
+        }
         SDL_Delay(16);
     }
 

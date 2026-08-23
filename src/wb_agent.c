@@ -10,6 +10,8 @@
 #include "wbus/wbus_anim.h"
 #include "wbus/wbus_assets.h"
 #include "wbus/wbus_perf.h"
+#include "wbus/wbus_perf.h"
+#include "wbus/wbus_perfclip.h"
 #include "wbus/wbus_delivery.h"
 #include "wbus/wbus_cgiexport.h"
 #include "wbus/wbus_shadowbin.h"
@@ -67,6 +69,13 @@ static wb_anim    *g_cgi = NULL;
 static int         g_next_obj = 0;
 
 static wb_undo *g_agent_undo = NULL;
+
+/* R068: the live performance instance the agent drives. Set by the host
+ * (the DAW) once it creates its wb_perf; defaults to NULL so headless
+ * tools link cleanly. */
+static wb_perf *g_agent_perf = NULL;
+void wb_agent_set_perf(wb_perf *p) { g_agent_perf = p; }
+wb_perf *wb_agent_get_perf(void)  { return g_agent_perf; }
 
 /* R065: host-provided live performance instance (the DAW sets this).
  * Weak default returns NULL so headless tools still link. */
@@ -330,6 +339,28 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         int rc = wb_delivery_normalize_wav(src, target);
         printf("normalize: %s -> %.0f LUFS (rc=%d)\n", src, target, rc);
         return rc;
+    }
+    /* R068: freeze the live perf into a timeline clip.
+     *   perf-freeze <track> <start_s> <dur_s>  snapshots the AGI's perf
+     * into a wb_perfclip and drops it on the session's video track. */
+    if (strcmp(cmd, "perf-freeze") == 0) {
+        wb_perf *perf = wb_agent_get_perf();
+        if (!perf) { fprintf(stderr, "ERR:perf:no-performance-open\n"); return -1; }
+        int track = atoi(tok(&p));
+        double st   = atof(tok(&p));
+        double dur  = atof(tok(&p));
+        if (st == 0 && dur == 0) {
+            fprintf(stderr, "ERR:usage:perf-freeze <track> <start_s> <dur_s>\n");
+            return -1;
+        }
+        double sr_pos = st * WB_SAMPLE_RATE;
+        wb_perf_set_clock(perf, 0);
+        wb_perfclip *pc = wb_perfclip_snapshot(s, perf, 0, dur);
+        if (!pc) { fprintf(stderr, "ERR:perf:snapshot-failed\n"); return -1; }
+        int ci = wb_session_add_perf_clip(s, track, pc, sr_pos, dur);
+        printf("perf-freeze: clip %d on track %d @ %.2fs (%d events)\n",
+               ci, track, st, wb_perf_event_count(perf));
+        return ci >= 0 ? 0 : -1;
     }
     if (strcmp(cmd, "chapters") == 0) {
         char *out = tok(&p);

@@ -95,6 +95,9 @@ int wb_shadowbin_write(const wb_session *s, const char *path) {
             } else if (cl->type == 1) {
                 in_s = 0;
                 srcname = "inline-audio";
+            } else if (cl->type == 3 && cl->perfclip) {
+                in_s = 0;
+                srcname = "perfclip";
             } else {
                 in_s = 0;
                 srcname = "midi";
@@ -130,6 +133,14 @@ int wb_shadowbin_write(const wb_session *s, const char *path) {
 
     /* atomic swap */
     if (rename(tmp, path) != 0) { remove(tmp); return -1; }
+    return 0;
+}
+
+/* R068: shared atomic-commit helper for perf-clip sidecars.
+ * Uses a temp + rename so a crash mid-write leaves the old file intact. */
+int wb_shadowbin_atomic_commit(const char *tmp, const char *dst) {
+    if (!tmp || !dst) return -1;
+    if (rename(tmp, dst) != 0) { remove(tmp); return -1; }
     return 0;
 }
 

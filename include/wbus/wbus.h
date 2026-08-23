@@ -56,7 +56,7 @@ typedef struct wb_note {
 
 /* ---- clips ------------------------------------------------------------ */
 typedef struct wb_clip {
-    int      type;            /* 0 = MIDI/notes, 1 = audio, 2 = video */
+    int      type;            /* 0 = MIDI/notes, 1 = audio, 2 = video, 3 = performance */
     double   start;           /* sample position on timeline (audio) or seconds (video) */
     double   length;          /* samples (audio) or seconds (video) */
     uint32_t note_count;
@@ -67,6 +67,9 @@ typedef struct wb_clip {
     wb_sample *audio_data;
     /* video clip: FFmpeg-backed */
     wb_video_clip *video;      /* non-NULL for type==2 */
+    /* R068: performance clip — self-contained event snapshot. The
+     * wb_perfclip is created from a live perf and owns its event list. */
+    void *perfclip;            /* non-NULL for type==3 (wb_perfclip*) */
     /* R018-C: color-correction "intent" carried into interchange (FCPXML).
      * exposure in stops (0 = none), saturation multiplier (1 = none). */
     float color_exposure;
@@ -315,6 +318,12 @@ int  wb_session_add_video_track(wb_session *s, const char *name);
  * or -1 on error. */
 int  wb_session_add_video_clip(wb_session *s, int track, const char *source_path,
                                double timeline_pos);
+
+/* R068: add a performance clip (a snapshot of a recorded wb_perf) onto a
+ * video track. The clip owns a copy of the perf's event log so it is
+ * reproducible without the live perf. Returns clip index or -1. */
+int  wb_session_add_perf_clip(wb_session *s, int track, void *perfclip,
+                              double timeline_pos, double duration);
 
 /* R018-C: set a clip's color-correction "intent" (carried into FCPXML).
  * exposure in stops (0 = none), saturation multiplier (1 = none). */

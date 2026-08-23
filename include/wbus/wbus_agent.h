@@ -34,6 +34,12 @@ int wb_agent_run(FILE *in, wb_session *s, wb_engine *e);
 /* Run a single command line (already stripped). Returns 0/-1. */
 int wb_agent_command(wb_session *s, wb_engine *e, const char *line);
 
+/* R068: wire a host-created wb_perf into the agent bridge (the DAW calls
+ * this once at startup; headless callers get NULL). */
+struct wb_perf;
+void wb_agent_set_perf(struct wb_perf *p);
+struct wb_perf *wb_agent_get_perf(void);
+
 
 #ifdef __cplusplus
 }

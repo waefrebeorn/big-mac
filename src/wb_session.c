@@ -516,6 +516,29 @@ int wb_session_add_video_clip(wb_session *s, int track, const char *source_path,
     return (int)(tr->clip_count - 1);
 }
 
+/* R068: add a performance clip (snapshot of a recorded wb_perf) onto a
+ * video track. The perfclip pointer is transferred into the clip. */
+int wb_session_add_perf_clip(wb_session *s, int track, void *perfclip,
+                             double timeline_pos, double duration) {
+    if (!s || !perfclip || track < 0 || track >= (int)s->track_count)
+        return -1;
+    wb_track *tr = &s->tracks[track];
+    if (tr->clip_count >= 1024) return -1;
+    tr->clips = realloc(tr->clips, (tr->clip_count + 1) * sizeof(wb_clip));
+    if (!tr->clips) return -1;
+    wb_clip *cl = &tr->clips[tr->clip_count++];
+    memset(cl, 0, sizeof(*cl));
+    cl->type = 3;
+    cl->clip_gain = 1.0f;
+    cl->start = timeline_pos;
+    cl->length = duration;
+    cl->lane = 0;
+    cl->perfclip = perfclip;
+    double clip_end_samples = (cl->start + cl->length) * WB_SAMPLE_RATE;
+    if (clip_end_samples > s->length) s->length = clip_end_samples;
+    return (int)(tr->clip_count - 1);
+}
+
 /* R018-C: set a clip's color-correction "intent" (carried into FCPXML). */
 void wb_clip_set_color(wb_clip *cl, float exposure, float saturation) {
     if (!cl) return;

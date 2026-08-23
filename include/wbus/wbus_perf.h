@@ -63,6 +63,22 @@ void wb_perf_record_stop(wb_perf *p);
 int  wb_perf_recording(const wb_perf *p);
 int  wb_perf_event_count(const wb_perf *p);
 
+/* Snapshot the live event log (R068: for building perf-clip clips).
+ * Returns a pointer into an internal buffer of exactly event_count()
+ * entries; valid until the next mutating call on p. */
+const void *wb_perf_event_dump(const wb_perf *p);
+int  wb_perf_deck_fired(const wb_perf *p, int deck);
+void wb_perf_reset_for_replay(wb_perf *p);
+
+/* Public mirror of the internal event record. */
+typedef struct {
+    double t;
+    int    type;          /* wb_perf_event_type */
+    int    deck;
+    float  v;
+    int    which;
+} wb_perf_event_view;
+
 /* Set the performance clock (seconds). Live calls stamp with this. */
 void wb_perf_set_clock(wb_perf *p, double t);
 

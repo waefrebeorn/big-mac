@@ -123,6 +123,10 @@ void wb_perf_record_arm(wb_perf *p)   { if (p) p->recording = 1; }
 void wb_perf_record_stop(wb_perf *p)  { if (p) p->recording = 0; }
 int  wb_perf_recording(const wb_perf *p) { return p ? p->recording : 0; }
 int  wb_perf_event_count(const wb_perf *p) { return p ? p->nevents : 0; }
+
+const void *wb_perf_event_dump(const wb_perf *p) {
+    return (p && p->nevents > 0) ? (const void*)p->events : NULL;
+}
 void wb_perf_set_clock(wb_perf *p, double t) { if (p) p->clock = t; }
 
 void wb_perf_seek(wb_perf *p, double t) {
@@ -130,8 +134,10 @@ void wb_perf_seek(wb_perf *p, double t) {
     /* clean slate */
     p->fade = 0.0f;
     p->active_a = p->active_b = -1;
-    for (int i = 0; i < p->ndecks; i++)
+    for (int i = 0; i < p->ndecks; i++) {
+        p->decks[i].fired = 0;
         memset(p->decks[i].param, 0, sizeof p->decks[i].param);
+    }
     /* apply events in order up to t */
     for (int i = 0; i < p->nevents; i++) {
         const wb_perf_event *e = &p->events[i];
@@ -140,12 +146,14 @@ void wb_perf_seek(wb_perf *p, double t) {
         case WB_PERF_FIRE: {
             int d = e->deck;
             if (d >= 0 && d < p->ndecks) {
+                p->decks[d].fired = 1;
                 if (p->fade < 0.5f) p->active_a = d; else p->active_b = d;
             }
             break;
         }
         case WB_PERF_UNFIRE: {
             int d = e->deck;
+            if (d >= 0 && d < p->ndecks) p->decks[d].fired = 0;
             if (p->active_a == d) p->active_a = -1;
             if (p->active_b == d) p->active_b = -1;
             break;
@@ -216,4 +224,21 @@ void wb_perf_render_frame(wb_perf *p, uint8_t *out_rgba) {
         }
     }
     wb_rast_destroy(r);
+}
+
+int wb_perf_deck_fired(const wb_perf *p, int deck) {
+    /* R068: consult the deck's CURRENT (post-seek) state, not a scan of
+     * all events — the event log is the historical record but deck.fired
+     * is the truth after wb_perf_seek replayed events up to t. */
+    if (!p || deck < 0 || deck >= p->ndecks) return 0;
+    return p->decks[deck].fired ? 1 : 0;
+}
+
+void wb_perf_reset_for_replay(wb_perf *p) {
+    if (!p) return;
+    p->fade = 0; p->active_a = p->active_b = -1;
+    for (int i = 0; i < p->ndecks; i++) {
+        p->decks[i].fired = 0;
+        memset(p->decks[i].param, 0, sizeof(p->decks[i].param));
+    }
 }

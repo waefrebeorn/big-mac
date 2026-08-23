@@ -28,6 +28,7 @@
 #include "wbus_captions.h"
 #include "wbus/wbus_transcript.h"
 #include "wbus/wbus_perf.h"
+#include "wbus/wbus_agent.h"
 #include "wbus/wbus_wavcache.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
@@ -616,6 +617,17 @@ static void draw_arrangement(app *a) {
                 setc(a->ren, C_GRID);
                 SDL_RenderDrawRect(a->ren, &clipbox);
                 int rx = clipbox.x + clipbox.w;
+                /* R067: mark perf clips distinctly — they replay an event
+                 * list, not media. Draw a dotted deck-grid pattern. */
+                if (cl->type == 3 && cl->perfclip) {
+                    setc(a->ren, C_ACCENT);
+                    for (int gx = clipbox.x+4; gx < rx-4; gx += 12)
+                        SDL_RenderDrawLine(a->ren, gx, clipbox.y+2,
+                                           gx, clipbox.y+clipbox.h-2);
+                    const char *lbl = "PERF";
+                    wb_ui_draw_text(a->ren, clipbox.x+4, clipbox.y+2,
+                                    lbl, 1, C_TEXT);
+                }
                 /* R043 (G1/G2): direct-manipulation handles — drawn on the
                  * waveform, one source of truth with hit-testing (below).
                  *   LEFT_EDGE  = trim start   RIGHT_EDGE = trim length
@@ -1138,8 +1150,14 @@ static void draw_agi_view(app *a) {
 }
 
 /* ---- R065: PERFORMANCE view — deck grid, live state, record arm ------- */
-/* R065: the agent bridge renders through THIS performance instance. */
+/* R065/R068: the agent bridge renders through THIS performance instance.
+ * wb_agent_perf_target = render path; wb_agent_perf_live = snapshot path.
+ * Both resolve to the DAW's active perf (NULL when no DAW is attached). */
 void *wb_agent_perf_target(void) {
+    extern app *g_app_for_perf;
+    return g_app_for_perf ? g_app_for_perf->perf : NULL;
+}
+wb_perf *wb_agent_perf_live(void) {
     extern app *g_app_for_perf;
     return g_app_for_perf ? g_app_for_perf->perf : NULL;
 }
@@ -2945,6 +2963,7 @@ int main(int argc, char **argv) {
         if (d1) wb_perf_add_deck(a->perf, d1, 60, 120, 255);
         wb_mesh_free(d0); wb_mesh_free(d1);
     }
+    wb_agent_set_perf(a->perf);  /* R068: wire the agent bridge */
     if (file_path) {
         /* open a project from disk instead of the demo */
         a->session = wb_session_load(file_path);

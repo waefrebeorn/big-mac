@@ -9,6 +9,7 @@
 #include <math.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include "wbus.h"
 #include "wbus_midi.h"
@@ -1523,6 +1524,127 @@ static void test_undo(void) {
     wb_session_destroy(s);
 }
 
+/* ---- Wave 1 G01/G02: media scan + audio-file import ---------------------- */
+static void test_import_scan(void) {
+    printf("test_import_scan\n");
+    char dir[256];
+    snprintf(dir, sizeof(dir), "/tmp/wb_imp_scan_%d", (int)getpid());
+    CHECK(mkdir(dir, 0755) == 0, "scan test dir created");
+    char p[512];
+    snprintf(p, sizeof(p), "%s/b.wav", dir);   FILE *f = fopen(p, "wb"); if (f) fclose(f);
+    snprintf(p, sizeof(p), "%s/a.mp3", dir);   f = fopen(p, "wb"); if (f) fclose(f);
+    snprintf(p, sizeof(p), "%s/c.txt", dir);   f = fopen(p, "wb"); if (f) fclose(f);
+    snprintf(p, sizeof(p), "%s/.hidden.mov", dir); f = fopen(p, "wb"); if (f) fclose(f);
+
+    char out[8][WB_IMPORT_PATH_MAX];
+    int n = wb_import_scan_dir(dir, out, 8);
+    CHECK(n == 2, "scan finds only media files (dotfiles/txt skipped)");
+    CHECK(n >= 2 && strstr(out[0], "/a.mp3") != NULL, "scan output sorted by name (a first)");
+    CHECK(n >= 2 && strstr(out[1], "/b.wav") != NULL, "scan output sorted by name (b second)");
+
+    CHECK(wb_import_is_media_path("x.MOV") && !wb_import_is_media_path("x.png"),
+          "media extension filter case-insensitive");
+
+    char full[WB_IMPORT_PATH_MAX];
+    snprintf(full, sizeof(full), "%s/b.wav", dir);
+    CHECK(wb_import_is_media_path(full) && access(full, R_OK) == 0, "scanned path is readable");
+
+    CHECK(wb_import_scan_dir("/nonexistent_dir_xyz", out, 8) == -1, "missing dir returns -1");
+    (void)system("true");
+    /* cleanup */
+    snprintf(p, sizeof(p), "%s/b.wav", dir); unlink(p);
+    snprintf(p, sizeof(p), "%s/a.mp3", dir); unlink(p);
+    snprintf(p, sizeof(p), "%s/c.txt", dir); unlink(p);
+    snprintf(p, sizeof(p), "%s/.hidden.mov", dir); unlink(p);
+    rmdir(dir);
+}
+
+static void test_import_audio(void) {
+    printf("test_import_audio\n");
+    /* write a real wav: 0.5 s of a sine, stereo-interleaved buffer */
+    const uint32_t nf = WB_SAMPLE_RATE / 2;
+    float *buf = malloc(sizeof(float) * nf * 2);
+    for (uint32_t i = 0; i < nf; i++) {
+        buf[i*2] = buf[i*2+1] = 0.5f * sinf(2.0f * 3.14159f * 440.0f * i / WB_SAMPLE_RATE);
+    }
+    char wav[256];
+    snprintf(wav, sizeof(wav), "/tmp/wb_imp_audio_%d.wav", (int)getpid());
+    CHECK(wb_wav_write_pcm16(wav, buf, nf, 2, WB_SAMPLE_RATE) == 0, "import test wav written");
+    free(buf);
+
+    wb_session *s = wb_session_create();
+    char err[128] = {0};
+    int rc = wb_import_audio_file(s, wav, 1.0, err, sizeof(err));
+    CHECK(rc == 0, "wav import succeeds");
+    if (rc != 0) printf("  (err: %s)\n", err);
+    CHECK(s->track_count == 1, "import created exactly one track");
+    CHECK(s->track_count == 1 && s->tracks[0].kind == WB_TRACK_KIND_AUDIO, "created track is AUDIO kind");
+    CHECK(s->tracks[0].clip_count == 1, "clip added to the audio track");
+    CHECK(s->tracks[0].clips[0].type == 1, "added clip is an audio clip (type 1)");
+    CHECK(fabs(s->tracks[0].clips[0].start - 1.0) < 1e-9, "clip placed at requested playhead");
+    CHECK(s->tracks[0].clips[0].audio_frames == nf, "clip carries all source frames");
+    float peak = 0;
+    for (uint32_t i = 0; i < s->tracks[0].clips[0].audio_frames * 2; i += 97)
+        if (fabsf(s->tracks[0].clips[0].audio_data[i]) > peak) peak = fabsf(s->tracks[0].clips[0].audio_data[i]);
+    CHECK(peak > 0.4f, "imported audio data has content");
+    CHECK(fabs((double)s->length - 1.5 * WB_SAMPLE_RATE) < 1.0,
+          "session length grown in SAMPLES to cover clip end");
+
+    /* second import reuses the same audio track */
+    rc = wb_import_audio_file(s, wav, 3.0, err, sizeof(err));
+    CHECK(rc == 0 && s->track_count == 1 && s->tracks[0].clip_count == 2,
+          "second import reuses existing audio track");
+    CHECK(fabs((double)s->length - 3.5 * WB_SAMPLE_RATE) < 1.0,
+          "length grows again (3.0s playhead + 0.5s clip)");
+
+    /* failure paths */
+    CHECK(wb_import_audio_file(s, "/nonexistent.wav", 0, err, sizeof(err)) == -1,
+          "missing file fails gracefully");
+    CHECK(wb_import_audio_file(NULL, wav, 0, err, sizeof(err)) == -1, "NULL session rejected");
+
+    unlink(wav);
+    wb_session_destroy(s);
+}
+
+/* ---- Wave 1 G08: undo/redo around a REAL import edit --------------------- */
+static void test_import_undo_cycle(void) {
+    printf("test_import_undo_cycle\n");
+    const uint32_t nf = WB_SAMPLE_RATE / 4;
+    float *buf = malloc(sizeof(float) * nf);
+    for (uint32_t i = 0; i < nf; i++) buf[i] = 0.6f * sinf(2.0f * 3.14159f * 220.0f * i / WB_SAMPLE_RATE);
+    char wav[256];
+    snprintf(wav, sizeof(wav), "/tmp/wb_imp_undo_%d.wav", (int)getpid());
+    CHECK(wb_wav_write_pcm16(wav, buf, nf, 1, WB_SAMPLE_RATE) == 0, "undo-cycle wav written");
+    free(buf);
+
+    wb_session *s = wb_session_create();
+    wb_undo *u = wb_undo_create();
+
+    /* EDIT: checkpoint, then import (the mutation) */
+    wb_undo_checkpoint(u, s);
+    char err[128] = {0};
+    CHECK(wb_import_audio_file(s, wav, 0.0, err, sizeof(err)) == 0, "edit: import applied");
+    uint32_t clips_after_edit = s->tracks[0].clip_count;
+    double len_after_edit = s->length;
+    CHECK(clips_after_edit == 1, "edit state: one clip");
+
+    /* UNDO: state restored */
+    CHECK(wb_undo_undo(u, &s) == 1, "undo performed after import");
+    uint32_t clips_after_undo = (s->track_count > 0) ? s->tracks[0].clip_count : 0;
+    CHECK(clips_after_undo == 0, "undo restores pre-edit state (no clips)");
+    CHECK((double)s->length < len_after_edit, "undo restores session length");
+
+    /* REDO: edit re-applied */
+    CHECK(wb_undo_redo(u, &s) == 1, "redo performed");
+    CHECK(s->track_count == 1 && s->tracks[0].clip_count == 1, "redo re-applies the imported clip");
+    CHECK(s->tracks[0].clips[0].audio_frames == nf, "redone clip keeps its audio payload");
+    CHECK(fabs((double)s->length - len_after_edit) < 1.0, "redo restores session length");
+
+    wb_undo_destroy(u);
+    unlink(wav);
+    wb_session_destroy(s);
+}
+
 /* ---- test: wb_session_remove_note (self-contained; does not perturb undo) - */
 static void test_remove_note(void) {
     printf("test_remove_note\n");
@@ -1839,6 +1961,9 @@ int main(void) {
     test_preview_seek();
     test_bus_routing();
     test_undo();
+    test_import_scan();
+    test_import_audio();
+    test_import_undo_cycle();
     test_remove_note();
     test_launchpad();
     test_xrun();

@@ -96,7 +96,7 @@ int wb_wav_write_f32(const char *path,
 }
 
 /* Read a 16-bit PCM WAV into an interleaved float buffer (caller-owned).
- * On success sets *out_frames/*out_channels/*out_sr and returns 0; the buffer
+ * On success sets out_frames / out_channels / out_sr and returns 0; the buffer
  * must be freed by the caller. Returns -1 on error. */
 int wb_wav_read_pcm16(const char *path, float **out_data, uint32_t *out_frames,
                       int *out_channels, int *out_sr) {
@@ -136,7 +136,7 @@ int wb_wav_read_pcm16(const char *path, float **out_data, uint32_t *out_frames,
     if (!found_fmt || !found_data || channels <= 0 || data_bytes == 0) {
         fclose(f); return -1;
     }
-    uint32_t n_samples = data_bytes / (2 * (uint32_t)channels);
+    uint32_t n_samples = data_bytes / 2;   /* 16-bit samples (interleaved) */
     float *buf = malloc((size_t)n_samples * sizeof(float));
     if (!buf) { fclose(f); return -1; }
     for (uint32_t i = 0; i < n_samples; i++) {
@@ -146,7 +146,7 @@ int wb_wav_read_pcm16(const char *path, float **out_data, uint32_t *out_frames,
     }
     fclose(f);
     *out_data = buf;
-    *out_frames = n_samples / (uint32_t)channels;
+    *out_frames = channels > 0 ? n_samples / (uint32_t)channels : n_samples;
     *out_channels = channels;
     *out_sr = sr;
     return 0;

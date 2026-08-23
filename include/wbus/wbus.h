@@ -14,6 +14,7 @@
 #include "wbus_captions.h"
 #include "wbus_clip_edit.h"
 #include "wbus_transcript.h"
+#include "wbus_import.h"
 
 /* Forward declarations for cross-referenced types. */
 typedef struct wb_mod_matrix wb_mod_matrix;

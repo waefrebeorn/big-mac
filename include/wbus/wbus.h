@@ -109,6 +109,11 @@ typedef struct wb_track {
     int        solo;
     int        route;         /* -1 = master, else index of bus track (kind 2) */
     float      send[WB_MAX_TRACKS];  /* send level to each other track (aux send) */
+    /* G30: two named aux sends (SEND A / SEND B) targeting bus tracks. */
+    float      send_level[2]; /* 0..1 send amount */
+    int        send_target[2];/* destination bus track index, -1 = none */
+    /* G74: per-send pre/post-fader switch (0 = post-fader default, 1 = pre). */
+    int        send_pre[2];
     int        sidechain[WB_MAX_INSERT_SLOTS];  /* per-slot key source track (-1 = none) */
     uint32_t   clip_count;
     wb_clip   *clips;
@@ -161,6 +166,10 @@ typedef struct wb_session {
     /* R022: arrangement markers */
     uint32_t  marker_count;
     wb_marker markers[64];
+    /* G89: swing amount, fraction of a 16th note delayed on odd steps
+     * (Roger Linn MPC spec: 50% = straight .. 75%; stored 0..0.6 as the
+     * DELAY FRACTION, i.e. 0.25 == MPC 75%). 0 = straight. */
+    double    swing;
 } wb_session;
 
 /* ---- session lifecycle -------------------------------------------------- */
@@ -272,6 +281,15 @@ void wb_engine_set_insert_wet(wb_engine *e, int track, int slot, float wet);
 /* Send/aux routing: set a track's send level to another track (bus or audio).
  * send_level 0.0 = no send; >0 sends a post-FX copy to the destination. */
 void wb_engine_set_send_level(wb_engine *e, int src_track, int dst_track, float level);
+/* G30/G74: configure one of a track's two named aux sends (slot 0 = SEND A,
+ * 1 = SEND B). target = destination bus track index or -1; level 0..1;
+ * pre != 0 taps BEFORE the fader, pre == 0 (default) AFTER fader gain. */
+void wb_engine_set_send(wb_engine *e, int src_track, int slot, int target,
+                        float level, int pre);
+/* G89: swing. Returns the delay in samples applied at timeline position
+ * 'pos' for the given bpm and swing fraction (0..0.6). Odd 16th-note steps
+ * are delayed by swing*sixteenth; even steps return 0 (Roger Linn spec). */
+double wb_swing_offset(double bpm, double swing, double pos);
 /* Route a source track's audio into a destination track/slot's key input
  * (compressor sidechain). src_track = -1 clears the sidechain. */
 void wb_engine_set_insert_sidechain(wb_engine *e, int track, int slot, int src_track);
@@ -309,6 +327,15 @@ void wb_engine_end_edit(wb_engine *e);
 /* Convenience: render the whole session to an interleaved buffer (caller frees). */
 int wb_engine_render_session(wb_engine *e, wb_session *s, wb_sample **out, uint32_t *frames);
 
+/* G38: progress/cancel-aware variant. cb (optional) is invoked between render
+ * chunks with progress mapped onto [lo,hi]. Returns 1 when cancelled, -1 on
+ * error, 0 on success (on cancel the caller owns freeing nothing — *out=NULL). */
+int wb_engine_render_session_prog(wb_engine *e, wb_session *s, wb_sample **out,
+                                  uint32_t *frames,
+                                  void (*cb)(void *, double), void *cbctx,
+                                  double lo, double hi,
+                                  volatile int *cancel);
+
 /* ---- video editor API (R009/R011) ------------------------------------- */
 
 /* Add a video track to the session. Returns track index or -1 on error. */
@@ -345,6 +372,24 @@ typedef enum {
     WB_VIDEO_CODEC_PRORES,     /* prores_ks yuv422p10le mov — editorial */
     WB_VIDEO_CODEC_PRORES_HQ   /* prores_ks profile 3 (HQ) */
 } wb_video_codec;
+
+/* G38/G39/G40 (R072): full export with RANGE, RESOLUTION and PROGRESS/CANCEL.
+ * - range_start/range_dur: seconds; range_start < 0 exports the WHOLE session.
+ *   Applied as accurate output-side -ss/-t so video AND audio stay in sync.
+ * - res_h: output height (0 or 1080 = no scaling; 480/720 scales preserving AR).
+ * - prog: optional callback invoked between chunks with progress in 0..1.
+ * - cancel: optional flag polled between chunks; set it non-zero to abort
+ *   (the ffmpeg child, if running, is killed with SIGTERM). Returns -2 when
+ *   cancelled, -1 on error, 0 on success. */
+typedef void (*wb_export_prog_fn)(void *ctx, double progress);
+int  wb_video_export_full(wb_session *s, wb_engine *e,
+                          const char *output_path,
+                          const char *srt_path,
+                          wb_video_codec codec,
+                          double range_start, double range_dur,
+                          int res_h,
+                          wb_export_prog_fn prog, void *prog_ctx,
+                          volatile int *cancel);
 
 /* Export the session as a 1080p60 file with optional caption burn.
  * - codec: select H.264 (mp4) or ProRes (mov) output container

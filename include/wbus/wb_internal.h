@@ -19,6 +19,9 @@ wb_session *wb_session_create(void);
 /* wb_transport.c */
 void wb_transport_schedule_notes(wb_track *track, double block_start, uint32_t n,
                                  void (*note_on)(void*, int, int), void *voice);
+void wb_transport_schedule_notes_sw(wb_track *track, double block_start, uint32_t n,
+                                    void (*note_on)(void*, int, int), void *voice,
+                                    double bpm, double swing);
 
 /* wb_synth.c */
 void *wb_synth_create(uint32_t sr);

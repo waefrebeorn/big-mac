@@ -77,6 +77,9 @@ every gap below is a break in one of those seven loops.
 ## E. SWEETEN loop (mix + fx)
 [G30] P0 — Sends/returns FX buses with pre/post fader sends (universally cited
       as THE mixing workflow; we have route bus only, no send knobs).
+      [WIRED Wave1-B: wb_track.send_level/send_target[2] + stage_bus send pass
+      into kind-2 buses; mixer strip SEND A/B -/+ buttons, % readout, target
+      cycle; test_sends.]
 [G31] P1 — FX chain rack UI per track: add/remove/reorder inserts with param
       panels (inserts array exists; no visible chain editor).
 [G32] P1 — Real-time LUFS/true-peak meter on master (Youlean class; delivery
@@ -178,6 +181,9 @@ Premiere metadata panel, packafoma Premiere wishlist.
 
 ### Music-production additions
 [G74] P1 — Per-send pre/post-fader switch (Pro Tools standard) — refines G30.
+      [WIRED Wave1-B: wb_track.send_pre[2] per-send toggle; post = tap after
+      fader gain (default), pre = raw buffer; mixer PRE button per send;
+      test_sends asserts pre > post when fader < 1.]
 [G75] P2 — Sidechain routing UI (engine HAS sidechain DSP; no routing UI).
 [G76] P2 — FX chain rack: drag-reorder inserts, bypass, save/load chains
       (Cubase insert-chain presets).
@@ -201,6 +207,9 @@ Premiere metadata panel, packafoma Premiere wishlist.
 [G88] P2 — Per-step probability/chance (Logic Step Sequencer chance; Bitwig
       Operators) — static binary grids sound robotic.
 [G89] P1 — Swing/shuffle % MPC-spec 50-75% (Roger Linn canonical swing).
+      [WIRED Wave1-B: session->swing 0..0.6 fraction of a 16th delayed on odd
+      steps; wb_swing_offset helper applied in wb_transport_schedule_notes_sw
+      and STEP perf_tick; toolbar SWING -/+ + % readout; test_swing.]
 [G90] P2 — Pattern chaining/song mode (MPC chaining; FL patterns-as-clips).
 [G91] P3 — Step-fill utilities (every 2nd/4th, random fill).
 [G92] P3 — Note repeats/retrigs with accents (Bitwig Note Repeats).

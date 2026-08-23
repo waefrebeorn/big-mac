@@ -17,6 +17,8 @@
 #include "wbus_midifx.h"
 #include "wbus_compositor.h"
 #include "wb_internal.h"
+#include "wbus_capture.h"     /* Wave1 G93/G94 */
+#include "wbus_export_job.h"  /* Wave1 G38 */
 
 static int failures = 0;
 static int checks = 0;
@@ -1327,6 +1329,159 @@ static void test_session_launch(void) {
     free(buf); wb_engine_destroy(e); wb_session_destroy(s);
 }
 
+
+/* ---- test: Wave1 G93 capture-quantize ---------------------------------- */
+static void test_capture_quantize(void) {
+    printf("test_capture_quantize\n");
+    wb_caplog *log = wb_caplog_create();
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0;
+    wb_track *tr = wb_session_add_track(s, "Jam", 0);
+    (void)tr;
+    double step = ((60.0/120.0)/4.0) * WB_SAMPLE_RATE;   /* 16th = 5512.5 smp */
+
+    /* jam: notes played slightly off-grid around t=4s..6s on track 0 */
+    double base = 4.0 * WB_SAMPLE_RATE;
+    wb_caplog_note(log, base + step*0.0 + 300.0, 0, 60, 100);   /* ~on grid 0 */
+    wb_caplog_note(log, base + step*2.0 - 400.0, 0, 63, 90);    /* near grid 2 */
+    wb_caplog_note(log, base + step*4.0 + 2500.0, 0, 65, 110);  /* nearer grid 5 than 4 -> quantizes to 5? no: 4+0.45step rounds to 4 */
+    /* a note-off and another track's note must be ignored */
+    wb_caplog_note(log, base + step*1.0, 0, 60, 0);
+    wb_caplog_note(log, base + step*2.0, 1, 72, 99);
+
+    CHECK(wb_caplog_count(log) == 5, "cap log holds all five events");
+    int n = wb_capture_quantize(log, s, 0, base + 16*step, 2.0, 120.0);
+    CHECK(n == 3, "capture quantized exactly the 3 track-0 note-ons");
+    CHECK(s->tracks[0].clip_count == 1, "capture created one clip");
+    wb_clip *cl = &s->tracks[0].clips[0];
+    CHECK(cl->note_count == 3, "clip holds the quantized notes");
+    CHECK(fabs(cl->notes[0].start - 0*step) < 1.0, "note 1 snapped to 16th grid");
+    CHECK(fabs(cl->notes[1].start - 2*step) < 1.0, "note 2 snapped to grid slot 2");
+    CHECK(fabs(cl->start - base) < 1.0, "clip starts at window start");
+    CHECK(cl->length > 0 && cl->type == 0, "clip is a real MIDI clip with length");
+    /* session length grew to cover the window */
+    CHECK(s->length >= cl->start + cl->length, "session length covers capture clip");
+
+    /* empty window writes nothing */
+    int n2 = wb_capture_quantize(log, s, 0, 1.0 * WB_SAMPLE_RATE, 2.0, 120.0);
+    CHECK(n2 < 0 && s->tracks[0].clip_count == 1, "empty window creates nothing");
+
+    wb_caplog_destroy(log);
+    wb_session_destroy(s);
+}
+
+/* ---- test: Wave1 G94 record-session-to-arrangement ---------------------- */
+static void test_launch_record(void) {
+    printf("test_launch_record\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 88200.0 * 8;
+    wb_track *tr = wb_session_add_track(s, "Seq", 0);
+    double step = ((60.0/120.0)/4.0) * WB_SAMPLE_RATE;
+    for (int st = 0; st < 16; st += 2)
+        wb_session_add_note(tr, st*step, step*0.9, 60, 100);
+    tr->clips[0].lane = 0;
+    tr->clips[0].length = 16 * step;
+
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+
+    wb_launchrec *r = wb_launchrec_create();
+    wb_launchrec_start(r, s);
+    CHECK(wb_launchrec_span_count(r) == 0, "recorder starts with no spans");
+
+    /* launch at t=1s, poll, stop at t=3s */
+    wb_engine_seek(e, 1.0 * WB_SAMPLE_RATE);
+    wb_engine_launch(e, 0, 0);
+    int ch = wb_launchrec_poll(r, s, e, 1.0 * WB_SAMPLE_RATE);
+    CHECK(ch == 1, "poll recorded the launch transition");
+    wb_engine_stop_launch(e, 0);
+    wb_launchrec_poll(r, s, e, 3.0 * WB_SAMPLE_RATE);
+
+    /* relaunch and leave open until finish */
+    wb_engine_launch(e, 0, 0);
+    wb_launchrec_poll(r, s, e, 4.0 * WB_SAMPLE_RATE);
+    wb_launchrec_finish(r, 5.5 * WB_SAMPLE_RATE);
+    CHECK(wb_launchrec_span_count(r) == 2, "two spans recorded");
+    CHECK(fabs(wb_launchrec_span(r,0)->t_stop - 3.0*WB_SAMPLE_RATE) < 1.0,
+          "first span closed at stop time");
+
+    int placed = wb_launchrec_commit(r, s);
+    CHECK(placed == 2, "commit placed both launcher takes on the arrangement");
+    CHECK(tr->clip_count == 3, "track gained two recorded clips");
+    wb_clip *rc = &tr->clips[1];
+    CHECK(fabs(rc->start - 1.0*WB_SAMPLE_RATE) < 1.0, "recorded clip at launch position");
+    CHECK(rc->note_count >= 8, "recorded clip loops source pattern across span");
+    CHECK(rc->lane == 0, "recorded take lands on main lane");
+    /* first recorded note is a copy of the source's first note */
+    CHECK(rc->notes[0].pitch == tr->clips[0].notes[0].pitch &&
+          fabs(rc->notes[0].start) < 1.0, "recorded notes mirror the source clip");
+
+    wb_launchrec_destroy(r);
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
+
+/* ---- test: Wave1 G38 background render queue --------------------------- */
+static void test_export_job(void) {
+    printf("test_export_job\n");
+    /* fixture video (same synthetic clip test_video uses) */
+    const char *srcv = "/tmp/vidtest/src.mp4";
+    FILE *f = fopen(srcv, "rb");
+    if (!f) {
+        char cmd[1024];
+        snprintf(cmd, sizeof cmd,
+            "\"/Users/waefrebeorn/.local/bin/ffmpeg\" -y -f lavfi -i "
+            "\"testsrc=size=320x240:rate=25:duration=1\" -c:v mpeg4 \"%s\" "
+            ">/dev/null 2>&1", srcv);
+        if (system(cmd) != 0) { CHECK(0, "fixture generation"); return; }
+    } else fclose(f);
+
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 44100.0;   /* 1 second of audio time */
+    int vt = wb_session_add_video_track(s, "V1");
+    CHECK(vt >= 0 && wb_session_add_video_clip(s, vt, srcv, 0.0) >= 0,
+          "job fixture session built");
+    s->length = 2.0 * WB_SAMPLE_RATE;      /* cover the 1s clip */
+
+    static wb_export_job job;              /* static: big struct off the stack */
+    memset(&job, 0, sizeof job);
+    remove("/tmp/bigmac_job_out.mp4");
+    int rc = wb_export_job_start(&job, s, "/tmp/bigmac_job_out.mp4", NULL,
+                                 WB_VIDEO_CODEC_H264, -1.0, -1.0, 480);
+    CHECK(rc == 0, "export job started");
+    CHECK(wb_export_job_running(&job), "job reports RUNNING right after start");
+    CHECK(wb_export_job_start(&job, s, "/tmp/x.mp4", NULL,
+                              WB_VIDEO_CODEC_H264, -1,-1,0) == -2,
+          "second start rejected while busy (one-job queue)");
+
+    /* progress advances monotonically while running */
+    int monotonic = 1;
+    double lastp = job.progress;
+    while (wb_export_job_running(&job)) {
+        if (job.progress < lastp - 1e-9) monotonic = 0;
+        lastp = job.progress;
+        usleep(20000);
+    }
+    CHECK(monotonic, "progress never goes backwards");
+    CHECK(job.done && job.rc == 0, "job finished successfully");
+    CHECK(job.progress >= 0.999, "progress reaches 1.0 on completion");
+    f = fopen("/tmp/bigmac_job_out.mp4", "rb");
+    CHECK(f != NULL, "background export produced an output file");
+    if (f) fclose(f);
+
+    /* cancel path: start again, request cancel immediately, expect -2 */
+    memset(&job, 0, sizeof job);
+    rc = wb_export_job_start(&job, s, "/tmp/bigmac_job_cancel.mp4", NULL,
+                             WB_VIDEO_CODEC_H264, -1.0, -1.0, 0);
+    CHECK(rc == 0, "cancel-test job started");
+    wb_export_job_cancel(&job);
+    wb_export_job_wait(&job);
+    CHECK(job.done && job.cancelled && job.rc == -2,
+          "cancel flag produces done+cancelled rc=-2");
+
+    wb_session_destroy(s);
+}
+
 static void test_video_edit(void) {
     printf("test_video_edit\n");
     wb_session *s = wb_session_create();
@@ -1713,6 +1868,120 @@ static void test_bus_routing(void) {
     wb_session_destroy(s);
 }
 
+/* ---- test: Wave1 G30/G74 aux sends + pre/post-fader ------------------- */
+/* Build instr track (0) + bus track (1); put a 1s tone on the track as an
+ * AUDIO clip so no instrument is needed. Send it into the bus and verify:
+ *  - bus output is quieter than the direct signal but present;
+ *  - post-fader send scales with the source fader (default);
+ *  - flipping PRE changes the result when fader != 1. */
+static void test_sends(void) {
+    printf("test_sends\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 44100.0;
+    wb_track *bus = wb_session_add_track(s, "Reverb", 0);
+    bus->kind = 2; bus->volume = 1.0f; bus->route = -1;   /* index 0 */
+    wb_track *tr = wb_session_add_track(s, "Src", 1);      /* index 1 */
+    tr->route = -1;
+    uint32_t nf = 44100;
+    wb_sample *buf = malloc(nf * sizeof(wb_sample));
+    for (uint32_t i = 0; i < nf; i++)
+        buf[i] = (wb_sample)(0.4 * sin(2*M_PI*440.0*i/44100.0));
+    wb_session_add_audio_clip(tr, 0, (double)nf, buf, nf, 1);
+    free(buf);
+
+    /* G30: send at 50% into the bus */
+    tr->send_level[0] = 0.5f; tr->send_target[0] = 0; tr->send_pre[0] = 0;
+
+    wb_engine *e = wb_engine_create();
+    wb_engine_set_session(e, s);
+    wb_sample *out = malloc((size_t)44100*2*sizeof(wb_sample));
+    render_offline(e, out, 44100);
+    float pk_sent = 0;
+    for (uint32_t i = 0; i < 44100u*2u; i++) if (fabsf(out[i]) > pk_sent) pk_sent = fabsf(out[i]);
+    CHECK(pk_sent > 0.05f, "sent signal reaches master through the bus");
+
+    /* zero the send: level must DROP but direct path keeps playing */
+    tr->send_level[0] = 0.0f;
+    render_offline(e, out, 44100);
+    float pk_nosend = 0;
+    for (uint32_t i = 0; i < 44100u*2u; i++) if (fabsf(out[i]) > pk_nosend) pk_nosend = fabsf(out[i]);
+    CHECK(pk_sent > pk_nosend * 1.2f, "send adds level into the bus");
+    CHECK(pk_nosend > 0.05f, "direct path unaffected by send");
+
+    /* G74: fader at 0.5 — compare PRE vs POST total renders (the direct path
+     * contributes identically in both, so any difference is the send tap). */
+    tr->volume = 0.5f;
+    tr->send_level[0] = 1.0f;
+    wb_engine_set_session(e, s);   /* resync rtracks volume snapshot */
+    tr->send_pre[0] = 1;           /* pre-fader */
+    render_offline(e, out, 44100);
+    float pk_pre = 0;
+    for (uint32_t i = 0; i < 44100u*2u; i++) if (fabsf(out[i]) > pk_pre) pk_pre = fabsf(out[i]);
+    tr->send_pre[0] = 0;                             /* post-fader */
+    render_offline(e, out, 44100);
+    float pk_post = 0;
+    for (uint32_t i = 0; i < 44100u*2u; i++) if (fabsf(out[i]) > pk_post) pk_post = fabsf(out[i]);
+    CHECK(pk_pre != pk_post, "pre and post renders differ when fader != 1");
+    CHECK(pk_pre > pk_post, "pre-fader send is louder than post when fader < 1");
+
+    free(out);
+    wb_engine_destroy(e);
+    wb_session_destroy(s);
+}
+
+/* ---- test: Wave1 G89 swing ------------------------------------------- */
+static long g_sw_hits[64]; static int g_sw_n; static long g_sw_blk;
+static void sw_note(void *v, int pitch, int vel) {
+    (void)pitch; (void)vel;
+    if (g_sw_n < 64 && v) g_sw_hits[g_sw_n++] = g_sw_blk;   /* block index */
+}
+static void test_swing(void) {
+    printf("test_swing\n");
+    /* pure helper: bpm 60 -> a 16th = 11025 samples */
+    CHECK(wb_swing_offset(60.0, 0.0,     11025.0) == 0.0, "no swing = no offset");
+    CHECK(wb_swing_offset(60.0, 0.25,      0.0) == 0.0, "even step (0) not delayed");
+    CHECK(wb_swing_offset(60.0, 0.25,  22050.0) == 0.0, "even step (2) not delayed");
+    double off = wb_swing_offset(60.0, 0.25, 11025.0);
+    CHECK(fabs(off - 0.25*11025.0) < 0.5, "odd 16th delayed by swing*sixteenth");
+    CHECK(fabs(wb_swing_offset(60.0, 0.6, 33075.0) - 0.6*11025.0) < 0.5,
+          "swing clamped/used at max 0.6");
+
+    /* scheduler integration: note on odd 16th fires ~swing*sixteenth later.
+     * Drive 512-sample blocks; record block index of the note-on. */
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 44100.0;
+    wb_track *tr = wb_session_add_track(s, "S", 0);
+    tr->clip_count = 1; tr->clips = calloc(1, sizeof(wb_clip));
+    tr->clips[0].type = 0; tr->clips[0].start = 0; tr->clips[0].length = 44100;
+    tr->clips[0].note_count = 1;
+    tr->clips[0].notes = calloc(1, sizeof(wb_note));
+    tr->clips[0].notes[0].start = 5513;  /* odd 16th @120bpm (sixteenth=5512.5) */
+    tr->clips[0].notes[0].dur = 2000;
+    tr->clips[0].notes[0].pitch = 60; tr->clips[0].notes[0].vel = 100;
+
+    const uint32_t BLK = 512;
+    g_sw_n = 0; memset(g_sw_hits, 0, sizeof(g_sw_hits)); g_sw_blk = 0;
+    for (double pos = 0; pos < 44100.0; pos += BLK) {
+        wb_transport_schedule_notes_sw(tr, pos, BLK, sw_note, (void*)1, 120.0, 0.0);
+        g_sw_blk++;
+    }
+    CHECK(g_sw_n >= 1, "straight schedule fires the note");
+    long straight_blk = g_sw_hits[0];
+
+    g_sw_n = 0; memset(g_sw_hits, 0, sizeof(g_sw_hits)); g_sw_blk = 0;
+    for (double pos = 0; pos < 44100.0; pos += BLK) {
+        wb_transport_schedule_notes_sw(tr, pos, BLK, sw_note, (void*)1, 120.0, 0.5);
+        g_sw_blk++;
+    }
+    CHECK(g_sw_n >= 1, "swung schedule fires the note");
+    long swung_blk = g_sw_hits[0];
+    long expect = (long)(0.5 * 5512.5 / BLK);   /* ~5.38 blocks */
+    long got = swung_blk - straight_blk;
+    CHECK(got >= expect-1 && got <= expect+1, "swing delay matches expected blocks");
+    (void)expect; (void)got;
+    wb_session_destroy(s);
+}
+
 /* ---- test: Launchpad grid→note mapping (classic LP, pure logic) ------- */
 static void test_launchpad(void) {
     printf("test_launchpad\n");
@@ -1956,10 +2225,15 @@ int main(void) {
     test_comp_ownership();
     test_step_commit();
     test_session_launch();
+    test_capture_quantize();   /* Wave1 G93 */
+    test_launch_record();      /* Wave1 G94 */
+    test_export_job();         /* Wave1 G38 */
     test_video_edit();
     test_video_export_edit();
     test_preview_seek();
     test_bus_routing();
+    test_sends();   /* Wave1 G30/G74 */
+    test_swing();   /* Wave1 G89 */
     test_undo();
     test_import_scan();
     test_import_audio();

@@ -30,6 +30,8 @@
 #include "wbus/wbus_perf.h"
 #include "wbus/wbus_agent.h"
 #include "wbus/wbus_wavcache.h"
+#include "wbus/wbus_capture.h"      /* G93/G94 */
+#include "wbus/wbus_export_job.h"   /* G38 background render queue */
 #include "wbus_perfclip.h"
 #include "wbus_cgiexport.h"
 #include "wbus_delivery.h"
@@ -1021,12 +1023,39 @@ static void draw_mixer(app *a) {
         wb_ui_draw_text(a->ren, mute.x+4, mute.y+2, "M", 1, tr->mute?C_BG:C_TEXT);
         wb_ui_draw_text(a->ren, solo.x+4, solo.y+2, "S", 1, tr->solo?C_BG:C_TEXT);
 
+        /* G30/G74: SEND A / SEND B rows — -/+ level buttons, % readout,
+         * PRE toggle (lit = pre-fader), and a target label that cycles
+         * through the session's bus tracks when clicked. Region ids:
+         * 40000 + ti*8 + si*4 + {0 minus,1 plus,2 pre,3 target}. */
+        for (int si = 0; si < 2; si++) {
+            int base = 40000 + ti*8 + si*4;
+            int ry = fy_bot + 46 + si*16;
+            if (ry > WIN_H - STATUS_H - 20) break;
+            char lbl[8]; snprintf(lbl, sizeof(lbl), "%c", 'A'+si);
+            wb_ui_draw_text(a->ren, x+2, ry+3, lbl, 1, C_TEXT_DIM);
+            ui_button(a->ren, base+0, x+12, ry, 14, 13, "-", 0);
+            ui_button(a->ren, base+1, x+28, ry, 14, 13, "+", 0);
+            char vbuf[8];
+            snprintf(vbuf, sizeof(vbuf), "%d%%", (int)(tr->send_level[si]*100.0f + 0.5f));
+            wb_ui_draw_text(a->ren, x+44, ry+3, vbuf, 1,
+                            tr->send_level[si] > 0.0f ? C_ACCENT : C_TEXT_DIM);
+            /* PRE/POST toggle: lit = PRE-fader */
+            ui_button(a->ren, base+2, x+72, ry, 30, 13, "PRE", tr->send_pre[si]);
+            /* target cycle button: shows the bus name (or "--") */
+            const char *tname = "--";
+            if (tr->send_target[si] >= 0
+                && tr->send_target[si] < (int)a->session->track_count)
+                tname = a->session->tracks[tr->send_target[si]].name;
+            ui_button(a->ren, base+3, x+104, ry, sw-108 > 0 ? sw-108 : 10, 13,
+                      tname, 0);
+        }
+
         /* track name under fader */
         wb_ui_draw_text(a->ren, x+2, fy_top-16, tr->name, 1, C_TEXT);
 
         /* insert-chain readout (shows FX routing for this track) */
         if (ti == a->selected_track) {
-            int iy = fy_bot + 46;
+            int iy = fy_bot + 80;   /* below the SEND A/B rows (G30) */
             int any = 0;
             for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
                 const char *id = tr->inserts[s].id;
@@ -1414,6 +1443,22 @@ static void draw_toolbar(app *a) {
         int bx = pad + i*(bw+pad);
         ui_button(a->ren, BTN_TAB0 + i, bx, by, bw, bh, tab_name(i), (i == a->tab));
     }
+
+    /* G89: SWING -/+ + % readout, right of the tabs over the mixer column.
+     * swing is a session-level fraction of a 16th (0..0.6); MPC-spec
+     * display maps delay fraction -> % swung (50% straight .. 75%+). */
+    {
+        double sw = a->session ? a->session->swing : 0.0;
+        if (sw < 0) sw = 0;
+        if (sw > 0.6) sw = 0.6;
+        int sx = WIN_W - MIXER_W + 8;
+        ui_button(a->ren, BTN_SWING_M, sx, by, 22, bh, "-", 0);
+        ui_button(a->ren, BTN_SWING_P, sx+26, by, 22, bh, "+", 0);
+        char sbuf[32];
+        snprintf(sbuf, sizeof(sbuf), "SWING %d%%", (int)((0.5 + sw) * 100.0 + 0.5));
+        wb_ui_draw_text(a->ren, sx+54, by + bh/2 - 4, sbuf, 1,
+                        sw > 0.0 ? C_ACCENT : C_TEXT_DIM);
+    }
 }
 
 /* ---- bottom status / help line -------------------------------------- */
@@ -1449,11 +1494,15 @@ static void draw_action_bar(app *a) {
         ui_button(a->ren, BTN_ACT2, bx+2*(bw+6), by, bw, bh, "COMP",    0);
     } else if (tab == 1) {  /* PAD */
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "STOP ALL", 0);
+        ui_button(a->ren, BTN_ACT1, bx+bw+6,   by, bw, bh, "CAPTURE", 0);   /* G93 */
     } else if (tab == 2) {  /* STEP */
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "CLEAR", 0);
         ui_button(a->ren, BTN_ACT1, bx+bw+6,  by, bw, bh, "COMMIT", 0);
+        ui_button(a->ren, BTN_ACT2, bx+2*(bw+6), by, bw, bh, "CAPTURE", 0); /* G93 */
     } else if (tab == 3) {  /* SESSION */
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "STOP ALL", 0);
+        ui_button(a->ren, BTN_ACT1, bx+bw+6,   by, bw, bh,
+                  "REC ARR", a->launchrec_armed);                            /* G94 */
     } else {  /* video tabs 4..7 */
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "IMPORT", 0);
         ui_button(a->ren, BTN_ACT1, bx+bw+6,  by, bw, bh, "CAPTIONS", 0);
@@ -1876,8 +1925,36 @@ static void draw_video_tab_panel(app *a) {
         } else {
             wb_ui_draw_text(a->ren, px + 6, yy, "Output: not set", 1, C_TEXT_DIM); yy += 18;
         }
-        wb_ui_draw_text(a->ren, px + 6, yy, "Format: MP4 H.264 + AAC", 1, C_TEXT); yy += 14;
-        wb_ui_draw_text(a->ren, px + 6, yy, "Resolution: 1920x1080", 1, C_TEXT); yy += 20;
+        /* G39/G40: reflect the actual settings */
+        snprintf(buf, sizeof(buf), "Range: %s",
+                 a->export_range_mode ? "IN -> playhead" : "WHOLE");
+        wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 14;
+        snprintf(buf, sizeof(buf), "Resolution: %s",
+                 a->export_res_h == 480 ? "854x480" :
+                 a->export_res_h == 720 ? "1280x720" : "1920x1080");
+        wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 16;
+        /* G38: background render queue — progress bar polled each frame */
+        if (wb_export_job_running(&a->ejob)) {
+            int pct = (int)(a->ejob.progress * 100.0 + 0.5);
+            SDL_Rect barbg = { px + 6, yy, pw - 12, 14 };
+            setc(a->ren, C_PANEL2); SDL_RenderFillRect(a->ren, &barbg);
+            int fw = (int)((pw - 12) * a->ejob.progress);
+            if (fw < 2) fw = 2;
+            SDL_Rect fill = { px + 6, yy, fw, 14 };
+            setc(a->ren, C_ACCENT); SDL_RenderFillRect(a->ren, &fill);
+            char pbuf[64];
+            snprintf(pbuf, sizeof(pbuf), "%d%%", pct);
+            wb_ui_draw_text(a->ren, px + 10, yy + 3, pbuf, 1, 255,255,255);
+            yy += 20;
+            wb_ui_draw_text(a->ren, px + 6, yy, "RENDERING IN BACKGROUND...", 1, C_ACCENT);
+            yy += 14;
+        } else if (a->ejob.done) {
+            snprintf(buf, sizeof(buf), a->ejob.cancelled ? "Render CANCELLED" :
+                     a->ejob.rc == 0 ? "Render COMPLETE" : "Render FAILED");
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1,
+                            a->ejob.rc == 0 && !a->ejob.cancelled ? C_TEXT : 235,110,110);
+            yy += 16;
+        }
         wb_ui_draw_text(a->ren, px + 6, yy, "Shortcuts:", 1, C_TEXT); yy += 16;
         wb_ui_draw_text(a->ren, px + 6, yy, "^R render  ^S set path", 1, C_TEXT_DIM);
         break;
@@ -1963,6 +2040,13 @@ static void video_tab_enter(app *a) {
     a->vid_source[0] = 0; a->vid_proxy[0] = 0;
     a->vid_export[0] = 0; a->vid_srt[0] = 0; a->vid_captions_ready = 0;
     a->export_codec_h264 = 1; a->last_status[0] = 0;
+    a->caplog = wb_caplog_create();          /* G93 */
+    a->capture_window = 8.0;
+    a->lrec = wb_launchrec_create();         /* G94 */
+    a->launchrec_armed = 0;
+    memset(&a->ejob, 0, sizeof a->ejob);     /* G38 */
+    a->export_range_mode = 0;                /* G39: WHOLE by default */
+    a->export_res_h = 0;                     /* G40: native by default */
     snprintf(a->ffmpeg_path, sizeof(a->ffmpeg_path), "/Users/waefrebeorn/.local/bin/ffmpeg");
     snprintf(a->whisper_cli_path, sizeof(a->whisper_cli_path),
              "/Users/waefrebeorn/whisper.cpp/build/bin/whisper-cli");
@@ -2131,6 +2215,31 @@ static int note_under(app *a, int ti, int x, int y) {
 }
 
 /* ---- R035: click handlers for the performance views ------------------ */
+/* G93: route every played note through here so CAPTURE can quantize the
+ * last N seconds of the jam into material without pre-arming. */
+static void daw_note(app *a, int track, uint8_t pitch, uint8_t vel) {
+    if (!a->engine || track < 0) return;
+    wb_engine_note(a->engine, track, pitch, vel);
+    if (a->caplog && vel > 0)
+        wb_caplog_note(a->caplog, a->t.song_pos, track, pitch, vel);
+}
+
+/* G93: write the captured window onto the selected track as a new clip. */
+static void daw_capture(app *a) {
+    if (!a->session || !a->caplog || a->selected_track < 0) return;
+    double bpm = a->t.bpm > 0 ? a->t.bpm : 120.0;
+    int n = wb_capture_quantize(a->caplog, a->session, a->selected_track,
+                                a->t.song_pos,
+                                a->capture_window > 0 ? a->capture_window : 8.0,
+                                bpm);
+    if (n >= 0)
+        snprintf(a->last_status, sizeof a->last_status,
+                 "CAPTURED %d notes -> track %d (quantized)", n, a->selected_track);
+    else
+        snprintf(a->last_status, sizeof a->last_status, "CAPTURE: nothing to write");
+    printf("capture: %d notes\n", n);
+}
+
 static void pad_click(app *a, int x, int y) {
     int x0 = GUTTER_W, y0 = MAIN_Y + RULER_H + 28;
     int cols = 8, rows = 4, pad = 6;
@@ -2142,7 +2251,7 @@ static void pad_click(app *a, int x, int y) {
             int idx = r*cols + c, pitch = 36 + idx;
             a->pad_flash[idx] = 8;
             if (a->selected_track >= 0)
-                wb_engine_note(a->engine, a->selected_track, (uint8_t)pitch, 100);
+                daw_note(a, a->selected_track, (uint8_t)pitch, 100);
             printf("pad: track %d pitch %d\n", a->selected_track, pitch);
             return;
         }
@@ -2160,7 +2269,7 @@ static void step_click(app *a, int x, int y) {
             int pitch = 60 - r;
             if (a->step_pitch[ti][s] == pitch) a->step_pitch[ti][s] = -1;
             else { a->step_pitch[ti][s] = pitch;
-                   wb_engine_note(a->engine, ti, (uint8_t)pitch, 100); }
+                   daw_note(a, ti, (uint8_t)pitch, 100); }
             return;
         }
     }
@@ -2288,6 +2397,7 @@ static void handle_action(app *a, int act) {
         } else if (act == 1) {  /* COMMIT to clip */
             step_commit_to_clip(a);
         } else if (act == 2) {  /* G93 CAPTURE */
+            daw_capture(a);
         }
     } else {  /* video tabs 4..7 */
         if (act == 0) {  /* IMPORT demo */
@@ -2310,13 +2420,32 @@ static void handle_action(app *a, int act) {
                               printf("captions: ok (%d words)\n",
                                      a->vid_tr ? wb_transcript_count(a->vid_tr) : 0); }
             }
-        } else if (act == 2) {  /* EXPORT */
+        } else if (act == 2) {  /* EXPORT -> background render queue (G38) */
             if (a->vid_has_clip) {
                 if (!a->vid_export[0]) snprintf(a->vid_export, sizeof(a->vid_export),
                          "/tmp/bigmac_export_%d.mp4", (int)(a->t.song_pos/WB_SAMPLE_RATE*100));
-                int rc = wb_video_export(a->session, a->engine, a->vid_export,
-                                         a->vid_captions_ready ? a->vid_srt : NULL);
-                printf("video: export rc=%d\n", rc);
+                /* G39: range — IN marker (SDLK_SEMICOLON) to playhead; whole otherwise */
+                double rs = -1.0, rd = -1.0;
+                if (a->export_range_mode == 1 && a->io_out <= a->io_in
+                    && a->t.song_pos > a->io_in) {
+                    rs = a->io_in / (double)WB_SAMPLE_RATE;
+                    rd = (a->t.song_pos - a->io_in) / (double)WB_SAMPLE_RATE;
+                }
+                int rc = wb_export_job_start(&a->ejob, a->session, a->vid_export,
+                                             a->vid_captions_ready ? a->vid_srt : NULL,
+                                             a->export_codec_h264 ? WB_VIDEO_CODEC_H264
+                                                                  : WB_VIDEO_CODEC_PRORES,
+                                             rs, rd, a->export_res_h);
+                if (rc == 0)
+                    snprintf(a->last_status, sizeof a->last_status,
+                             "EXPORT QUEUED (%s)", rd > 0 ? "range" : "whole");
+                else if (rc == -2)
+                    snprintf(a->last_status, sizeof a->last_status,
+                             "EXPORT BUSY - cancel or wait");
+                else
+                    snprintf(a->last_status, sizeof a->last_status,
+                             "EXPORT FAILED to start");
+                printf("video: export queued rc=%d\n", rc);
             }
         } else if (act == 3 && a->tab == 5) {  /* EDIT: FREEZE live perf -> timeline clip */
             if (!a->perf) { fprintf(stderr, "perf: no engine\n"); return; }
@@ -2368,11 +2497,20 @@ static void perf_tick(app *a) {
         double bpm = a->t.bpm > 0 ? a->t.bpm : 120.0;
         double spstep = (60.0/bpm)/4.0;   /* 16th-note seconds */
         int cur = (int)(a->t.song_pos / WB_SAMPLE_RATE / spstep) % 16;
-        if (cur != a->last_step) {
+        /* G89: odd steps fire LATE by swing*sixteenth (Roger Linn spec),
+         * matching the transport scheduler so STEP and arrangement agree. */
+        double sw = a->session ? a->session->swing : 0.0;
+        double off_samp = wb_swing_offset(bpm, sw,
+                                          fmod(a->t.song_pos,
+                                               spstep*16.0*WB_SAMPLE_RATE));
+        double stepstart = (double)a->t.song_pos / WB_SAMPLE_RATE / spstep;
+        double frac_into_step = stepstart - floor(stepstart);
+        double need_frac = off_samp / WB_SAMPLE_RATE / spstep;
+        if (cur != a->last_step && frac_into_step >= need_frac) {
             a->last_step = cur;
             int ti = a->selected_track;
             int p = a->step_pitch[ti][cur];
-            if (p >= 0) wb_engine_note(a->engine, ti, (uint8_t)p, 100);
+            if (p >= 0) daw_note(a, ti, (uint8_t)p, 100);
         }
     }
     /* R067: JKL shuttle — advance the playhead at shuttle speed when
@@ -2397,7 +2535,7 @@ static void perf_tick(app *a) {
     /* G94: while REC ARR is armed, poll the session launcher each frame so
      * launch/stop transitions become recorded spans. */
     if (a->lrec && a->launchrec_armed && a->session)
-        wb_launchrec_poll(a->lrec, a->session, a->t.song_pos);
+        wb_launchrec_poll(a->lrec, a->session, a->engine, a->t.song_pos);
     /* R043-G7: live ticks for the upper-tier views (CGI rotation + AGI pipeline) */
     if (a->cgi && wb_workspace_cgi_active(a->ws)) wb_cgi_scene_tick(a->cgi, 1.0/60.0);
     if (a->agi && wb_workspace_agi_active(a->ws)) wb_agi_tick(a->agi, 1.0/60.0);
@@ -2616,6 +2754,17 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                             }
                             printf("transcript: selection [%d,%d)\n", a->tr_sel0, a->tr_sel1);
                         }
+                    } else if (id >= 9000 && id < 9100) {  /* G38/G39/G40 EXPORT settings */
+                        switch (id) {
+                            case 9001: a->export_range_mode = !a->export_range_mode; break;
+                            case 9002: a->export_res_h = 480; break;
+                            case 9003: a->export_res_h = 720; break;
+                            case 9004: a->export_res_h = 0;   break;  /* native 1080 */
+                            case 9005: wb_export_job_cancel(&a->ejob);
+                                       snprintf(a->last_status, sizeof a->last_status,
+                                                "CANCEL REQUESTED"); break;
+                        }
+                        printf("export: mode=%d res=%d\n", a->export_range_mode, a->export_res_h);
                     } else if (id >= 3000 && id < 4000) {  /* scene-launch column (launch all tracks' clip on that scene) */
                         int sc = id - 3000;
                         for (uint32_t t = 0; t < a->session->track_count; t++) {
@@ -2624,6 +2773,44 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                                 if (tk->clips[c].lane == sc) { wb_engine_launch(a->engine, (int)t, (int)c); break; }
                         }
                         printf("session: launch scene %d (all tracks)\n", sc);
+                    } else if (id >= 40000 && id < 50000) {  /* G30/G74: mixer send controls */
+                        int ti = (id - 40000) / 8;
+                        int rem = (id - 40000) % 8;
+                        int si = rem / 4, what = rem % 4;
+                        if (ti < (int)a->session->track_count && si >= 0 && si < 2) {
+                            wb_track *tr = &a->session->tracks[ti];
+                            if (what == 0) {   /* minus: -10% */
+                                tr->send_level[si] -= 0.10f;
+                                if (tr->send_level[si] < 0.0f) tr->send_level[si] = 0.0f;
+                            } else if (what == 1) {  /* plus: +10% */
+                                tr->send_level[si] += 0.10f;
+                                if (tr->send_level[si] > 1.0f) tr->send_level[si] = 1.0f;
+                                /* default target: first bus track */
+                                if (tr->send_target[si] < 0)
+                                    for (uint32_t bt = 0; bt < a->session->track_count; bt++)
+                                        if (a->session->tracks[bt].kind == 2) {
+                                            tr->send_target[si] = (int)bt; break;
+                                        }
+                            } else if (what == 2) {  /* PRE/POST toggle (G74) */
+                                tr->send_pre[si] = !tr->send_pre[si];
+                            } else if (what == 3) {  /* cycle target among bus tracks */
+                                int nbuses = 0;
+                                for (uint32_t bt = 0; bt < a->session->track_count; bt++)
+                                    if (a->session->tracks[bt].kind == 2) nbuses++;
+                                if (nbuses > 0) {
+                                    int cur = tr->send_target[si];
+                                    /* next bus after cur (wraps; -1 -> first bus) */
+                                    int nxt = -1;
+                                    for (int step = 0; step < nbuses; step++) {
+                                        cur = (cur + 1);
+                                        if (cur >= (int)a->session->track_count) cur = 0;
+                                        if (a->session->tracks[cur].kind == 2) { nxt = cur; break; }
+                                        if (step == nbuses-1) break;
+                                    }
+                                    tr->send_target[si] = nxt;
+                                }
+                            }
+                        }
                     }
                     break;
                 }
@@ -2744,6 +2931,15 @@ static double song_len_samples(app *a) {
 /* Mouse wheel: horizontal scroll (shift+wheel) or vertical scroll;
  * plain wheel zooms the timeline around the cursor. */
 static void handle_wheel(app *a, SDL_MouseWheelEvent w) {
+    /* Wave1 G01: browser overlay scrolls the file list */
+    if (a->browser_open) {
+        a->browser_scroll -= w.y;
+        int max_scroll = a->browser_count - 1;
+        if (max_scroll < 0) max_scroll = 0;
+        if (a->browser_scroll > max_scroll) a->browser_scroll = max_scroll;
+        if (a->browser_scroll < 0) a->browser_scroll = 0;
+        return;
+    }
     /* R043-G7: on the 3D-CGI tier the wheel zooms the scene, not the timeline */
     if (a->cgi && wb_workspace_cgi_active(a->ws) && a->tab == 5) {
         float z = wb_cgi_scene_get_zoom(a->cgi);
@@ -3051,7 +3247,8 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_ESCAPE:
-        if (a->param_view) { a->param_view = 0; a->param_drag = -1; }
+        if (a->browser_open) a->browser_open = 0;          /* Wave1 G01 */
+        else if (a->param_view) { a->param_view = 0; a->param_drag = -1; }
         else { running = 0; }
         break;
     case SDLK_q: running = 0; break;

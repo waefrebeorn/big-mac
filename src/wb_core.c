@@ -189,15 +189,18 @@ static void stage_schedule(wb_engine *e, uint32_t frames) {
         wb_track_runtime *tr = &e->rtracks[t];
         if (!tr->active || !tr->voice || tr->kind != 0) continue;
         wb_track *tk = &e->session->tracks[t];
+        /* G89: swing is read from the SESSION (UI source of truth, R028 rule)
+         * and applied to odd 16th-note onsets in the scheduler. */
+        double sw = e->session->swing;
         if (tr->voice_unit_id && strcmp(tr->voice_unit_id, "fm") == 0)
-            wb_transport_schedule_notes(tk, e->t.song_pos, frames,
-                                        wb_fm_note, tr->voice);
+            wb_transport_schedule_notes_sw(tk, e->t.song_pos, frames,
+                                        wb_fm_note, tr->voice, e->t.bpm, sw);
         else if (tr->voice_unit_id && strcmp(tr->voice_unit_id, "drum") == 0)
-            wb_transport_schedule_notes(tk, e->t.song_pos, frames,
-                                        wb_drum_note, tr->voice);
+            wb_transport_schedule_notes_sw(tk, e->t.song_pos, frames,
+                                        wb_drum_note, tr->voice, e->t.bpm, sw);
         else
-            wb_transport_schedule_notes(tk, e->t.song_pos, frames,
-                                        wb_synth_note, tr->voice);
+            wb_transport_schedule_notes_sw(tk, e->t.song_pos, frames,
+                                        wb_synth_note, tr->voice, e->t.bpm, sw);
         /* R037: launched clip plays from its own looping clock, transport-
          * independent (Ableton session launch). Runs even when stopped. */
         int lc = e->launch_clip[t];
@@ -341,6 +344,36 @@ static void stage_instruments(wb_engine *e, uint32_t frames) {
  * signal. The bus is summed to master in stage_mix. */
 static void stage_bus(wb_engine *e, uint32_t frames) {
     if (!e->session || !e->rtracks) return;
+    /* G30/G74: aux SENDS — sum each track's output * send_level into its
+     * target BUS track. Runs BEFORE the route accumulation and bus insert
+     * chains so return-bus FX process the sent signal. Post-fader (default)
+     * multiplies the fader gain; pre-fader taps the raw post-FX buffer.
+     * Mute/solo read from the SESSION (R028 lesson). */
+    {
+        int any_solo = 0;
+        for (uint32_t t = 0; t < e->session->track_count; t++)
+            if (e->session->tracks[t].solo) any_solo = 1;
+        for (uint32_t t = 0; t < e->session->track_count; t++) {
+            wb_track_runtime *tr = &e->rtracks[t];
+            wb_track *st = &e->session->tracks[t];
+            if (!tr->active || tr->kind == 2) continue;
+            if (st->mute || (any_solo && !st->solo)) continue;
+            for (int si = 0; si < 2; si++) {
+                float lvl = st->send_level[si];
+                int dst = st->send_target[si];
+                if (lvl <= 0.0f) continue;
+                if (dst < 0 || dst >= (int)e->session->track_count || dst == (int)t)
+                    continue;
+                wb_track_runtime *db = &e->rtracks[dst];
+                if (!db->active || db->kind != 2) continue;
+                float fg = st->send_pre[si] ? 1.0f : tr->volume;
+                for (uint32_t i = 0; i < frames; i++) {
+                    db->bufL[i] += tr->bufL[i] * lvl * fg;
+                    db->bufR[i] += tr->bufR[i] * lvl * fg;
+                }
+            }
+        }
+    }
     for (uint32_t t = 0; t < e->session->track_count; t++) {
         wb_track_runtime *tr = &e->rtracks[t];
         if (!tr->active || tr->mute || tr->kind == 2) continue; /* skip buses */
@@ -903,6 +936,22 @@ void wb_engine_set_send_level(wb_engine *e, int src_track, int dst_track, float 
     wb_cmd_push(&e->queue, c);
 }
 
+/* G30/G74: configure a named aux send (slot 0 = A, 1 = B). The send fields
+ * live on the SESSION track and stage_bus reads them directly each block
+ * (same source-of-truth rule as mute/solo), so no cmd-queue round-trip. */
+void wb_engine_set_send(wb_engine *e, int src_track, int slot, int target,
+                        float level, int pre) {
+    if (!e || !e->session) return;
+    if (src_track < 0 || src_track >= (int)e->session->track_count) return;
+    if (slot < 0 || slot > 1) return;
+    wb_track *st = &e->session->tracks[src_track];
+    st->send_target[slot] = target;
+    if (level < 0.0f) level = 0.0f;
+    if (level > 1.0f) level = 1.0f;
+    st->send_level[slot] = level;
+    st->send_pre[slot] = pre ? 1 : 0;
+}
+
 void wb_engine_set_insert_sidechain(wb_engine *e, int track, int slot, int src_track) {
     if (!e || track < 0 || slot < 0 || src_track < -1
         || track >= (int)WB_MAX_TRACKS || slot >= WB_MAX_INSERT_SLOTS
@@ -1047,6 +1096,43 @@ int wb_engine_render_session(wb_engine *e, wb_session *s, wb_sample **out, uint3
         done += n;
     }
     wb_engine_destroy(tmp);
+    *out = buf;
+    *frames = total;
+    return 0;
+}
+
+/* G38 (R072): progress/cancel-aware offline render. Same chunked loop as
+ * wb_engine_render_session, but maps each finished chunk onto [lo,hi] via the
+ * optional callback and polls *cancel between blocks. Returns 1 when
+ * cancelled (caller frees *out), -1 on error, 0 on success. */
+int wb_engine_render_session_prog(wb_engine *e, wb_session *s, wb_sample **out,
+                                  uint32_t *frames,
+                                  void (*cb)(void *, double), void *cbctx,
+                                  double lo, double hi,
+                                  volatile int *cancel) {
+    (void)e;
+    if (!s || s->length <= 0) return -1;
+    wb_engine *tmp = wb_engine_create();
+    wb_engine_set_session(tmp, s);
+    wb_engine_seek(tmp, 0);
+    tmp->t.playing = 1;
+
+    uint32_t total = (uint32_t)s->length;
+    wb_sample *buf = malloc(total * 2 * sizeof(wb_sample));
+    if (!buf) { wb_engine_destroy(tmp); return -1; }
+
+    uint32_t done = 0;
+    int cancelled = 0;
+    while (done < total) {
+        if (cancel && *cancel) { cancelled = 1; break; }
+        uint32_t n = total - done;
+        if (n > WB_MAX_BLOCK) n = WB_MAX_BLOCK;
+        wb_engine_render(tmp, buf + done*2, n);
+        done += n;
+        if (cb) cb(cbctx, lo + (hi - lo) * ((double)done / (double)total));
+    }
+    wb_engine_destroy(tmp);
+    if (cancelled) { free(buf); *out = NULL; return 1; }
     *out = buf;
     *frames = total;
     return 0;

@@ -29,12 +29,13 @@ LIBS     := third_party/SDL2-2.32.10/build/.libs/libSDL2.a \
 
 # Core engine objects
 CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c \
+             src/wb_project.c \
              src/wb_dsp.c src/wb_osc.c src/wb_env.c src/wb_filter.c \
              src/wb_comp.c src/wb_reverb.c src/wb_delay.c src/wb_synth.c \
              src/wb_sampler.c src/wb_wav.c src/wb_backend.c \
              src/wb_tuner.c src/wb_ui_font.c src/wb_midi_coremidi.c src/wb_clap.c \
              src/wb_session_file.c src/wb_unit.c src/wb_fm.c src/wb_drums.c \
-             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c src/wb_voice_polish.c src/wb_voice_isolate.c src/wb_fft.c src/wb_param_track.c src/wb_compositor.c src/wb_transcript.c src/wb_ofx.c src/wb_ofx_plugin_builtin.c src/wb_agent.c src/wb_tts.c src/wb_hpss.c src/wb_workspace.c src/wb_clip_edit.c src/wb_cgi.c src/wb_agi.c src/wb_rast.c src/wb_mesh.c src/wb_anim.c src/wb_mod.c src/wb_gltf.c src/wb_assets.c src/wb_cgiexport.c src/wb_shadowbin.c src/wb_duck.c src/wb_delivery.c src/wb_perf.c src/wb_perfclip.c src/wb_wavcache.c src/wb_import.c src/wb_capture.c src/wb_export_job.c
+             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c src/wb_voice_polish.c src/wb_voice_isolate.c src/wb_fft.c src/wb_param_track.c src/wb_compositor.c src/wb_transcript.c src/wb_ofx.c src/wb_ofx_plugin_builtin.c src/wb_agent.c src/wb_tts.c src/wb_hpss.c src/wb_workspace.c src/wb_clip_edit.c src/wb_cgi.c src/wb_agi.c src/wb_rast.c src/wb_mesh.c src/wb_anim.c src/wb_mod.c src/wb_gltf.c src/wb_assets.c src/wb_cgiexport.c src/wb_shadowbin.c src/wb_duck.c src/wb_delivery.c src/wb_perf.c src/wb_perfclip.c src/wb_wavcache.c src/wb_import.c src/wb_capture.c src/wb_export_job.c src/wb_precision.c
 CXX_SRCS := src/wb_vst3_host.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/module.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/processdata.cpp \

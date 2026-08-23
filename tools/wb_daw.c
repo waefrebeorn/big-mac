@@ -28,6 +28,7 @@
 #include "wbus_captions.h"
 #include "wbus/wbus_transcript.h"
 #include "wbus/wbus_perf.h"
+#include "wbus/wbus_wavcache.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
 
@@ -551,11 +552,41 @@ static void draw_arrangement(app *a) {
                 if (clipbox.w <= 0) continue;
                 SDL_Rect bg = clipbox;
                 setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &bg);
-                /* down-sample the waveform into per-pixel columns */
-                setc(a->ren, C_NOTE2);
+                /* R066: prefer the LOD pyramid cache; fall back to raw
+                 * scan only if the cache failed to build. */
+                static wb_wavcache *wc_cache[512] = {0};
+                uint32_t wc_slot = (uint32_t)(uintptr_t)cl % 512;
+                if (!wc_cache[wc_slot] && cl->audio_frames > 4096) {
+                    /* mono downmix for display (cache is view-only) */
+                    uint32_t chn = cl->audio_channels > 0 ? cl->audio_channels : 1;
+                    wb_sample *mono = malloc(cl->audio_frames * sizeof(wb_sample));
+                    if (mono) {
+                        for (uint32_t sm = 0; sm < cl->audio_frames; sm++)
+                            mono[sm] = cl->audio_data[sm*chn];
+                        wc_cache[wc_slot] = wb_wavcache_build(mono, cl->audio_frames);
+                        free(mono);
+                    }
+                }
+                int used_lod = 0;
+                float *lod_mn = NULL, *lod_mx = NULL;
                 int cols = clipbox.w;
+                if (wc_cache[wc_slot]) {
+                    lod_mn = malloc(cols*sizeof(float));
+                    lod_mx = malloc(cols*sizeof(float));
+                    if (lod_mn && lod_mx &&
+                        wb_wavcache_range(wc_cache[wc_slot], 0,
+                                          cl->audio_frames,
+                                          lod_mn, lod_mx, cols) == cols)
+                        used_lod = 1;
+                }
+                setc(a->ren, C_NOTE2);
                 uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
                 for (int px=0; px<cols; px++) {
+                    float peak = 0;
+                    if (used_lod) {
+                        peak = fabsf(lod_mx[px]) > fabsf(lod_mn[px])
+                             ? fabsf(lod_mx[px]) : fabsf(lod_mn[px]);
+                    } else {
                     /* sample window for this pixel column */
                     double f0 = (double)px / cols;
                     double f1 = (double)(px+1) / cols;
@@ -563,11 +594,11 @@ static void draw_arrangement(app *a) {
                     uint32_t s1 = (uint32_t)(f1 * cl->audio_frames);
                     if (s1 <= s0) s1 = s0 + 1;
                     if (s1 > cl->audio_frames) s1 = cl->audio_frames;
-                    float peak = 0;
                     for (uint32_t sm = s0; sm < s1; sm++) {
                         float v = cl->audio_data[sm*ch];
                         if (v < 0) v = -v;
                         if (v > peak) peak = v;
+                    }
                     }
                     if (peak > 1.0f) peak = 1.0f;
                     /* R042: apply clip (region) gain to the waveform so gain

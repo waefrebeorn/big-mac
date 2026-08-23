@@ -17,6 +17,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <fcntl.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
@@ -297,18 +300,27 @@ void wb_video_blit_scaled(SDL_Renderer *ren, SDL_Texture *tex,
 
 /* ---- video export (R009 §3.4) ----------------------------------------- */
 
-/* Export the session as a 1080p60 mp4 with optional caption burn.
+/* Export the session as a file with optional caption burn.
  * Renders the audio track through our engine, muxes it with the (full-res)
  * video source, and burns SRT captions if requested.
- * audio_wav: pre-rendered audio from our engine.
- * srt_path: optional SRT to burn as subtitles (NULL = no captions). */
-/* R018-A: export with selectable codec (H.264 delivery vs ProRes
- * editorial). ProRes is the professional NLE exchange standard. */
-int wb_video_export_codec(wb_session *s, wb_engine *e,
-                          const char *output_path,
-                          const char *srt_path,
-                          wb_video_codec codec) {
-    if (!s || !e || !output_path) return -1;
+ *
+ * G38/G39/G40 (R072): wb_video_export_full adds
+ *   - RANGE   (range_start/range_dur seconds; start < 0 = whole session),
+ *     applied as accurate OUTPUT-side -ss/-t so video+audio stay in sync;
+ *   - RESOLUTION (res_h: 0/1080 passthrough, 480/720 AR-preserving scale);
+ *   - PROGRESS callback + CANCEL flag polled between chunks; a cancel during
+ *     the ffmpeg stage kills the child with SIGTERM. Returns -2 when
+ *     cancelled, -1 on error, 0 on success. */
+int wb_video_export_full(wb_session *s, wb_engine *e,
+                         const char *output_path,
+                         const char *srt_path,
+                         wb_video_codec codec,
+                         double range_start, double range_dur,
+                         int res_h,
+                         wb_export_prog_fn prog, void *prog_ctx,
+                         volatile int *cancel) {
+    if (!s || !output_path) return -1;
+#define XPROG(p_) do { if (prog) prog(prog_ctx, (p_)); } while (0)
 
     /* Find first video track + first video clip. */
     int vt = -1;
@@ -317,25 +329,34 @@ int wb_video_export_codec(wb_session *s, wb_engine *e,
     }
     if (vt < 0) { fprintf(stderr, "wb_video_export: no video track\n"); return -1; }
 
-    /* Render the audio side of the session through our engine. */
-    const char *audio_wav = "/tmp/bigmac_export_audio.wav";
+    /* Render the audio side of the session through our engine, chunked with
+     * progress mapping + cancel checks between blocks (G38). */
+    char audio_wav[64];   /* per-pid: concurrent exporters must not share the tmp */
+    snprintf(audio_wav, sizeof audio_wav, "/tmp/bigmac_export_audio_%d.wav", (int)getpid());
     wb_sample *audio = NULL;
     uint32_t frames = 0;
-    if (wb_engine_render_session(e, s, &audio, &frames) != 0 || !audio) {
+    XPROG(0.02);
+    int rrc = wb_engine_render_session_prog(e, s, &audio, &frames,
+                                            prog, prog_ctx, 0.05, 0.45, cancel);
+    if (rrc != 0 || !audio) {
+        free(audio);
+        if (rrc == 1 || (cancel && *cancel)) return -2;   /* cancelled */
         fprintf(stderr, "wb_video_export: audio render failed\n");
         return -1;
     }
+    XPROG(0.48);
+    if (cancel && *cancel) { free(audio); return -2; }
     if (wb_wav_write_pcm16(audio_wav, audio, frames, 2, WB_SAMPLE_RATE) != 0) {
         fprintf(stderr, "wb_video_export: audio wav write failed\n");
         free(audio);
         return -1;
     }
     free(audio);
+    XPROG(0.52);
 
     /* R026: export HONORS the edit model — each clip's source window
      * (start_in_source + duration) and timeline order (ripple/roll/slip all
-     * reduce to these). Previously the exporter dumped the whole source file
-     * and ignored every edit op. Now we trim per-clip and concat in order. */
+     * reduce to these). */
     const char *ffmpeg = FFmpeg_BIN;
 
     /* Gather video clips on the track, in timeline order. */
@@ -378,13 +399,22 @@ int wb_video_export_codec(wb_session *s, wb_engine *e,
     /* The mixed audio (already rendered by the engine over the session). */
     off += snprintf(cmd + off, sizeof(cmd) - off, "-i \"%s\" ", audio_wav);
 
+    /* G40: resolution row — scale preserving aspect ratio when res_h is 480
+     * or 720 (1080/0 = native passthrough, as before). */
+    char vfpre[64] = "";
+    if (res_h == 480 || res_h == 720)
+        snprintf(vfpre, sizeof(vfpre), "scale=-2:%d,", res_h);
+
     /* Concat the trimmed video segments in timeline order (SRT overlay if set). */
     if (n == 1) {
         off += snprintf(cmd + off, sizeof(cmd) - off, "-map 0:v -map %d:a ", n);
         if (srt_path)
             off += snprintf(cmd + off, sizeof(cmd) - off,
-                "-vf \"subtitles=%s:force_style='FontSize=28,FontName=Arial,BorderStyle=3,Outline=1,Shadow=0'\" ",
-                srt_path);
+                "-vf \"%ssubtitles=%s:force_style='FontSize=28,FontName=Arial,BorderStyle=3,Outline=1,Shadow=0'\" ",
+                vfpre, srt_path);
+        else if (vfpre[0])
+            off += snprintf(cmd + off, sizeof(cmd) - off,
+                "-vf \"scale=-2:%d\" ", res_h);
     } else {
         char fc[2048]; int fo = 0;
         fo += snprintf(fc + fo, sizeof(fc) - fo, "\"");
@@ -392,23 +422,80 @@ int wb_video_export_codec(wb_session *s, wb_engine *e,
             fo += snprintf(fc + fo, sizeof(fc) - fo, "[%d:v]", i);
         if (srt_path)
             fo += snprintf(fc + fo, sizeof(fc) - fo,
-                "concat=n=%d:v=1[a];[a]subtitles=%s:force_style='FontSize=28,FontName=Arial,BorderStyle=3,Outline=1,Shadow=0'[a]\"",
-                n, srt_path);
+                "concat=n=%d:v=1[a];[a]%ssubtitles=%s:force_style='FontSize=28,FontName=Arial,BorderStyle=3,Outline=1,Shadow=0'[a]\"",
+                n, vfpre, srt_path);
+        else if (vfpre[0])
+            fo += snprintf(fc + fo, sizeof(fc) - fo,
+                "concat=n=%d:v=1[a];[a]%sscale=-2:%d[a]\"", n, "", res_h);
         else
             fo += snprintf(fc + fo, sizeof(fc) - fo, "concat=n=%d:v=1[a]\"", n);
         off += snprintf(cmd + off, sizeof(cmd) - off,
                         "-filter_complex %s -map \"[a]\" -map %d:a ", fc, n);
     }
 
+    /* G39: RANGE — accurate output-side trim of the muxed program. */
+    if (range_start >= 0.0) {
+        if (range_dur > 0)
+            off += snprintf(cmd + off, sizeof(cmd) - off,
+                            "-ss %.4f -t %.4f ", range_start, range_dur);
+        else
+            off += snprintf(cmd + off, sizeof(cmd) - off,
+                            "-ss %.4f ", range_start);
+    }
+
     off += snprintf(cmd + off, sizeof(cmd) - off,
                     "-c:v %s %s%s -r 60 -c:a aac -b:a 192k -shortest \"%s\" >/dev/null 2>&1",
                     venc, vopts, prof, output_path);
 
-    int rc = system(cmd);
-    if (rc != 0) fprintf(stderr, "wb_video_export: ffmpeg failed (exit %d)\n", WEXITSTATUS(rc));
-    return rc == 0 ? 0 : -1;
+    /* G38: run ffmpeg as a real child so we can poll CANCEL and kill it. */
+    if (getenv("WB_EXPORT_DEBUG")) fprintf(stderr, "EXPORT CMD: %s\n", cmd);
+    pid_t pid = fork();
+    if (pid < 0) { fprintf(stderr, "wb_video_export: fork failed\n"); return -1; }
+    if (pid == 0) {
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            dup2(devnull, STDOUT_FILENO); dup2(devnull, STDERR_FILENO);
+            close(devnull);
+        }
+        execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+        _exit(127);
+    }
+    /* Parent: creep progress toward 0.97 while encoding; honor cancel. */
+    double p = 0.55;
+    for (;;) {
+        int st = 0;
+        pid_t w = waitpid(pid, &st, WNOHANG);
+        if (w == pid) {
+            int ok = (WIFEXITED(st) && WEXITSTATUS(st) == 0);
+            XPROG(ok ? 1.0 : 0.0);
+            if (!ok) fprintf(stderr, "wb_video_export: ffmpeg failed (exit %d)\n",
+                             WIFEXITED(st) ? WEXITSTATUS(st) : -1);
+            return ok ? 0 : -1;
+        }
+        if (w < 0) return -1;
+        if (cancel && *cancel) {
+            kill(pid, SIGTERM);
+            waitpid(pid, &st, 0);
+            XPROG(0.0);
+            return -2;
+        }
+        p += (0.97 - p) * 0.02;      /* monotonic creep while encoding */
+        XPROG(p);
+        usleep(20000);               /* 20 ms poll */
+    }
+#undef XPROG
 }
 
+int wb_video_export_codec(wb_session *s, wb_engine *e,
+                          const char *output_path,
+                          const char *srt_path,
+                          wb_video_codec codec) {
+    /* Whole-session export at native resolution, no progress/cancel UI. */
+    return wb_video_export_full(s, e, output_path, srt_path, codec,
+                                -1.0, 0.0, 0, NULL, NULL, NULL);
+}
+
+/* Legacy H.264 wrapper (delegates to wb_video_export_codec). */
 int wb_video_export(wb_session *s, wb_engine *e,
                     const char *output_path,
                     const char *srt_path) {

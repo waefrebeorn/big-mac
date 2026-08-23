@@ -30,6 +30,9 @@
 #include "wbus/wbus_perf.h"
 #include "wbus/wbus_agent.h"
 #include "wbus/wbus_wavcache.h"
+#include "wbus_perfclip.h"
+#include "wbus_cgiexport.h"
+#include "wbus_delivery.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
 
@@ -178,6 +181,8 @@ typedef struct app {
     char vid_source[512];    /* path to source video file */
     char vid_proxy[512];     /* path to 480p proxy */
     char vid_export[512];    /* path for exported output */
+    int  export_codec_h264;  /* EXPORT tab codec toggle: 1=H264, 0=ProRes */
+    char last_status[128];   /* one-line user feedback for the status bar */
     char vid_srt[512];       /* path to SRT captions file */
     int vid_captions_ready;  /* 1 when SRT has been generated */
     wb_captions *vid_caps;   /* R049: persistent captions ctx (word model) */
@@ -465,7 +470,13 @@ static void draw_ruler(app *a) {
     SDL_Rect rr = { GUTTER_W, MAIN_Y, ARRANG_W, RULER_H };
     setc(a->ren, C_PANEL2); SDL_RenderFillRect(a->ren, &rr);
 
-    /* bar numbers (respect zoom/scroll view window) */
+    /* bar numbers (respect zoom/scroll view window).
+     * The loop steps one BEAT per iteration; a bar is time_sig_num beats,
+     * so only label beats that fall on bar boundaries (b % beats_per_bar==0)
+     * and print the BAR number — labeling every beat was numbering the
+     * timeline beats-per-bar times too fast. */
+    int beats_per_bar = (a->session && a->session->time_sig_num > 0)
+                        ? a->session->time_sig_num : 4;
     double bps = a->t.bpm / 60.0;
     double v0 = a->view_start / WB_SAMPLE_RATE;
     double vis = a->visible_secs;
@@ -474,9 +485,13 @@ static void draw_ruler(app *a) {
         double sec = b / bps;
         int x = GUTTER_W + (int)((sec - v0) * (ARRANG_W / vis));
         if (x < GUTTER_W) continue;
-        setc(a->ren, C_GRID); SDL_RenderDrawLine(a->ren, x, MAIN_Y, x, MAIN_Y+RULER_H);
-        char bar[8]; snprintf(bar,sizeof(bar),"%d",b+1);
-        wb_ui_draw_text(a->ren, x+3, MAIN_Y+6, bar, 1, C_TEXT_DIM);
+        int on_bar = (b % beats_per_bar) == 0;
+        setc(a->ren, on_bar ? C_TEXT_DIM : C_GRID);
+        SDL_RenderDrawLine(a->ren, x, MAIN_Y, x, MAIN_Y+RULER_H);
+        if (on_bar) {
+            char bar[8]; snprintf(bar,sizeof(bar),"%d", b / beats_per_bar + 1);
+            wb_ui_draw_text(a->ren, x+3, MAIN_Y+6, bar, 1, C_TEXT_DIM);
+        }
     }
 }
 
@@ -1373,9 +1388,12 @@ static void draw_status(app *a) {
     int tcount = a->session ? (int)a->session->track_count : 0;
     const char *state = a->t.playing ? "PLAYING" : (a->rec_armed ? "ARMED" : "STOPPED");
     snprintf(line, sizeof(line),
-        "VIEW: %s    TRACK: %s (%d/%d)    %s    BPM %.1f    %g Hz    |    click tabs+buttons • SPACE play/stop • R rewind • M/S mute/solo in track list",
-        vname, tkname, tk+1, tcount, state, a->t.bpm, a->t.sample_rate);
-    wb_ui_draw_text(a->ren, 10, y+5, line, 1, C_TEXT_DIM);
+        "VIEW: %s    TRACK: %s (%d/%d)    %s    BPM %.1f    %g Hz    |    %s",
+        vname, tkname, tk+1, tcount, state, a->t.bpm, a->t.sample_rate,
+        a->last_status[0] ? a->last_status
+            : "click tabs+buttons • SPACE play/stop • R rewind • M marker/roll , . ripple-trim");
+    wb_ui_draw_text(a->ren, 10, y+5, line, 1,
+                    a->last_status[0] ? 96 : 165, a->last_status[0] ? 220 : 165, 255);
 }
 
 /* ---- per-view action bar (context buttons, research-backed) -------- */
@@ -1400,6 +1418,16 @@ static void draw_action_bar(app *a) {
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "IMPORT", 0);
         ui_button(a->ren, BTN_ACT1, bx+bw+6,  by, bw, bh, "CAPTIONS", 0);
         ui_button(a->ren, BTN_ACT2, bx+2*(bw+6), by, bw, bh, "EXPORT", 0);
+        if (tab == 5)   /* EDIT: freeze the live perf into the timeline */
+            ui_button(a->ren, BTN_ACT3, bx+3*(bw+6), by, bw, bh, "FREEZE", a->perf_recording);
+        if (tab == 6) { /* CAPTIONS: delivery master (normalize + chapters) */
+            ui_button(a->ren, BTN_ACT3, bx+3*(bw+6), by, bw/2-3, bh, "DELIVER", 0);
+            ui_button(a->ren, BTN_WS4+100, bx+3*(bw+6)+bw/2+3, by, bw/2-3, bh, "CHAP", 0);
+        }
+        if (tab == 7) { /* EXPORT: codec choice + perf passthrough */
+            ui_button(a->ren, BTN_ACT3, bx+3*(bw+6), by, bw, bh,
+                      a->export_codec_h264 ? "H264" : "PRORES", 0);
+        }
     }
 }
 
@@ -1796,6 +1824,7 @@ static void video_tab_enter(app *a) {
     a->vid_tl_start = 0.0; a->vid_tl_end = 0.0; a->vid_dur = 0.0;
     a->vid_source[0] = 0; a->vid_proxy[0] = 0;
     a->vid_export[0] = 0; a->vid_srt[0] = 0; a->vid_captions_ready = 0;
+    a->export_codec_h264 = 1; a->last_status[0] = 0;
     snprintf(a->ffmpeg_path, sizeof(a->ffmpeg_path), "/Users/waefrebeorn/.local/bin/ffmpeg");
     snprintf(a->whisper_cli_path, sizeof(a->whisper_cli_path),
              "/Users/waefrebeorn/whisper.cpp/build/bin/whisper-cli");
@@ -2114,6 +2143,43 @@ static void handle_action(app *a, int act) {
                                          a->vid_captions_ready ? a->vid_srt : NULL);
                 printf("video: export rc=%d\n", rc);
             }
+        } else if (act == 3 && a->tab == 5) {  /* EDIT: FREEZE live perf -> timeline clip */
+            if (!a->perf) { fprintf(stderr, "perf: no engine\n"); return; }
+            int ti = -1;
+            for (uint32_t t = 0; t < a->session->track_count; t++)
+                if (a->session->tracks[t].kind == WB_TRACK_KIND_VIDEO) { ti = (int)t; break; }
+            if (ti < 0) { fprintf(stderr, "freeze: no video track\n"); return; }
+            double dur = a->t.song_pos / WB_SAMPLE_RATE;
+            if (dur <= 0.0) dur = 4.0;
+            if (a->perf_recording) { wb_perf_record_stop(a->perf); a->perf_recording = 0; }
+            wb_perf_set_clock(a->perf, 0);
+            wb_perfclip *pc = wb_perfclip_snapshot(a->session, a->perf, 0, dur);
+            if (!pc) { fprintf(stderr, "freeze: snapshot failed\n"); return; }
+            int ci = wb_session_add_perf_clip(a->session, ti, pc,
+                                              0.0, dur);
+            if (ci >= 0) {
+                snprintf(a->last_status, sizeof(a->last_status),
+                         "PERF FROZEN: track %d clip %d (%.1fs)", ti, ci, dur);
+                printf("freeze: perf -> track %d clip %d @0 (%.1fs)\n", ti, ci, dur);
+            } else {
+                fprintf(stderr, "freeze: add_perf_clip failed\n");
+            }
+        } else if (act == 3 && a->tab == 6) {  /* CAPTIONS: DELIVER = normalized master */
+            if (!a->vid_has_clip) return;
+            char out[512];
+            snprintf(out, sizeof(out), "/tmp/bigmac_master_%d.mov", (int)getpid());
+            int rc = wb_video_export_delivery(a->session, a->engine, out,
+                                              a->vid_captions_ready ? a->vid_srt : NULL,
+                                              WB_VIDEO_CODEC_PRORES, NULL, -14.0);
+            if (rc == 0)
+                snprintf(a->last_status, sizeof(a->last_status),
+                         "DELIVERED: %.80s (-14 LUFS)", out);
+            else
+                snprintf(a->last_status, sizeof(a->last_status),
+                         "DELIVER FAILED rc=%d", rc);
+            printf("delivery: %s rc=%d\n", out, rc);
+        } else if (act == 3 && a->tab == 7) {  /* EXPORT: codec toggle H264 <-> ProRes */
+            a->export_codec_h264 = !a->export_codec_h264;
         }
     }
 }
@@ -2259,6 +2325,20 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                 }
                 case BTN_ACT0: case BTN_ACT1: case BTN_ACT2: case BTN_ACT3:
                     handle_action(a, id - BTN_ACT0); break;
+                case BTN_WS4+100: {  /* CAPTIONS tab: CHAP — chapters from markers */
+                    if (a->session && a->session->marker_count >= 2) {
+                        char buf[4096];
+                        if (wb_delivery_chapters(a->session, buf, sizeof(buf)) == 0) {
+                            snprintf(a->last_status, sizeof(a->last_status),
+                                     "CHAPTERS: %.40s...", buf);
+                            printf("chapters:\n%s\n", buf);
+                        }
+                    } else {
+                        snprintf(a->last_status, sizeof(a->last_status),
+                                 "CHAPTERS: need >= 2 markers");
+                    }
+                    break;
+                }
                 case BTN_OVERVIEW:   /* R040: begin scroll-drag on the overview strip */
                     a->ov_drag = 1;
                     ov_scroll_to(a, b.x);
@@ -2879,13 +2959,65 @@ static void handle_key(app *a, SDL_Keycode k) {
                    a->session->tracks[a->vid_track].clips[a->vid_clip].video->start_in_source);
         }
         break;
-    case SDLK_m:  /* R025: roll cut +0.5s (Shift = -0.5s) in EDIT tab */
+    case SDLK_m:  /* roll cut +0.5s (Shift = -0.5s) in EDIT tab; ARRANGE tab: tap marker */
+        if (a->tab == 0 && a->session) {
+            wb_session_add_marker(a->session, a->t.song_pos, "M", 0);
+            snprintf(a->last_status, sizeof(a->last_status), "MARKER @ %.2fs",
+                     a->t.song_pos / WB_SAMPLE_RATE);
+            printf("arrange: tap-marker at %.2fs\n", a->t.song_pos / WB_SAMPLE_RATE);
+            break;
+        }
         if (a->tab == 5 && a->vid_has_clip && a->session) {
             double d = (mod & KMOD_SHIFT) ? -0.5 : 0.5;
             int r = wb_session_roll_video_clip(a->session, a->vid_track, a->vid_clip, d);
             printf("video: roll %+.1fs -> rc=%d\n", d, r);
         }
         break;
+    case SDLK_COMMA: {  /* ripple-trim clip start to playhead (EDIT tab) —
+                         * trims the head AND shifts this + later clips back so
+                         * no gap opens (Sony Vegas "ripple trim in"). */
+        if (a->tab == 5 && a->vid_has_clip && a->session) {
+            double ph = a->t.song_pos / WB_SAMPLE_RATE;
+            wb_track *tr = &a->session->tracks[a->vid_track];
+            wb_clip *cl = &tr->clips[a->vid_clip];
+            double cs, ce;   /* video clips: seconds */
+            cs = cl->start; ce = cl->start + cl->length;
+            if (ph > cs && ph < ce) {
+                double delta = ph - cs;
+                cl->start = ph;
+                cl->length -= delta;
+                /* ripple: pull later clips on this track left by delta */
+                for (uint32_t c = a->vid_clip + 1; c < tr->clip_count; c++)
+                    tr->clips[c].start -= delta;
+                if (a->session->length > 0)
+                    a->session->length -= delta * WB_SAMPLE_RATE;
+                snprintf(a->last_status, sizeof(a->last_status),
+                         "RIPPLE IN: -%.2fs", delta);
+                printf("video: ripple trim-in %.2fs -> rc=0\n", delta);
+            }
+        }
+        break;
+    }
+    case SDLK_PERIOD: {  /* ripple-trim clip end to playhead (EDIT tab) */
+        if (a->tab == 5 && a->vid_has_clip && a->session) {
+            double ph = a->t.song_pos / WB_SAMPLE_RATE;
+            wb_track *tr = &a->session->tracks[a->vid_track];
+            wb_clip *cl = &tr->clips[a->vid_clip];
+            double cs = cl->start, ce = cl->start + cl->length;
+            if (ph > cs && ph < ce) {
+                double cut = ce - ph;
+                cl->length -= cut;
+                for (uint32_t c = a->vid_clip + 1; c < tr->clip_count; c++)
+                    tr->clips[c].start -= cut;
+                if (a->session->length > 0)
+                    a->session->length -= cut * WB_SAMPLE_RATE;
+                snprintf(a->last_status, sizeof(a->last_status),
+                         "RIPPLE OUT: -%.2fs", cut);
+                printf("video: ripple trim-out %.2fs -> rc=0\n", cut);
+            }
+        }
+        break;
+    }
     case SDLK_DELETE:
     case SDLK_BACKSPACE:
         if (a->tab == 6 && a->vid_tr && a->session && a->vid_has_clip &&

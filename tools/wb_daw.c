@@ -456,6 +456,11 @@ static void draw_transport(app *a) {
     ui_button(a->ren, BTN_RECORD, 110, by, 26, bh, "REC", a->rec_armed);
     ui_button(a->ren, BTN_LOOP,   142, by, 26, bh, "LOOP", a->loop_on);
     ui_button(a->ren, BTN_SAVE,   174, by, 30, bh, "SAVE", 0);
+    /* Wave1 G08: undo/redo — lit when history is available in that direction */
+    ui_button(a->ren, BTN_UNDO, 208, by, 34, bh, "UNDO",
+              a->undo ? (wb_undo_depth(a->undo) > 0) : 0);
+    ui_button(a->ren, BTN_REDO, 246, by, 34, bh, "REDO",
+              a->undo ? (wb_undo_redo_depth(a->undo) > 0) : 0);
 
     /* time readout m:ss.cs (clear of the button row) */
     double sec = a->t.song_pos / WB_SAMPLE_RATE;
@@ -2222,23 +2227,59 @@ static void handle_action(app *a, int act) {
     if (tab == 0) {  /* ARRANGE */
         if (act == 0) {  /* + TRACK */
             int ni = (int)a->session->track_count;
+            daw_checkpoint(a);   /* Wave1 G08: snapshot pre-edit */
             wb_session_add_track(a->session, "Track", 0);
             a->selected_track = ni;
             wb_engine_set_session(a->engine, a->session);
             printf("arrange: +track -> %d tracks\n", a->session->track_count);
         } else if (act == 1) {  /* MARKER at playhead */
+            daw_checkpoint(a);   /* Wave1 G08 */
             wb_session_add_marker(a->session, a->t.song_pos, "M", 0);
             printf("arrange: marker at %.2fs\n", a->t.song_pos / WB_SAMPLE_RATE);
         } else if (act == 2) {  /* COMP selected marquee to lane 0 */
-            if (a->selected_track >= 0 && a->sel_t1 > a->sel_t0)
+            if (a->selected_track >= 0 && a->sel_t1 > a->sel_t0) {
+                daw_checkpoint(a);   /* Wave1 G08 */
                 wb_session_comp_region(a->session, a->selected_track,
                                        a->sel_lane, a->sel_t0, a->sel_t1);
+            }
             printf("arrange: comp selection -> lane 0\n");
         }
-    } else if (tab == 1 || tab == 3) {  /* PAD / SESSION: STOP ALL launches */
-        for (uint32_t t = 0; t < a->session->track_count; t++)
-            wb_engine_stop_launch(a->engine, (int)t);
-        printf("launch: STOP ALL\n");
+    } else if (tab == 1) {  /* PAD */
+        if (act == 0) {   /* STOP ALL launches */
+            for (uint32_t t = 0; t < a->session->track_count; t++)
+                wb_engine_stop_launch(a->engine, (int)t);
+            printf("launch: STOP ALL\n");
+        } else if (act == 1) {  /* G93 CAPTURE */
+            daw_capture(a);
+        }
+    } else if (tab == 3) {  /* SESSION */
+        if (act == 0) {   /* STOP ALL launches */
+            for (uint32_t t = 0; t < a->session->track_count; t++)
+                wb_engine_stop_launch(a->engine, (int)t);
+            /* G94: stopping the launcher while REC ARR closes the recording */
+            if (a->launchrec_armed) {
+                wb_launchrec_finish(a->lrec, a->t.song_pos);
+                int placed = wb_launchrec_commit(a->lrec, a->session);
+                snprintf(a->last_status, sizeof a->last_status,
+                         "ARR RECORDING COMMITTED (%d clips)", placed);
+                printf("session-rec: committed %d clips\n", placed);
+                a->launchrec_armed = 0;
+            }
+        } else if (act == 1) {  /* G94 REC ARR toggle */
+            if (!a->launchrec_armed) {
+                wb_launchrec_start(a->lrec, a->session);
+                a->launchrec_armed = 1;
+                snprintf(a->last_status, sizeof a->last_status,
+                         "REC ARR ARMED - launch clips now");
+            } else {
+                wb_launchrec_finish(a->lrec, a->t.song_pos);
+                int placed = wb_launchrec_commit(a->lrec, a->session);
+                snprintf(a->last_status, sizeof a->last_status,
+                         "ARR RECORDING COMMITTED (%d clips)", placed);
+                a->launchrec_armed = 0;
+            }
+            printf("session-rec: %s\n", a->launchrec_armed ? "armed" : "disarmed+commit");
+        }
     } else if (tab == 2) {  /* STEP */
         if (act == 0) {  /* CLEAR pattern on selected track */
             int ti = a->selected_track;
@@ -2246,12 +2287,13 @@ static void handle_action(app *a, int act) {
             printf("step: cleared pattern (track %d)\n", ti);
         } else if (act == 1) {  /* COMMIT to clip */
             step_commit_to_clip(a);
+        } else if (act == 2) {  /* G93 CAPTURE */
         }
     } else {  /* video tabs 4..7 */
         if (act == 0) {  /* IMPORT demo */
             const char *dv = "/Users/waefrebeorn/Documents/big-mac/test_media/demo.mp4";
             if (access(dv, F_OK) != 0) dv = "/Users/waefrebeorn/Videos/demo.mp4";
-            if (access(dv, F_OK) == 0) video_import(a, dv);
+            if (access(dv, F_OK) == 0) { daw_checkpoint(a); video_import(a, dv); }
             else printf("video: no demo .mp4 found\n");
         } else if (act == 1) {  /* CAPTIONS */
             if (a->vid_has_clip && a->whisper_cli_path[0] && a->whisper_model_path[0]) {
@@ -3291,6 +3333,7 @@ int main(int argc, char **argv) {
     a->agi = wb_agi_create();                        /* R043-G7: AGI task bridge */
     extern app *g_app_for_perf; g_app_for_perf = a;   /* R065 */
     a->perf = wb_perf_create(640, 360);              /* R065: performance decks */
+    a->undo = wb_undo_create();                      /* Wave1 G08: undo/redo history */
     {
         /* demo decks: a red slab + a blue sphere so the PERFORMANCE
          * grid has content out of the box */
@@ -3532,6 +3575,7 @@ cleanup:
     if (a->comp_graph) wb_node_graph_destroy(a->comp_graph);  /* R043-G6 */
     wb_cgi_scene_destroy(a->cgi);
     wb_agi_destroy(a->agi);
+    if (a->undo) wb_undo_destroy(a->undo);   /* Wave1 G08 */
     wb_engine_destroy(a->engine); wb_session_destroy(a->session);
     free(a); SDL_Quit();
     return 0;

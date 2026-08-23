@@ -215,7 +215,29 @@ typedef struct app {
      * DAW just queries which tier is active to route audio vs video work.
      * The current tier drives which top tab band is shown. */
     wb_workspace *ws;
+
+    /* Wave1 G01/G02: in-GUI media browser state */
+    int  browser_open;                       /* 1 while the browser overlay shows */
+    int  browser_scroll;                     /* first visible row */
+    int  browser_count;                      /* entries in browser_paths */
+    char browser_paths[128][WB_IMPORT_PATH_MAX];
+
+    /* Wave1 G08: undo/redo history (session snapshots) */
+    wb_undo *undo;
+
+    /* Wave1 lane C: G38 render queue / G39 range / G40 resolution,
+     * G93 capture log, G94 session-record-to-arrangement */
+    wb_caplog    *caplog;            /* rolling log of played notes */
+    double        capture_window;    /* CAPTURE keeps the last N seconds */
+    wb_launchrec *lrec;              /* launcher state recorder */
+    int           launchrec_armed;   /* REC ARR toggle on SESSION tab */
+    wb_export_job ejob;              /* one-slot background export queue */
+    int  export_range_mode;          /* 0 = WHOLE, 1 = IN..playhead */
+    int  export_res_h;               /* 0/1080 native, 480, 720 */
 } app;
+
+/* forward decl: logging note wrapper used by the MIDI thread too */
+static void daw_note(app *a, int track, uint8_t pitch, uint8_t vel);
 
 static int running = 1;
 
@@ -263,14 +285,20 @@ enum {
     BTN_ACT0, BTN_ACT1, BTN_ACT2, BTN_ACT3,   /* per-view action buttons */
     BTN_OVERVIEW,                             /* arrangement overview strip (scroll/zoom) */
     BTN_WS0, BTN_WS1, BTN_WS2, BTN_WS3, BTN_WS4,  /* R043: workspace tier ribbon AUDIO/VIDEO/FUSION/3D-CGI/AGI */
+    BTN_UNDO, BTN_REDO,                       /* Wave1 G08: transport undo/redo */
+    BTN_BROWSE, BTN_BROWSER_CANCEL,           /* Wave1 G01: media browser */
+    BTN_SWING_M, BTN_SWING_P,                 /* Wave1 G89: swing -/+ */
     BTN_COUNT
 };
+/* ids 90000+i are the media-browser file rows (Wave1 G01) */
+#define BTN_BROWSER_ROW0 90000
 typedef struct { int id; SDL_Rect r; } click_region;
-static click_region g_regions[BTN_COUNT];
+#define REGION_MAX 8192   /* browser rows + all buttons + mixer send ids */
+static click_region g_regions[REGION_MAX];
 static int g_nregions = 0;
 static void region_reset(void) { g_nregions = 0; }
 static void region_add(int id, int x, int y, int w, int h) {
-    if (g_nregions >= BTN_COUNT) return;
+    if (g_nregions >= REGION_MAX) return;
     g_regions[g_nregions].id = id;
     g_regions[g_nregions].r = (SDL_Rect){x, y, w, h};
     g_nregions++;
@@ -1320,10 +1348,13 @@ static void draw_video_tab_panel(app *a);
 
 /* R038: forward decls for the redesigned shell (defined later) */
 static void draw_toolbar(app *a);
+static int video_import(app *a, const char *path);   /* Wave1 G02 (lane A) */
 static void draw_action_bar(app *a);
 static void draw_status(app *a);
 static void draw_overview(app *a);
 static void handle_action(app *a, int act);
+static int  video_import(app *a, const char *path);   /* Wave1 G01: fwd decl */
+static void draw_browser(app *a);                     /* Wave1 G01 */
 
 static void render(app *a) {
     region_reset();
@@ -1360,6 +1391,7 @@ static void render(app *a) {
     draw_action_bar(a);
     draw_status(a);
     draw_workspace_ribbon(a);   /* R043: bottom Fusion-style tier ribbon */
+    if (a->browser_open) draw_browser(a);   /* Wave1 G01: modal on top */
     SDL_RenderPresent(a->ren);
 }
 
@@ -1430,8 +1462,106 @@ static void draw_action_bar(app *a) {
         if (tab == 7) { /* EXPORT: codec choice + perf passthrough */
             ui_button(a->ren, BTN_ACT3, bx+3*(bw+6), by, bw, bh,
                       a->export_codec_h264 ? "H264" : "PRORES", 0);
+            /* G39/G40: range + resolution row */
+            int ex = bx+4*(bw+6);
+            int sw = 64;
+            ui_button(a->ren, 9001, ex, by, sw, bh,
+                      a->export_range_mode ? "IN-OUT" : "WHOLE",
+                      a->export_range_mode);
+            ui_button(a->ren, 9002, ex+(sw+4),    by, sw, bh, "480p", a->export_res_h==480);
+            ui_button(a->ren, 9003, ex+2*(sw+4),  by, sw, bh, "720p", a->export_res_h==720);
+            ui_button(a->ren, 9004, ex+3*(sw+4),  by, sw, bh, "1080p", a->export_res_h==0);
+            if (wb_export_job_running(&a->ejob))
+                ui_button(a->ren, 9005, ex+4*(sw+4), by, sw, bh, "CANCEL", 1);
         }
+        if (tab == 4)   /* Wave1 G01: open the in-GUI media browser */
+            ui_button(a->ren, BTN_BROWSE, bx+3*(bw+6), by, bw, bh, "BROWSE", a->browser_open);
     }
+}
+
+/* ---- Wave1 G01/G02: in-GUI media browser + audio import ------------------ */
+
+/* G08 helper: snapshot the session BEFORE a mutation so UNDO can restore it. */
+static void daw_checkpoint(app *a) {
+    if (a->undo && a->session) wb_undo_checkpoint(a->undo, a->session);
+}
+
+/* Enumerate media files from the standard user folders into the browser list. */
+static void browser_scan(app *a) {
+    static const char *dirs[] = {
+        "/Users/waefrebeorn/Movies", "/Users/waefrebeorn/Music",
+        "/Users/waefrebeorn/Desktop", "/Users/waefrebeorn/Documents",
+    };
+    a->browser_count = 0;
+    for (size_t d = 0; d < sizeof(dirs)/sizeof(dirs[0]); d++) {
+        int n = wb_import_scan_dir(dirs[d],
+                &a->browser_paths[a->browser_count],
+                128 - a->browser_count);
+        if (n > 0) a->browser_count += n;
+        if (a->browser_count >= 128) { a->browser_count = 128; break; }
+    }
+    a->browser_scroll = 0;
+}
+
+/* Import one browsed/picked file: video via the existing proxy path,
+ * everything else through the G02 audio-import path at the playhead. */
+static void browser_import(app *a, const char *path) {
+    if (!path || !path[0]) return;
+    size_t pl = strlen(path);
+    int is_video = (pl > 4 && (!strcasecmp(path+pl-4, ".mp4") ||
+                               !strcasecmp(path+pl-4, ".mov")));
+    daw_checkpoint(a);
+    if (is_video) {
+        if (video_import(a, path) == 0)
+            snprintf(a->last_status, sizeof(a->last_status), "IMPORTED VIDEO %.32s", path);
+        return;
+    }
+    if (!a->session) { a->session = wb_session_create(); wb_engine_set_session(a->engine, a->session); }
+    double pos = a->t.song_pos / WB_SAMPLE_RATE;
+    char err[128] = {0};
+    if (wb_import_audio_file(a->session, path, pos, err, sizeof(err)) == 0) {
+        wb_engine_set_session(a->engine, a->session);
+        snprintf(a->last_status, sizeof(a->last_status),
+                 "IMPORTED AUDIO -> track %d @ %.1fs", wb_import_last_track(), pos);
+        printf("import: %s -> track %d @ %.2fs\n", path, wb_import_last_track(), pos);
+    } else {
+        snprintf(a->last_status, sizeof(a->last_status), "IMPORT FAILED: %s", err);
+        fprintf(stderr, "import: %s\n", err);
+    }
+}
+
+/* Modal-ish overlay list of scanned media files; click row = import. */
+static void draw_browser(app *a) {
+    /* dim backdrop */
+    SDL_Rect full = { 0, 0, WIN_W, WIN_H };
+    setc(a->ren, 10, 10, 12); SDL_RenderFillRect(a->ren, &full);
+    int bw2 = 720, bh2 = 520;
+    int bx = (WIN_W - bw2) / 2, by = (WIN_H - bh2) / 2;
+    SDL_Rect panel = { bx, by, bw2, bh2 };
+    setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &panel);
+    setc(a->ren, C_ACCENT);
+    SDL_Rect title = { bx, by, bw2, 26 };
+    SDL_RenderFillRect(a->ren, &title);
+    setc(a->ren, C_BG);
+    wb_ui_draw_text(a->ren, bx + 8, by + 6, "MEDIA BROWSER — click a file to import", 1, C_BG);
+
+    const int row_h = 24, top = by + 34, visible = (bh2 - 80) / row_h;
+    if (a->browser_count == 0) {
+        setc(a->ren, C_TEXT_DIM);
+        wb_ui_draw_text(a->ren, bx + 12, top + 8,
+                        "No media found in ~/Movies ~/Music ~/Desktop ~/Documents", 1, C_TEXT_DIM);
+    }
+    for (int i = 0; i < visible; i++) {
+        int idx = a->browser_scroll + i;
+        if (idx >= a->browser_count) break;
+        ui_button(a->ren, BTN_BROWSER_ROW0 + idx, bx + 10, top + i * row_h,
+                  bw2 - 20, row_h - 3, a->browser_paths[idx], 0);
+    }
+    char cnt[64];
+    snprintf(cnt, sizeof(cnt), "%d files — ESC closes, wheel scrolls", a->browser_count);
+    setc(a->ren, C_TEXT_DIM);
+    wb_ui_draw_text(a->ren, bx + 10, by + bh2 - 30, cnt, 1, C_TEXT_DIM);
+    ui_button(a->ren, BTN_BROWSER_CANCEL, bx + bw2 - 90, by + bh2 - 34, 80, 26, "CANCEL", 0);
 }
 
 /* ---- R040: Arrangement Overview minimap (Ableton-style bird's-eye) --- */
@@ -2222,6 +2352,10 @@ static void perf_tick(app *a) {
      * captured events land on musical time. */
     if (a->perf && a->perf_recording && a->t.playing)
         wb_perf_set_clock(a->perf, a->t.song_pos / WB_SAMPLE_RATE);
+    /* G94: while REC ARR is armed, poll the session launcher each frame so
+     * launch/stop transitions become recorded spans. */
+    if (a->lrec && a->launchrec_armed && a->session)
+        wb_launchrec_poll(a->lrec, a->session, a->t.song_pos);
     /* R043-G7: live ticks for the upper-tier views (CGI rotation + AGI pipeline) */
     if (a->cgi && wb_workspace_cgi_active(a->ws)) wb_cgi_scene_tick(a->cgi, 1.0/60.0);
     if (a->agi && wb_workspace_agi_active(a->ws)) wb_agi_tick(a->agi, 1.0/60.0);
@@ -2346,8 +2480,52 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                     a->ov_drag = 1;
                     ov_scroll_to(a, b.x);
                     break;
+                case BTN_UNDO: {     /* Wave1 G08 */
+                    if (a->undo && wb_undo_undo(a->undo, &a->session) == 1) {
+                        wb_engine_set_session(a->engine, a->session);
+                        snprintf(a->last_status, sizeof(a->last_status), "UNDO");
+                        printf("undo: restored (depth %d)\n", wb_undo_depth(a->undo));
+                    } else snprintf(a->last_status, sizeof(a->last_status), "nothing to undo");
+                    break;
+                }
+                case BTN_REDO: {     /* Wave1 G08 */
+                    if (a->undo && wb_undo_redo(a->undo, &a->session) == 1) {
+                        wb_engine_set_session(a->engine, a->session);
+                        snprintf(a->last_status, sizeof(a->last_status), "REDO");
+                        printf("redo: re-applied (depth %d)\n", wb_undo_redo_depth(a->undo));
+                    } else snprintf(a->last_status, sizeof(a->last_status), "nothing to redo");
+                    break;
+                }
+                case BTN_BROWSE:     /* Wave1 G01: open/close the media browser */
+                    browser_scan(a);
+                    a->browser_open = 1;
+                    break;
+                case BTN_BROWSER_CANCEL:
+                    a->browser_open = 0;
+                    break;
+                case BTN_SWING_M:   /* G89: swing -5% of a 16th, clamp 0..0.6 */
+                    if (a->session) {
+                        a->session->swing -= 0.05;
+                        if (a->session->swing < 0.0) a->session->swing = 0.0;
+                    }
+                    break;
+                case BTN_SWING_P:
+                    if (a->session) {
+                        a->session->swing += 0.05;
+                        if (a->session->swing > 0.6) a->session->swing = 0.6;
+                    }
+                    break;
                 default:
-                    if (id >= 1000 && id < 2000) {  /* per-track Mute in gutter */
+                    if (id >= BTN_BROWSER_ROW0 && id < BTN_BROWSER_ROW0 + 128) {
+                        /* Wave1 G01: click a browser row -> import that file */
+                        int idx = id - BTN_BROWSER_ROW0;
+                        if (idx < a->browser_count) {
+                            char p[WB_IMPORT_PATH_MAX];
+                            snprintf(p, sizeof(p), "%s", a->browser_paths[idx]);
+                            a->browser_open = 0;
+                            browser_import(a, p);
+                        }
+                    } else if (id >= 1000 && id < 2000) {  /* per-track Mute in gutter */
                         int ti = id - 1000;
                         if (ti < (int)a->session->track_count) {
                             a->session->tracks[ti].mute = !a->session->tracks[ti].mute;

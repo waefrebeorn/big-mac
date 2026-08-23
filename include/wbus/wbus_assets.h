@@ -41,6 +41,10 @@ const char *wb_assets_model_name(const wb_assets *a, int kit, int model);
  * CALLER must not free (cache-owned). Returns NULL on miss/parse error. */
 wb_mesh *wb_assets_load(wb_assets *a, const char *kit, const char *model);
 
+/* Detach a previously loaded mesh from the cache — ownership transfers to
+ * the caller (it will NOT be freed on close). Returns the same pointer. */
+wb_mesh *wb_assets_release(wb_assets *a, wb_mesh *m);
+
 /* Total indexed models across all kits. */
 int  wb_assets_total(const wb_assets *a);
 

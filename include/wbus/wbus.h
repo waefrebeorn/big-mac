@@ -348,7 +348,7 @@ int  wb_video_export_codec(wb_session *s, wb_engine *e,
 
 /* Write 16-bit PCM WAV from interleaved stereo samples (export utility). */
 int  wb_wav_write_pcm16(const char *path, const wb_sample *data, uint32_t frames,
-                        uint32_t channels, uint32_t sample_rate);
+                        uint8_t channels, uint32_t sample_rate);
 
 /* Legacy H.264 wrapper (delegates to wb_video_export_codec). */
 int  wb_video_export(wb_session *s, wb_engine *e,

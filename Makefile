@@ -282,6 +282,12 @@ build/wb_test_assets: build/tools/test_assets.o build/src/wb_assets.o build/src/
 test_assets: build/wb_test_assets
 	./build/wb_test_assets
 
+build/wb_test_agent_cgi: build/tools/test_agent_cgi.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_agent_cgi: build/wb_test_agent_cgi
+	./build/wb_test_agent_cgi
+
 build/wb_test_cgiexport: build/tools/test_cgiexport.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 

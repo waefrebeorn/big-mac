@@ -6,6 +6,10 @@
 #include "wbus/wbus_compositor.h"
 #include "wbus/wbus_voice_polish.h"
 #include "wbus/wbus_captions.h"
+#include "wbus/wbus_mesh.h"
+#include "wbus/wbus_anim.h"
+#include "wbus/wbus_assets.h"
+#include "wbus/wbus_cgiexport.h"
 #include "wb_internal.h"   /* wb_wav_read/write_pcm16 (internal) */
 #include <stdlib.h>
 #include <string.h>
@@ -55,6 +59,98 @@ static int do_import(wb_session *s, const char *src) {
     return clip >= 0 ? 0 : -1;
 }
 
+/* ---- R059: CGI command state (one live scene per agent session) -------- */
+static wb_anim    *g_cgi = NULL;
+static int         g_next_obj = 0;
+
+static void cgi_ensure(void) {
+    if (!g_cgi) {
+        g_cgi = wb_anim_create(640, 360);
+        g_next_obj = 0;
+    }
+}
+
+static int cgi_command(wb_session *s, wb_engine *e,
+                       const char *cmd, const char *rest) {
+    (void)s;
+    if (strcmp(cmd, "cgi-box") == 0 || strcmp(cmd, "cgi-sphere") == 0 ||
+        strcmp(cmd, "cgi-cylinder") == 0 || strcmp(cmd, "cgi-cone") == 0) {
+        cgi_ensure();
+        if (!g_cgi) return -1;
+        float x=0,y=0,z=0,size=1;
+        int r=200,g=200,b=200;
+        sscanf(rest, "%f %f %f %f %d %d %d", &x,&y,&z,&size,&r,&g,&b);
+        wb_mesh *m = NULL;
+        if      (strcmp(cmd,"cgi-box") == 0)
+            m = wb_mesh_box(size,size,size,(uint8_t)r,(uint8_t)g,(uint8_t)b);
+        else if (strcmp(cmd,"cgi-sphere") == 0)
+            m = wb_mesh_sphere(size,10,14,(uint8_t)r,(uint8_t)g,(uint8_t)b);
+        else if (strcmp(cmd,"cgi-cylinder") == 0)
+            m = wb_mesh_cylinder(size,size*2,12,(uint8_t)r,(uint8_t)g,(uint8_t)b);
+        else if (strcmp(cmd,"cgi-cone") == 0)
+            m = wb_mesh_cone(size,size*2,12,(uint8_t)r,(uint8_t)g,(uint8_t)b);
+        if (!m) return -1;
+        wb_anim_add_object(g_cgi, m, (uint8_t)r,(uint8_t)g,(uint8_t)b);
+        /* static key at t=0 so it's on stage; caller keys motion after */
+        wb_anim_key(g_cgi, g_next_obj, 0.0, x,y,z, 0,0,0, 1);
+        printf("cgi: added obj %d (%s)\n", g_next_obj, cmd);
+        return g_next_obj++;
+    }
+    if (strcmp(cmd, "cgi-key") == 0) {
+        if (!g_cgi) return -1;
+        int obj = atoi(tok((char**)&rest));
+        double t = atof(tok((char**)&rest));
+        float px=atof(tok((char**)&rest)), py=atof(tok((char**)&rest)),
+              pz=atof(tok((char**)&rest)), sc=atof(tok((char**)&rest));
+        int ease = 0;
+        const char *e_tok = tok((char**)&rest);
+        if (e_tok && e_tok[0]) ease = atoi(e_tok);
+        if (sc <= 0) sc = 1;
+        return wb_anim_key_ease(g_cgi, obj, t, px,py,pz, 0,0,0, sc, ease);
+    }
+    if (strcmp(cmd, "cgi-asset") == 0) {
+        /* cgi-asset <kit> <model> <x> <y> <z> : stamp a library GLB */
+        cgi_ensure();
+        if (!g_cgi) return -1;
+        wb_assets *lib = wb_assets_open_default();
+        if (!lib) { fprintf(stderr, "cgi: no asset library\n"); return -1; }
+        char kit[128], model[128];
+        sscanf(rest, "%127s %127s", kit, model);
+        wb_mesh *m = wb_assets_load(lib, kit, model);
+        if (!m) { wb_assets_close(lib); return -1; }
+        m = wb_assets_release(lib, m);   /* own it: lib closes below */
+        wb_assets_close(lib);
+        int idx = wb_anim_add_object(g_cgi, m, 200,200,200);
+        float x=0,y=0,z=0;
+        sscanf(rest, "%*s %*s %f %f %f", &x,&y,&z);
+        wb_anim_key(g_cgi, idx, 0.0, x,y,z, 0,0,0, 1);
+        return idx;
+    }
+    if (strcmp(cmd, "cgi-list") == 0) {
+        wb_assets *lib = wb_assets_open_default();
+        if (!lib) { printf("cgi: no asset library\n"); return 0; }
+        for (int k = 0; k < wb_assets_kit_count(lib); k++) {
+            printf("kit %s:\n", wb_assets_kit_name(lib,k));
+            for (int mm = 0; mm < wb_assets_model_count(lib,k); mm++)
+                printf("  %s\n", wb_assets_model_name(lib,k,mm));
+        }
+        wb_assets_close(lib);
+        return 0;
+    }
+    if (strcmp(cmd, "cgi-render") == 0) {
+        /* cgi-render <out.mp4> <start> <dur> */
+        if (!g_cgi) { fprintf(stderr, "cgi: empty scene\n"); return -1; }
+        char out[1024];
+        double start = 0, dur = 2.0;
+        sscanf(rest, "%1023s %lf %lf", out, &start, &dur);
+        wb_cgi_overlay ov = { .anim = g_cgi, .t_start = start, .duration = dur };
+        int rc = wb_video_export_cgi(s, e, out, NULL, WB_VIDEO_CODEC_H264, &ov);
+        printf("cgi: render rc=%d -> %s\n", rc, out);
+        return rc;
+    }
+    return -2;   /* not a cgi command */
+}
+
 int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
     char buf[2048];
     strncpy(buf, line, sizeof(buf) - 1);
@@ -89,6 +185,18 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         char *srt = tok(&p);
         if (!srt || *srt == '\0') srt = NULL;
         return wb_video_export(s, e, out, srt);
+    }
+    /* R059: CGI pipeline commands — the AGI face of the MiniBlender.
+     *
+     *   cgi-box <x> <y> <z> <size> <r> <g> <b>
+     *   cgi-sphere <x> <y> <z> <r> ...
+     *   (primitives append to the current cgi scene)
+     *   cgi-key <obj> <t> <px> <py> <pz> <scale> [ease]
+     *   cgi-render <out.mp4> <start> <dur>  -> wb_video_export_cgi
+     *   cgi-list                             -> list kits/models to stdout
+     */
+    if (strncmp(cmd, "cgi-", 4) == 0) {
+        return cgi_command(s, e, cmd, p);
     }
     if (strcmp(cmd, "polish") == 0) {
         /* polish <src.wav> <out.wav> <lufs> : two-pass voice polish (G8) */

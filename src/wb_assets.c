@@ -133,3 +133,15 @@ wb_mesh *wb_assets_load(wb_assets *a, const char *kit, const char *model) {
     }
     return m;
 }
+
+wb_mesh *wb_assets_release(wb_assets *a, wb_mesh *m) {
+    if (!a || !m) return m;
+    for (int i = 0; i < a->ncache; i++)
+        if (a->cache[i].mesh == m) {
+            /* remove the cache slot; last one moves in */
+            a->cache[i] = a->cache[a->ncache-1];
+            a->ncache--;
+            return m;
+        }
+    return m;
+}

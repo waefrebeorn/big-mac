@@ -50,6 +50,7 @@
 #endif
 
 /* ---- helpers ----------------------------------------------------------- */
+static char g_scale_name_buf[32];   /* scale_name output buffer            */
 
 static const char *tab_name(int t) {
     static const char *names[] = {
@@ -61,9 +62,81 @@ static const char *tab_name(int t) {
 
 static const char *scale_name(int root, int type) {
     static const char *roots[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-    (void)type;
+    static const char *types[] = {"major","minor","dorian","mixolydian","phrygian"};
+    const char *ts = (type >= 0 && type < 5) ? types[type] : types[0];
+    snprintf(g_scale_name_buf, sizeof(g_scale_name_buf), "%s %s", roots[root % 12], ts);
+    return g_scale_name_buf;
+}
+
+/* (void)type; kept for callers that only need the root glyph */
+static const char *scale_root_name(int root) {
+    static const char *roots[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
     return roots[root % 12];
 }
+
+/* ---- G80: scale interval tables (semitones from root, ascending) ------ */
+static const int scale_dims[5] = { 7, 7, 7, 7, 7 };   /* all 7-note diatonic */
+static const int scale_intervals[5][7] = {
+    {0, 2, 4, 5, 7, 9, 11},   /* 0 = major          (Ionian)    */
+    {0, 2, 3, 5, 7, 8, 10},   /* 1 = minor          (Aeolian)   */
+    {0, 2, 3, 5, 7, 9, 10},   /* 2 = dorian                      */
+    {0, 2, 4, 5, 7, 9, 10},   /* 3 = mixolydian                    */
+    {0, 1, 3, 5, 7, 8, 10},   /* 4 = phrygian                      */
+};
+
+/* 1 if pitch is a member of (root, type) scale within +/-1 octave band. */
+static int scale_in(int pitch, int root, int type) {
+    const int *iv = scale_intervals[type % 5];
+    int n = scale_dims[type % 5];
+    for (int o = -1; o <= 1; o++)
+        for (int i = 0; i < n; i++)
+            if (pitch == root + 12 * o + iv[i]) return 1;
+    return 0;
+}
+
+/* Snap pitch to the nearest in-scale pitch (prefers the lower octave on a
+ * tie, matching a piano-roll "draw in key" feel). */
+static int scale_snap(int pitch, int root, int type) {
+    int best = pitch, best_dist = 999;
+    for (int p = pitch - 12; p <= pitch + 12; p++) {
+        if (!scale_in(p, root, type)) continue;
+        int d = abs(p - pitch);
+        if (d < best_dist) { best_dist = d; best = p; }
+    }
+    return best;
+}
+
+/* ---- G81: chord tones from root + current scale ---------------------- */
+/* modes: 0=off(none),1=triad,2=7th,3=9th. Fills out with chord tones
+ * (root + extensions up to the 9th) and returns count. All tones are
+ * derived from the scale interval table so the chord is diatonic to the
+ * current key. */
+static int chord_tones(int root, int type, int mode, int out[8]) {
+    const int *iv = scale_intervals[type % 5];
+    int n = scale_dims[type % 5];
+    int cnt = 0;
+    if (mode <= 0) return 0;
+    /* triad core: root, 3rd, 5th */
+    int thirds[] = { 0, 2, 4 };
+    for (int i = 0; i < 3 && cnt < 8; i++) {
+        int deg = thirds[i] % n;
+        int note = root + (thirds[i] / n) * 12 + iv[deg];
+        out[cnt++] = note;
+    }
+    if (mode >= 2 && cnt < 8) {                              /* 7th */
+        int deg = 6 % n;                                     /* 7th scale degree */
+        out[cnt++] = root + iv[deg];
+    }
+    if (mode >= 3 && cnt < 8) {                              /* 9th = octave + 2nd */
+        int deg = 1 % n;
+        out[cnt++] = root + 12 + iv[deg];
+    }
+    return cnt;
+}
+
+/* Clamp velocity/probability helpers */
+static int clamp_vel(int v) { return v < 0 ? 0 : (v > 127 ? 127 : v); }
+static int clamp_pct(int v) { return v < 0 ? 0 : (v > 100 ? 100 : v); }
 
 /* ---- geometry --------------------------------------------------------- */
 #define WIN_W 1360
@@ -172,7 +245,13 @@ typedef struct app {
     int tab;                 /* 0=KEYS 1=PAD 2=STEP 3=SESSION
                                * 4=MEDIA 5=EDIT 6=CAPTIONS 7=EXPORT */
     int scale_root;          /* 0..11 MIDI root */
-    int scale_type;          /* 0=major 1=minor 2=dorian 3=mixolydian 4=chromatic */
+    int scale_type;          /* 0=major 1=minor 2=dorian 3=mixolydian 4=phrygian */
+    int scale_lock;          /* G80: 1 = draw/snap to-key notes only */
+    int chord_mode;          /* G81: 0=off 1=triad 2=7th 3=9th */
+    int step_vel[WB_MAX_TRACKS][16];   /* G87: per-step velocity 0..127 */
+    int step_prob[WB_MAX_TRACKS][16];  /* G88: per-step probability 0..100 */
+    int step_sel;            /* G87: step selected for velocity edit (-1=none) */
+    int vel_drag_step;       /* G87: vertical drag active on this step (-1=none) */
     int last_lp_row;         /* last Mk2 grid row lit (for release dim) */
     int last_lp_col;
 
@@ -249,8 +328,13 @@ typedef struct app {
     /* G09: arrangement-gutter track management */
     int  rename_armed;               /* typing appends to the track name */
     int  rename_track;               /* track being renamed */
-    int  last_click_track;           /* double-click detection */
+    int last_click_track;           /* double-click detection */
     Uint32 last_click_ms;
+    /* ---- G10: ruler loop brace + snap toggle -------------------------- */
+    int snap_on;             /* G10: quantize edits to the grid */
+    double ruler_in;         /* G10: IN mark (samples), <=0 unset */
+    double ruler_out;        /* G10: OUT mark (samples), <=0 unset */
+    int    ruler_drag;       /* G10: 0=none 1=drag-IN 2=drag-OUT */
 } app;
 
 /* G52: EXPORT-tab delivery preset cycle (names map to wb_delivery profiles;
@@ -316,6 +400,9 @@ enum {
     BTN_UNDO, BTN_REDO,                       /* Wave1 G08: transport undo/redo */
     BTN_BROWSE, BTN_BROWSER_CANCEL,           /* Wave1 G01: media browser */
     BTN_SWING_M, BTN_SWING_P,                 /* Wave1 G89: swing -/+ */
+    BTN_SCALE_ROOT, BTN_SCALE_TYPE,           /* Wave3 lane A: G80 */
+    BTN_LOCK, BTN_CHORD,                      /* G80 scale-lock, G81 chord */
+    BTN_SNAP,                                 /* G10: snap toggle */
     BTN_COUNT
 };
 /* ids 90000+i are the media-browser file rows (Wave1 G01) */
@@ -527,6 +614,15 @@ static void draw_transport(app *a) {
     uint64_t xr = wb_engine_xruns(a->engine);
     char xbuf[32]; snprintf(xbuf,sizeof(xbuf),"xrun %llu",(unsigned long long)xr);
     wb_ui_draw_text(a->ren, WIN_W-MIXER_W-90, 8, xbuf, 1, xr==0 ? C_SOLO : C_MUTE);
+
+    /* G10: SNAP + loop-brace status. Snap lit when quantize-on; loop shows
+     * IN..OUT range when armed. */
+    ui_button(a->ren, BTN_SNAP, 560, by, 36, bh, "SNAP", a->snap_on);
+    if (a->loop_on && a->ruler_in > 0 && a->ruler_out > a->ruler_in) {
+        char lb[48]; snprintf(lb,sizeof(lb),
+            "LOOP %.2f–%.2f s", a->ruler_in/WB_SAMPLE_RATE, a->ruler_out/WB_SAMPLE_RATE);
+        wb_ui_draw_text(a->ren, WIN_W-MIXER_W-90, 34, lb, 1, C_MUTE);
+    }
 }
 
 /* ---- arrangement ------------------------------------------------------ */
@@ -555,6 +651,19 @@ static void draw_ruler(app *a) {
         if (on_bar) {
             char bar[8]; snprintf(bar,sizeof(bar),"%d", b / beats_per_bar + 1);
             wb_ui_draw_text(a->ren, x+3, MAIN_Y+6, bar, 1, C_TEXT_DIM);
+        }
+    }
+    /* G10: loop-brace tabs on the ruler (drawn when loop is armed) */
+    if (a->loop_on) {
+        if (a->ruler_in > 0) {
+            int xi = GUTTER_W + (int)((a->ruler_in/WB_SAMPLE_RATE - a->view_start/WB_SAMPLE_RATE)*(ARRANG_W/a->visible_secs));
+            setc(a->ren, C_MUTE); SDL_RenderDrawLine(a->ren, xi, MAIN_Y, xi, MAIN_Y+RULER_H+3);
+            region_add(70001, xi-4, MAIN_Y, 8, RULER_H+4);
+        }
+        if (a->ruler_out > a->ruler_in) {
+            int xo = GUTTER_W + (int)((a->ruler_out/WB_SAMPLE_RATE - a->view_start/WB_SAMPLE_RATE)*(ARRANG_W/a->visible_secs));
+            setc(a->ren, C_MUTE); SDL_RenderDrawLine(a->ren, xo, MAIN_Y, xo, MAIN_Y+RULER_H+3);
+            region_add(70002, xo-4, MAIN_Y, 8, RULER_H+4);
         }
     }
 }
@@ -1526,18 +1635,34 @@ static void draw_toolbar(app *a) {
 
     /* G89: SWING -/+ + % readout, right of the tabs over the mixer column.
      * swing is a session-level fraction of a 16th (0..0.6); MPC-spec
-     * display maps delay fraction -> % swung (50% straight .. 75%+). */
+     * display maps delay fraction -> % swung (50% straight .. 75%+).
+     * G80/G81/G87/G88: scale-lock, chord stamp and scale cycle buttons share
+     * the same mixer-column strip. */
     {
         double sw = a->session ? a->session->swing : 0.0;
         if (sw < 0) sw = 0;
         if (sw > 0.6) sw = 0.6;
         int sx = WIN_W - MIXER_W + 8;
-        ui_button(a->ren, BTN_SWING_M, sx, by, 22, bh, "-", 0);
-        ui_button(a->ren, BTN_SWING_P, sx+26, by, 22, bh, "+", 0);
+        int sbx = 22, sby = by, sbh = bh;
+        ui_button(a->ren, BTN_SWING_M, sx,        sby, sbx, sbh, "-", 0);
+        ui_button(a->ren, BTN_SWING_P, sx+26,     sby, sbx, sbh, "+", 0);
         char sbuf[32];
         snprintf(sbuf, sizeof(sbuf), "SWING %d%%", (int)((0.5 + sw) * 100.0 + 0.5));
-        wb_ui_draw_text(a->ren, sx+54, by + bh/2 - 4, sbuf, 1,
+        wb_ui_draw_text(a->ren, sx+54, sby + sbh/2 - 4, sbuf, 1,
                         sw > 0.0 ? C_ACCENT : C_TEXT_DIM);
+
+        /* G80: SCALE ROOT + TYPE cycle (small, left-aligned after swing) */
+        int gx = sx + 110;
+        char rbuf[16];
+        snprintf(rbuf, sizeof(rbuf), "ROOT %s", scale_root_name(a->scale_root));
+        ui_button(a->ren, BTN_SCALE_ROOT, gx,        sby, 62, sbh, rbuf,        0);
+        ui_button(a->ren, BTN_SCALE_TYPE, gx+66,     sby, 80, sbh,
+                  scale_name(a->scale_root, a->scale_type), a->scale_lock);
+        /* G80: LOCK toggle + G81: CHORD cycle */
+        ui_button(a->ren, BTN_LOCK,     gx+150,    sby, 70, sbh,
+                  a->scale_lock ? "LOCK" : "LOCK", a->scale_lock);
+        const char *cn = a->chord_mode ? (a->chord_mode==1?"TRIAD":a->chord_mode==2?"7TH":"9TH") : "CHORD";
+        ui_button(a->ren, BTN_CHORD,    gx+224,    sby, 62, sbh, cn, a->chord_mode);
     }
 }
 
@@ -2897,6 +3022,8 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                 case BTN_STOP:    wb_engine_stop(a->engine); break;
                 case BTN_RECORD:  a->rec_armed = !a->rec_armed; break;
                 case BTN_LOOP:    a->loop_on = !a->loop_on; break;
+                case BTN_SNAP:    a->snap_on = !a->snap_on;
+                          wb_engine_set_snap(a->engine, a->snap_on); break;
                 case BTN_SAVE:    if (a->project_path[0]) wb_session_save(a->session, a->project_path);
                                   else { wb_session_save(a->session, "untitled.wbus"); snprintf(a->project_path,sizeof(a->project_path),"untitled.wbus"); }
                                   break;
@@ -2932,6 +3059,26 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                     a->ov_drag = 1;
                     ov_scroll_to(a, b.x);
                     break;
+                case 70001: { /* G10: drag loop-IN brace on ruler */
+                    double sec = a->view_start/WB_SAMPLE_RATE + (b.x - GUTTER_W)*(a->visible_secs/ARRANG_W);
+                    a->ruler_in = sec * WB_SAMPLE_RATE;
+                    if (a->ruler_out <= a->ruler_in) a->ruler_out = a->ruler_in + 44100.0;
+                    a->loop_on = 1; a->ruler_drag = 1;
+                    wb_engine_set_loop(a->engine, a->ruler_in, a->ruler_out); break; }
+                case 70002: { /* G10: drag loop-OUT brace on ruler */
+                    double sec = a->view_start/WB_SAMPLE_RATE + (b.x - GUTTER_W)*(a->visible_secs/ARRANG_W);
+                    a->ruler_out = sec * WB_SAMPLE_RATE;
+                    if (a->ruler_out <= a->ruler_in) a->ruler_in = a->ruler_out - 44100.0;
+                    a->loop_on = 1; a->ruler_drag = 2;
+                    wb_engine_set_loop(a->engine, a->ruler_in, a->ruler_out); break; }
+                case (BTN_OVERVIEW-1000): { /* G10: click ruler to set IN..OUT */
+                    if (!a->loop_on) break;
+                    double sec = a->view_start/WB_SAMPLE_RATE + (b.x - GUTTER_W)*(a->visible_secs/ARRANG_W);
+                    double s = sec * WB_SAMPLE_RATE;
+                    if (a->ruler_in <= 0) a->ruler_in = s;
+                    else if (a->ruler_out <= a->ruler_in) a->ruler_out = s;
+                    else { a->ruler_in = s; a->ruler_out = 0; }
+                    wb_engine_set_loop(a->engine, a->ruler_in, a->ruler_out); break; }
                 case BTN_UNDO: {     /* Wave1 G08 */
                     if (a->undo && wb_undo_undo(a->undo, &a->session) == 1) {
                         wb_engine_set_session(a->engine, a->session);
@@ -2966,6 +3113,26 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                         a->session->swing += 0.05;
                         if (a->session->swing > 0.6) a->session->swing = 0.6;
                     }
+                    break;
+                case BTN_SCALE_ROOT:   /* G80: cycle scale root 0..11 */
+                    a->scale_root = (a->scale_root + 1) % 12;
+                    printf("scale: %s %s\n", scale_root_name(a->scale_root),
+                           (const char *[]){"major","minor","dorian","mixolydian","phrygian"}[a->scale_type%5]);
+                    break;
+                case BTN_SCALE_TYPE:   /* G80: cycle scale type */
+                    a->scale_type = (a->scale_type + 1) % 5;
+                    printf("scale: %s\n", scale_name(a->scale_root, a->scale_type));
+                    break;
+                case BTN_LOCK:         /* G80: toggle scale-lock */
+                    a->scale_lock = !a->scale_lock;
+                    snprintf(a->last_status, sizeof(a->last_status),
+                             "SCALE-LOCK %s", a->scale_lock ? "ON" : "OFF");
+                    printf("scale-lock: %s\n", a->scale_lock ? "ON" : "OFF");
+                    break;
+                case BTN_CHORD:        /* G81: cycle chord stamp OFF/triad/7th/9th */
+                    a->chord_mode = (a->chord_mode + 1) % 4;
+                    printf("chord: %s\n", a->chord_mode ?
+                           (a->chord_mode==1?"TRIAD":a->chord_mode==2?"7TH":"9TH") : "off");
                     break;
                 default:
                     if (id >= BTN_BROWSER_ROW0 && id < BTN_BROWSER_ROW0 + 128) {
@@ -4072,6 +4239,16 @@ int main(int argc, char **argv) {
     a->selected_track = 0;   /* R038: select first track by default (conventional) */
     a->scale_root   = 9;   /* A */
     a->scale_type   = 1;   /* natural minor */
+    a->scale_lock   = 0;   /* G80: scale-lock off by default */
+    a->chord_mode   = 0;   /* G81: chord stamp off by default */
+    a->step_sel     = -1;  /* G87: no step selected for velocity edit */
+    a->vel_drag_step= -1;  /* G87: no active step velocity drag */
+    /* G87/G88: per-step velocity defaults to 100, probability to 100% */
+    for (int t = 0; t < WB_MAX_TRACKS; t++)
+        for (int s = 0; s < 16; s++) {
+            a->step_vel[t][s]  = 100;
+            a->step_prob[t][s] = 100;
+        }
     a->last_lp_row  = -1;
     a->last_lp_col  = -1;
 

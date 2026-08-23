@@ -2396,6 +2396,33 @@ static void test_project_sequences(void) {
     wb_project_destroy(p);
 }
 
+/* ---- test: Wave3 G10 loop brace + snap toggle --------------------------- */
+static void test_loop_brace(void) {
+    printf("test_loop_brace\n");
+    wb_engine *e = wb_engine_create();
+    wb_session *s = wb_session_demo();
+    wb_engine_set_session(e, s);
+    /* default: no snap, loop off */
+    wb_transport t; wb_engine_get_transport(e, &t);
+    CHECK(t.snap == 0, "default snap off");
+    CHECK(t.loop_on == 0, "default loop off");
+    /* set snap on */
+    wb_engine_set_snap(e, 1);
+    wb_engine_get_transport(e, &t);
+    CHECK(t.snap == 1, "snap on after set");
+    CHECK(t.snap == 0 || t.snap == 1, "snap is boolean");
+    /* set a loop range */
+    wb_engine_set_loop(e, 44100.0, 88200.0);
+    wb_engine_get_transport(e, &t);
+    CHECK(t.loop_start == 44100.0 && t.loop_end == 88200.0, "loop range set");
+    /* clearing: set both to 0 */
+    wb_engine_set_loop(e, 0.0, 0.0);
+    wb_engine_get_transport(e, &t);
+    CHECK(t.loop_start == 0.0 && t.loop_end == 0.0, "loop cleared");
+    wb_session_destroy(s);
+    wb_engine_destroy(e);
+}
+
 static void test_launchpad(void) {
     printf("test_launchpad\n");
     /* grid corners — classic Launchpad layout: row*16 + col */
@@ -2664,6 +2691,7 @@ int main(void) {
     test_midifx();
     test_clip_move_trim();      /* Wave2 G14 */
     test_crossfade_curves();    /* Wave2 G64 */
+    test_loop_brace();          /* Wave3 G10 */
 
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

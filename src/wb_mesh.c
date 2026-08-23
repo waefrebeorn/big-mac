@@ -73,6 +73,11 @@ wb_mesh *wb_mesh_build(const wb_rast_vertex *verts, int nverts,
     return m;
 }
 
+wb_mesh *wb_mesh_copy(const wb_mesh *m) {
+    if (!m) return NULL;
+    return wb_mesh_build(m->verts, m->nverts, m->tris, m->ntris);
+}
+
 const wb_rast_vertex *wb_mesh_vert_src(const wb_mesh *m) { return m ? m->verts : NULL; }
 const wb_rast_tri    *wb_mesh_tri_src(const wb_mesh *m)  { return m ? m->tris : NULL; }
 

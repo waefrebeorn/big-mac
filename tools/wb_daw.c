@@ -27,6 +27,7 @@
 #include "wbus_agi.h"
 #include "wbus_captions.h"
 #include "wbus/wbus_transcript.h"
+#include "wbus/wbus_perf.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
 
@@ -182,6 +183,8 @@ typedef struct app {
     int tr_sel0, tr_sel1;    /* selected word range [sel0, sel1) */
     int tr_row_y;            /* y of first transcript row (CAPTIONS tab) */
     int tr_scroll;           /* R051: first visible transcript row */
+    wb_perf *perf;           /* R065: live performance engine */
+    int      perf_recording;
     /* R050: CGI drag-rotate */
     int cgi_dragging;
     int cgi_last_x, cgi_last_y;
@@ -283,7 +286,7 @@ static void ws_on_change(void *ctx, wb_workspace_tier old_t, wb_workspace_tier n
     (void)old_t;
     app *a = (app*)ctx;
     if (!a) return;
-    static const int tier_home_tab[WB_WS_COUNT] = { 0, 4, 5, 5, 5 };
+    static const int tier_home_tab[WB_WS_COUNT] = { 0, 4, 5, 5, 5, 5 };
     /* R046: FUSION/3D-CGI/AGI all host their dedicated view on tab 5 (EDIT);
      * the draw fn branches on the active tier. Old mapping (3,6) pointed at
      * SESSION/CAPTIONS — those tiers drew nothing there. */
@@ -1100,6 +1103,64 @@ static void draw_agi_view(app *a) {
     }
 }
 
+/* ---- R065: PERFORMANCE view — deck grid, live state, record arm ------- */
+/* R065: the agent bridge renders through THIS performance instance. */
+void *wb_agent_perf_target(void) {
+    extern app *g_app_for_perf;
+    return g_app_for_perf ? g_app_for_perf->perf : NULL;
+}
+
+static void draw_perf_view(app *a) {
+    char buf[128];
+    int px = GUTTER_W + 8;
+    int yy = MAIN_Y + RULER_H + 8;
+
+    snprintf(buf, sizeof buf, "PERFORMANCE  .  video DJ");
+    wb_ui_draw_text(a->ren, px, yy, buf, 1, C_ACCENT); yy += 18;
+    snprintf(buf, sizeof buf,
+        "decks fire on the beat; RECORD captures the event list to replay "
+        "on the timeline");
+    wb_ui_draw_text(a->ren, px, yy, buf, 1, C_TEXT_DIM); yy += 22;
+
+    if (!a->perf) {
+        wb_ui_draw_text(a->ren, px, yy, "(performance engine unavailable)", 1, C_TEXT_DIM);
+        return;
+    }
+
+    int ndecks = wb_perf_deck_count(a->perf);
+    int cols = 4, rows = (ndecks + cols - 1) / cols;
+    if (rows < 1) rows = 1;
+    int pad = 8;
+    int pw = 150, ph = 90;
+    for (int d = 0; d < ndecks; d++) {
+        int cx = px + (d % cols) * (pw + pad);
+        int cy = yy + (d / cols) * (ph + pad);
+        SDL_Rect cell = { cx, cy, pw, ph };
+        /* fired decks glow accent; idle decks are dim lanes */
+        setc(a->ren, ((d % 2) == 0) ? 120 : 60,
+                        ((d % 2) == 0) ? 60 : 100,
+                        ((d % 2) == 0) ? 40 : 160);
+        SDL_RenderFillRect(a->ren, &cell);
+        setc(a->ren, C_GRID);
+        SDL_RenderDrawRect(a->ren, &cell);
+        snprintf(buf, sizeof buf, "DECK %d", d);
+        wb_ui_draw_text(a->ren, cx + 6, cy + 6, buf, 1, C_TEXT);
+        /* hit region: click fires the deck */
+        region_add(80000 + d, cell.x, cell.y, cell.w, cell.h);
+    }
+    yy += rows * (ph + pad) + 10;
+
+    /* record arm button */
+    ui_button(a->ren, 81000, px, yy, 110, 24,
+              a->perf_recording ? "RECORDING" : "RECORD ARM",
+              a->perf_recording);
+    yy += 34;
+    snprintf(buf, sizeof buf, "events: %d   %s",
+             wb_perf_event_count(a->perf),
+             a->perf_recording ? "capturing..." : "idle");
+    wb_ui_draw_text(a->ren, px, yy, buf, 1, C_TEXT_DIM);
+}
+
 /* ---- VST3 parameter editor panel -------------------------------------- */
 #define PED_X        GUTTER_W
 #define PED_Y        (MAIN_Y + RULER_H + 8)
@@ -1473,6 +1534,11 @@ static void draw_video_tab_panel(app *a) {
         if (wb_workspace_fusion_active(a->ws)) { draw_fusion_graph(a); break; }
         if (wb_workspace_cgi_active(a->ws))   { draw_cgi_view(a);   break; }
         if (wb_workspace_agi_active(a->ws))   { draw_agi_view(a);   break; }
+        if (a->perf && wb_workspace_perf_active(a->ws)) {
+            extern void draw_perf_view(app *a);
+            draw_perf_view(a);
+            break;
+        }
         snprintf(buf, sizeof(buf), "Clip editor");
         wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 20;
         if (a->vid_has_clip) {
@@ -1992,6 +2058,10 @@ static void perf_tick(app *a) {
             if (p >= 0) wb_engine_note(a->engine, ti, (uint8_t)p, 100);
         }
     }
+    /* R065: performance clock follows the transport while recording so
+     * captured events land on musical time. */
+    if (a->perf && a->perf_recording && a->t.playing)
+        wb_perf_set_clock(a->perf, a->t.song_pos / WB_SAMPLE_RATE);
     /* R043-G7: live ticks for the upper-tier views (CGI rotation + AGI pipeline) */
     if (a->cgi && wb_workspace_cgi_active(a->ws)) wb_cgi_scene_tick(a->cgi, 1.0/60.0);
     if (a->agi && wb_workspace_agi_active(a->ws)) wb_agi_tick(a->agi, 1.0/60.0);
@@ -2115,6 +2185,29 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                             a->session->tracks[ti].solo = !a->session->tracks[ti].solo;
                             wb_engine_set_session(a->engine, a->session);
                         }
+                    } else if (id >= 80000 && id < 80100 && a->perf) {
+                        /* R065: fire a performance deck */
+                        int d = id - 80000;
+                        if (d < wb_perf_deck_count(a->perf)) {
+                            if (!a->perf_recording)
+                                wb_perf_record_arm(a->perf);
+                            wb_perf_set_clock(a->perf,
+                                a->t.song_pos / WB_SAMPLE_RATE);
+                            wb_perf_fire(a->perf, d);
+                            printf("perf: fired deck %d\n", d);
+                        }
+                    } else if (id == 81000 && a->perf) {
+                        /* R065: arm/stop recording */
+                        if (a->perf_recording) {
+                            wb_perf_record_stop(a->perf);
+                            printf("perf: capture stopped (%d events)\n",
+                                   wb_perf_event_count(a->perf));
+                        } else {
+                            wb_perf_record_arm(a->perf);
+                            wb_perf_set_clock(a->perf, 0);
+                            printf("perf: armed\n");
+                        }
+                        a->perf_recording = !a->perf_recording;
                     } else if (id >= 70000 && id < 71000) {  /* R049: transcript word row */
                         int wi = id - 70000;
                         if (a->vid_tr && wi < wb_transcript_count(a->vid_tr)) {
@@ -2735,6 +2828,8 @@ static void handle_key(app *a, SDL_Keycode k) {
     }
 }
 
+app *g_app_for_perf = NULL;   /* R065: perf target for agent bridge */
+
 int main(int argc, char **argv) {
     int shot = 0;
     wb_backend *audio = NULL;
@@ -2759,6 +2854,17 @@ int main(int argc, char **argv) {
     a->comp_graph = wb_node_graph_create();          /* R043-G6: Fusion node view */
     a->cgi = wb_cgi_scene_create();                  /* R043-G7: 3D-CGI scene */
     a->agi = wb_agi_create();                        /* R043-G7: AGI task bridge */
+    extern app *g_app_for_perf; g_app_for_perf = a;   /* R065 */
+    a->perf = wb_perf_create(640, 360);              /* R065: performance decks */
+    {
+        /* demo decks: a red slab + a blue sphere so the PERFORMANCE
+         * grid has content out of the box */
+        wb_mesh *d0 = wb_mesh_box(1.2f, 1.2f, 0.25f, 255, 90, 50);
+        wb_mesh *d1 = wb_mesh_sphere(1.0f, 10, 14, 60, 120, 255);
+        if (d0) wb_perf_add_deck(a->perf, d0, 255, 90, 50);
+        if (d1) wb_perf_add_deck(a->perf, d1, 60, 120, 255);
+        wb_mesh_free(d0); wb_mesh_free(d1);
+    }
     if (file_path) {
         /* open a project from disk instead of the demo */
         a->session = wb_session_load(file_path);

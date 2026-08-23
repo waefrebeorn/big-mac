@@ -29,6 +29,9 @@ void     wb_mesh_free(wb_mesh *m);
 /* R055b: build a mesh from raw arrays (copies both). The canonical way
  * for modifier/procedural code to materialize geometry. Returns NULL on
  * alloc failure or bad counts. */
+/* Deep copy (R065: perf decks own their mesh copy). */
+wb_mesh *wb_mesh_copy(const wb_mesh *m);
+
 wb_mesh *wb_mesh_build(const wb_rast_vertex *verts, int nverts,
                        const wb_rast_tri *tris, int ntris);
 

@@ -9,6 +9,7 @@
 #include "wbus/wbus_mesh.h"
 #include "wbus/wbus_anim.h"
 #include "wbus/wbus_assets.h"
+#include "wbus/wbus_perf.h"
 #include "wbus/wbus_cgiexport.h"
 #include "wbus/wbus_shadowbin.h"
 #include "wb_internal.h"   /* wb_wav_read/write_pcm16 (internal) */
@@ -65,6 +66,10 @@ static wb_anim    *g_cgi = NULL;
 static int         g_next_obj = 0;
 
 static wb_undo *g_agent_undo = NULL;
+
+/* R065: host-provided live performance instance (the DAW sets this).
+ * Weak default returns NULL so headless tools still link. */
+__attribute__((weak)) void *wb_agent_perf_target(void) { return 0; }
 
 /* R062: snapshot the session so `agent-undo` can restore it. Called
  * automatically before destructive agent ops and explicitly via
@@ -276,6 +281,24 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
     }
     if (strncmp(cmd, "cgi-", 4) == 0) {
         return cgi_command(s, e, cmd, p);
+    }
+    /* R065: performance bridge — the AGI as video DJ.
+     *   perf-fire <deck> | perf-unfire <deck> | perf-fade <0..1>
+     * These mutate a shared perf instance owned by the host; when none is
+     * attached they report ERR so the agent knows to open PERFORMANCE. */
+    if (strcmp(cmd, "perf-fire") == 0 || strcmp(cmd, "perf-unfire") == 0 ||
+        strcmp(cmd, "perf-fade") == 0) {
+        extern void *wb_agent_perf_target(void);   /* host-provided */
+        wb_perf *perf = (wb_perf *)wb_agent_perf_target();
+        if (!perf) { fprintf(stderr, "ERR:perf:no-performance-open\n"); return -1; }
+        if (!perf) { fprintf(stderr, "ERR:perf:no-performance-open\n"); return -1; }
+        if (strcmp(cmd, "perf-fade") == 0) {
+            float pos = (float)atof(tok(&p));
+            return wb_perf_fade(perf, pos);
+        }
+        int d = atoi(tok(&p));
+        return strcmp(cmd, "perf-fire") == 0 ? wb_perf_fire(perf, d)
+                                             : wb_perf_unfire(perf, d);
     }
     if (strcmp(cmd, "polish") == 0) {
         /* polish <src.wav> <out.wav> <lufs> : two-pass voice polish (G8) */

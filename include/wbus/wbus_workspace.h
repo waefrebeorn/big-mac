@@ -36,6 +36,7 @@ typedef enum {
     WB_WS_FUSION,
     WB_WS_3DCGI,
     WB_WS_AGI,
+    WB_WS_PERF,   /* R065: live performance / VJ tier */
     WB_WS_COUNT
 } wb_workspace_tier;
 
@@ -75,6 +76,7 @@ int wb_workspace_video_active(wb_workspace *ws);
 int wb_workspace_fusion_active(wb_workspace *ws);
 int wb_workspace_cgi_active(wb_workspace *ws);
 int wb_workspace_agi_active(wb_workspace *ws);
+int wb_workspace_perf_active(wb_workspace *ws);   /* R065 */
 
 /* Human-readable label for a tier (e.g. "AUDIO", "VIDEO", "FUSION",
  * "3D-CGI", "AGI"). Returns a static string; do not free. */

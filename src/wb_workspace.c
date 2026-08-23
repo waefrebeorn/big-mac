@@ -14,7 +14,7 @@ struct wb_workspace {
 };
 
 static const char *g_labels[WB_WS_COUNT] = {
-    "AUDIO", "VIDEO", "FUSION", "3D-CGI", "AGI"
+    "AUDIO", "VIDEO", "FUSION", "3D-CGI", "AGI", "PERFORM"
 };
 
 wb_workspace *wb_workspace_create(wb_workspace_on_change cb, void *ctx) {
@@ -29,6 +29,7 @@ wb_workspace *wb_workspace_create(wb_workspace_on_change cb, void *ctx) {
     ws->unlocked[WB_WS_FUSION] = 1;
     ws->unlocked[WB_WS_3DCGI]  = 0;
     ws->unlocked[WB_WS_AGI]    = 0;
+    ws->unlocked[WB_WS_PERF]   = 1;   /* R065: performance tier open */
     ws->on_change = cb;
     ws->ctx       = ctx;
     return ws;
@@ -82,4 +83,8 @@ int wb_workspace_agi_active(wb_workspace *ws) {
 const char *wb_workspace_label(wb_workspace_tier t) {
     if (t < 0 || t >= WB_WS_COUNT) return "?";
     return g_labels[t];
+}
+
+int wb_workspace_perf_active(wb_workspace *ws) {
+    return ws ? (ws->active == WB_WS_PERF) : 0;
 }

@@ -27,6 +27,11 @@ typedef struct wb_clip_edit {
                               keeping the clip's true start at full amp (0=off) */
     int    loop;           /* G3: 1 = clip repeats its loop region */
     double loop_len;       /* G3: loop region length in SAMPLES (0 = full clip) */
+    int    curve;          /* G64: fade/crossfade curve shape:
+                              0 = linear (equal-gain, classic), 1 = equal-power
+                              (sqrt gain law, constant loudness when paired with
+                              a complementary fade), 2 = smoothstep (S-curve,
+                              3t^2-2t^3) */
 } wb_clip_edit;
 
 /* Opaque table. Keyed by (track, clip); grows as needed. */
@@ -44,6 +49,13 @@ wb_clip_edit *wb_clip_edit_get(wb_clip_edit_table *t, int track, int clip);
 
 /* Clear the edit state for one clip back to neutral (no fade, zero offset). */
 void wb_clip_edit_clear(wb_clip_edit_table *t, int track, int clip);
+
+/* G14: migrate a clip's edit entry from (src_track, src_clip) to
+ * (dst_track, dst_clip) after the clip moved in the session model (e.g.
+ * drag between tracks). The source entry is cleared; fades/offset/curve
+ * travel with the clip. Missing entries are created as needed. */
+void wb_clip_edit_move(wb_clip_edit_table *t, int src_track, int src_clip,
+                       int dst_track, int dst_clip);
 
 /* Multiplicative fade envelope at sample position `f` (samples from clip
  * start) within a clip of `length` samples. Returns 1.0 when no fade applies.

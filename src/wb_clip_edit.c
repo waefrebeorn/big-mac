@@ -6,6 +6,7 @@
  * the UI (wb_clip_edit_get for drag edits). C11 only. */
 
 #include <stdlib.h>
+#include <math.h>
 #include "wbus/wbus_clip_edit.h"
 
 /* Table layout: a sparse-ish 2D store. We keep one `wb_clip_edit*` per track,
@@ -53,7 +54,8 @@ static wb_clip_edit *ensure(wb_clip_edit_table *t, int track, int clip) {
         if (!na) return NULL;
         for (int i = t->cap[track]; i < ncap; i++)
             na[i].fade_in = na[i].fade_out = na[i].pre_fade_in = 0.0f,
-            na[i].start_in_source = 0.0, na[i].loop = 0, na[i].loop_len = 0.0;
+            na[i].start_in_source = 0.0, na[i].loop = 0, na[i].loop_len = 0.0,
+            na[i].curve = 0;
         t->tracks[track] = na; t->cap[track] = ncap;
     }
     return &t->tracks[track][clip];
@@ -66,6 +68,19 @@ wb_clip_edit *wb_clip_edit_get(wb_clip_edit_table *t, int track, int clip) {
 void wb_clip_edit_clear(wb_clip_edit_table *t, int track, int clip) {
     wb_clip_edit *e = ensure(t, track, clip);
     if (e) { e->fade_in = e->fade_out = e->pre_fade_in = 0.0f; e->start_in_source = 0.0; }
+}
+
+void wb_clip_edit_move(wb_clip_edit_table *t, int src_track, int src_clip,
+                       int dst_track, int dst_clip) {
+    if (!t || (src_track == dst_track && src_clip == dst_clip)) return;
+    if (src_track < 0 || src_clip < 0 || dst_track < 0 || dst_clip < 0) return;
+    wb_clip_edit *src = ensure(t, src_track, src_clip);
+    wb_clip_edit *dst = ensure(t, dst_track, dst_clip);
+    if (!src || !dst) return;
+    *dst = *src;
+    src->fade_in = src->fade_out = src->pre_fade_in = 0.0f;
+    src->start_in_source = 0.0; src->loop = 0; src->loop_len = 0.0;
+    src->curve = 0;
 }
 
 float wb_clip_edit_env(const wb_clip_edit *e, double f, double length,
@@ -88,9 +103,31 @@ float wb_clip_edit_env(const wb_clip_edit *e, double f, double length,
     if (fin <= 0.0f && fout <= 0.0f) return 1.0f;   /* neutral: full gain */
     double sec  = f / sample_rate;
     double dur  = length / sample_rate;
+    /* G64: curve shape applied to the raw linear fraction t of each ramp.
+     *   linear      t            (equal-gain; sum = 1 at crossfade midpoint)
+     *   equal-power sqrt(t)      (constant power: sqrt(a)+sqrt(1-a) pairs)
+     *   smoothstep  3t^2 - 2t^3  (S-curve, zero slope at both ends) */
+    int cv = e->curve;
+    if (cv < 0 || cv > 2) cv = 0;
     float env = 1.0f;
-    if (fin  > 0.0f && sec < fin)               env *= (float)(sec / fin);
-    if (fout > 0.0f && (dur - sec) < fout)      env *= (float)((dur - sec) / fout);
+    if (fin > 0.0f && sec < fin) {
+        double t = sec / fin;
+        if (t < 0.0) t = 0.0;
+        if (t > 1.0) t = 1.0;
+        double g = (cv == 1) ? sqrt(t)
+                 : (cv == 2) ? (t * t * (3.0 - 2.0 * t))
+                 : t;
+        env *= (float)g;
+    }
+    if (fout > 0.0f && (dur - sec) < fout) {
+        double u = (dur - sec) / fout;   /* 1 -> 0 across the fade-out */
+        if (u < 0.0) u = 0.0;
+        if (u > 1.0) u = 1.0;
+        double g = (cv == 1) ? sqrt(u)
+                 : (cv == 2) ? (u * u * (3.0 - 2.0 * u))
+                 : u;
+        env *= (float)g;
+    }
     if (env < 0.0f) env = 0.0f;
     if (env > 1.0f) env = 1.0f;
     return env;

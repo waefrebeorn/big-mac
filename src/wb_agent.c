@@ -10,6 +10,7 @@
 #include "wbus/wbus_anim.h"
 #include "wbus/wbus_assets.h"
 #include "wbus/wbus_cgiexport.h"
+#include "wbus/wbus_shadowbin.h"
 #include "wb_internal.h"   /* wb_wav_read/write_pcm16 (internal) */
 #include <stdlib.h>
 #include <string.h>
@@ -63,6 +64,16 @@ static int do_import(wb_session *s, const char *src) {
 static wb_anim    *g_cgi = NULL;
 static int         g_next_obj = 0;
 
+static wb_undo *g_agent_undo = NULL;
+
+/* R062: snapshot the session so `agent-undo` can restore it. Called
+ * automatically before destructive agent ops and explicitly via
+ * `checkpoint`. */
+static void wb_agent_checkpoint(wb_session *s) {
+    if (!g_agent_undo) g_agent_undo = wb_undo_create();
+    if (g_agent_undo) wb_undo_checkpoint(g_agent_undo, s);
+}
+
 static void cgi_ensure(void) {
     if (!g_cgi) {
         g_cgi = wb_anim_create(640, 360);
@@ -91,6 +102,7 @@ static int cgi_command(wb_session *s, wb_engine *e,
             m = wb_mesh_cone(size,size*2,12,(uint8_t)r,(uint8_t)g,(uint8_t)b);
         if (!m) return -1;
         wb_anim_add_object(g_cgi, m, (uint8_t)r,(uint8_t)g,(uint8_t)b);
+        /* CGI scene is anim-owned, separate from session; no checkpoint */
         /* static key at t=0 so it's on stage; caller keys motion after */
         wb_anim_key(g_cgi, g_next_obj, 0.0, x,y,z, 0,0,0, 1);
         printf("cgi: added obj %d (%s)\n", g_next_obj, cmd);
@@ -164,6 +176,7 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         return do_import(s, src);
     }
     if (strcmp(cmd, "split") == 0) {
+        wb_agent_checkpoint(s);   /* R062: undoable */
         int track = atoi(tok(&p));
         int clip  = atoi(tok(&p));
         double t  = atof(tok(&p));
@@ -195,6 +208,72 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
      *   cgi-render <out.mp4> <start> <dur>  -> wb_video_export_cgi
      *   cgi-list                             -> list kits/models to stdout
      */
+    /* R062: agent session state — introspection, undo, shadow bin */
+    if (strcmp(cmd, "state") == 0) {
+        printf("session: bpm=%.1f length=%.2fs tracks=%u markers=%d\n",
+               s->bpm, s->length / WB_SAMPLE_RATE,
+               s->track_count, s->marker_count);
+        for (uint32_t t = 0; t < s->track_count; t++) {
+            wb_track *tr = &s->tracks[t];
+            const char *kind = tr->kind == 3 ? "video" :
+                               tr->kind == 1 ? "audio" : "instr";
+            printf(" track[%u] %s \"%s\" vol=%.2f clips=%u\n",
+                   t, kind, tr->name, tr->volume, tr->clip_count);
+            for (uint32_t c = 0; c < tr->clip_count && c < 16; c++) {
+                wb_clip *cl = &tr->clips[c];
+                if (cl->type == 2 && cl->video)
+                    printf("   clip[%u] video start=%.2fs len=%.2fs src=%s\n",
+                           c, cl->start, cl->length,
+                           cl->video->source_path[0] ?
+                               cl->video->source_path : "?");
+                else
+                    printf("   clip[%u] type=%d start=%.2f\n",
+                           c, cl->type, cl->start);
+            }
+        }
+        return 0;
+    }
+    if (strcmp(cmd, "agent-undo") == 0 || strcmp(cmd, "undo") == 0) {
+        if (!g_agent_undo) {
+            printf("undo: nothing to undo\n");
+            return 0;   /* R062: idempotent — no-op is success for agents */
+        }
+        wb_session *restored = NULL;
+        int did = wb_undo_undo(g_agent_undo, &restored);
+        if (did != 1 || !restored) {
+            printf("undo: nothing to undo\n");
+            return 0;   /* idempotent */
+        }
+        /* copy restored content into the caller's session in place */
+        wb_session *tmp = wb_session_copy(restored);
+        if (tmp) { *s = *tmp; free(tmp); }
+        printf("undo: restored earlier state\n");
+        return 0;
+    }
+    if (strcmp(cmd, "checkpoint") == 0) {
+        wb_agent_checkpoint(s);
+        return 0;
+    }
+    if (strcmp(cmd, "shadow-save") == 0) {
+        char path[1200];
+        char *out = tok(&p);   /* optional explicit path */
+        if (out && out[0]) snprintf(path, sizeof path, "%s", out);
+        else wb_shadowbin_path_for(s->name[0] ? s->name : "project",
+                                   path, sizeof path);
+        int rc = wb_shadowbin_write(s, path);
+        printf("shadowbin: wrote %s (rc=%d)\n", path, rc);
+        return rc;
+    }
+    if (strcmp(cmd, "shadow-load") == 0) {
+        char path[1200];
+        char *in = tok(&p);
+        if (!in || !in[0]) { fprintf(stderr,"ERR:usage: shadow-load <path>\n"); return -1; }
+        snprintf(path, sizeof path, "%s", in);
+        int n = wb_shadowbin_read(s, path);
+        if (n < 0) { fprintf(stderr,"ERR:parse:%s\n", path); return -1; }
+        printf("shadowbin: restored %d clips\n", n);
+        return 0;
+    }
     if (strncmp(cmd, "cgi-", 4) == 0) {
         return cgi_command(s, e, cmd, p);
     }

@@ -117,11 +117,115 @@ every gap below is a break in one of those seven loops.
 [G51] P3 — Preferences surface: audio device, buffer size, latency display
       (Sweetwater buffer-size guidance; currently fixed).
 
-## Build order (loop-closing logic)
-Wave 1 close CAPTURE+ORGANIZE loops: G01 G02 G08 G30 (import browser, audio
-import, undo UI, sends) — nothing else matters if you can't get media in and
-can't undo mistakes.
-Wave 2 close ROUGH-CUT: G14 G15 G16 G23 (mouse editing, trim mode, razor,
-fade handles).
-Wave 3 close DELIVER: G38 G39 G40 G41 (render queue, range, settings, stems).
-Wave 4+: remaining P1/P2/P3 by loop order above.
+## H. Deep-research additions (3 parallel agents, 2026-08-23 — merged)
+Sources: Adobe Helpx autosave/crash-recovery, Reaper render queue + region
+wildcards, Resolve Live Save/DRP backups, BMD forums (background render,
+keyframe easing), OSARA/MSAA-UIA, WCAG 2.1 AA / Section 508 / EN 301 549 /
+VPAT, Netflix Partner Help (-27 LKFS dialogue-gated), FCC CALM Act (ATSC A/85),
+IMF ST 2067, FL Studio mixer routing/piano-roll tools docs, Bitwig Note FX
+(Operators/Humanize/Note Repeats), Ableton Live 11-12 MIDI Tools/follow actions/
+Scale Awareness, Cubase Chord Track/Expression Maps, Roger Linn swing spec
+(Attack Magazine), Shotcut crossfade forum complaints, Vegas trimmer,
+Premiere metadata panel, packafoma Premiere wishlist.
+
+### Delivery loop additions
+[G52] P1 — Export presets: user-saved + platform presets (Resolve/ME ship them).
+[G53] P2 — Batch render matrix: per-region/marker wildcard naming, multiple
+      simultaneous outputs per job (Reaper $region wildcards; Resolve multi-codec).
+[G54] P2 — Watch-folder auto-render (AME model; pairs with G43).
+[G55] P1 — Named loudness profiles: EBU R128 -23/-1dBTP, ATSC A/85 -24 LKFS,
+      Netflix -27 LKFS dialogue-gated LRA 4-18 -2dBTP, streaming -14/-16 —
+      selectable target + true-peak ceiling, not one hardcoded -14.
+      Rejected deliveries are an explicit failure mode (Netflix spec).
+[G56] P3 — IMF (SMPTE ST 2067) packaging awareness — document as roadmap.
+
+### Recover loop additions
+[G57] P0 — Autosave to dated Auto-Save folder on an interval (Premiere default;
+      Kdenlive autosave credited with rescuing projects). We save ONLY on Ctrl+S.
+[G58] P2 — Crash recovery on relaunch from latest autosave (Premiere behavior).
+[G59] P2 — Versioned project backups/timeline snapshots (Resolve Live Save/DRP).
+
+### Accessibility additions
+[G60] P2 — Screen-reader labels via accessibility API (OSARA proves full-DAW
+      access is real demand; macOS path is the AX tree).
+[G61] P2 — Full keyboard operability audit vs Section 508 / EN 301 549;
+      publish a VPAT-style conformance statement.
+[G62] P3 — Focus visibility (WCAG 2.4.7) + reduced-motion/flash safety (2.3.1);
+      we already have WCAG-AA contrast (R029) — extend to focus/motion.
+
+### NLE timeline additions
+[G63] P1 — Draggable transitions between clips with dynamic re-linking when
+      clips move (Shotcut's #1 complaint is non-dynamic crossfades breaking).
+[G64] P2 — Crossfade curve types: equal-power / constant-power / +3dB choice
+      (engine has equal-gain linear only; Resolve offers all three).
+[G65] P1 — Two-up precision trim display (FCP Precision Editor) — trims are
+      blind today; show outgoing/incoming frames at the edit point.
+[G66] P2 — Insert/overwrite/append/connect drop modes (FCP Q/W/E; Premiere
+      toggle) — keyboard-only placement is currently ambiguous.
+[G67] P2 — Basic color correction: Lift/Gamma/Gain wheels + waveform scope
+      (even exposure fixes matter; Kdenlive outclasses minimal editors here).
+[G68] P2 — Metadata columns/sorting + clip color labels in the bin (editors
+      "spend as much time looking for clips as editing").
+[G69] P1 — Multiple timelines/sequences per project (every NLE has many; one
+      timeline limits any real edit).
+[G70] P2 — Relink/offline-media handling — hardcoded absolute paths break the
+      moment a project moves (r/editors relink threads).
+[G71] P2 — Render cache/pre-render previews for smooth scrubbing (Resolve smart
+      cache); thumbnail/waveform disk cache for big projects (R066 wavcache is
+      in-RAM only).
+[G72] P3 — Speed ramps / retiming curves (FCP Retime Editor class).
+[G73] P3 — Default-duration batch transitions across all cuts (Shotcut FR 552).
+
+### Music-production additions
+[G74] P1 — Per-send pre/post-fader switch (Pro Tools standard) — refines G30.
+[G75] P2 — Sidechain routing UI (engine HAS sidechain DSP; no routing UI).
+[G76] P2 — FX chain rack: drag-reorder inserts, bypass, save/load chains
+      (Cubase insert-chain presets).
+[G77] P2 — Copy-paste channel-strip settings between strips (Reaper/Logic).
+[G78] P2 — Peak-hold + LUFS/true-peak meter on master (refines G32; VU misses
+      streaming targets entirely).
+[G79] P3 — Pre/post-fader meter point option (Pro Tools gain-staging modes).
+[G80] P2 — Scale highlight + scale-lock ("draw in-key notes only" — Ableton 12
+      Scale Awareness, Cubase Scale Assistant).
+[G81] P2 — Chord/scale stamping into piano roll (FL chord tools).
+[G82] P3 — Chord track with harmonic transformation (Cubase Chord Track).
+[G83] P3 — MIDI transformations: arpeggiate/strum/humanize/randomize
+      (Live 12 MIDI Tools, Bitwig Note FX).
+[G84] P3 — Articulation management hiding raw keyswitches (Cubase Expression
+      Maps / Logic Articulation Sets).
+[G85] P3 — Ghost notes from other clips while editing (FL ghost channels).
+[G86] P3 — Multi-CC lanes: pitch/mod/aftertouch editors beyond velocity
+      (FL graph editor Note/Velocity/Pitch/Mod X/Y).
+[G87] P1 — Per-step velocity (FL per-step Velocity/Pitch/Shift) — refines
+      the STEP checklist item.
+[G88] P2 — Per-step probability/chance (Logic Step Sequencer chance; Bitwig
+      Operators) — static binary grids sound robotic.
+[G89] P1 — Swing/shuffle % MPC-spec 50-75% (Roger Linn canonical swing).
+[G90] P2 — Pattern chaining/song mode (MPC chaining; FL patterns-as-clips).
+[G91] P3 — Step-fill utilities (every 2nd/4th, random fill).
+[G92] P3 — Note repeats/retrigs with accents (Bitwig Note Repeats).
+[G93] P1 — Capture-quantize: record what you JUST played without pre-arming
+      (Live capture MIDI) — jamming becomes material.
+[G94] P1 — Record session-launcher performance INTO the arrangement
+      (Ableton §7.5; Bitwig Record-to-Arranger) — closes the launcher loop.
+[G95] P2 — Chance-weighted follow actions incl. Jump/Other/Fill/Legato
+      (Live 11+ two-action chance model).
+
+### Agent convergent truths (merged)
+- Delivery agent: mature tools converge on a decoupled cancellable observable
+  render queue + saved presets; continuous autosave/backups behind a prefs UI;
+  accessibility as API + WCAG basics; open interchange accepted as lossy-but-
+  documented; loudness parameterized by NAMED STANDARD with true-peak ceilings.
+- NLE agent: the value is the surrounding SYSTEM (media organization, proxies,
+  non-blocking render, transitions, precise visual feedback), not the timeline.
+- DAW agent: four ideas everywhere Big Mac lacks — routing as first-class UI;
+  probability + humanization; theory-aware editing; nonlinear capture into
+  linear time.
+
+### Revised build order (supersedes the waves above)
+Wave 1 (loops broken at both ends): G01 import browser, G02 audio import,
+G08 undo UI, G57 autosave, G38 render queue+cancel, G30 sends, G94
+session-record-to-arrangement, G89 swing.
+Wave 2: G14 mouse clip ops, G15+G65 trim mode + precision display, G23 fade
+handles, G55 loudness profiles, G41 stems, G69 multiple timelines.
+Wave 3+: everything else by loop order; P3s last.

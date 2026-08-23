@@ -13,6 +13,8 @@
  */
 
 #include "wbus/wbus_cgiexport.h"
+#include "wbus/wbus_delivery.h"
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -65,6 +67,31 @@ int wb_cgi_render_seq(wb_anim *a, double t0, double dur, double fps,
     }
     free(rgba);
     return frames;
+}
+
+int wb_video_export_delivery(wb_session *s, wb_engine *e,
+                             const char *output_path,
+                             const char *srt_path,
+                             wb_video_codec codec,
+                             const wb_cgi_overlay *ov,
+                             double target_lufs) {
+    if (!target_lufs || target_lufs >= 0.0)
+        return wb_video_export_cgi(s,e,output_path,srt_path,codec,ov);
+    /* render audio to a temp wav, normalize it, then export pointing at it */
+    wb_sample *pcm = NULL;
+    uint32_t frames = 0;
+    if (wb_engine_render_session(e, s, &pcm, &frames) != 0 || !pcm)
+        return -1;
+    const char *tmpwav = "/tmp/bigmac_export_audio.wav";
+    if (wb_wav_write_pcm16(tmpwav, pcm, frames, 2, WB_SAMPLE_RATE) != 0) {
+        free(pcm);
+        return -1;
+    }
+    free(pcm);
+    if (wb_delivery_normalize_wav(tmpwav, target_lufs) != 0) return -1;
+    int rc = wb_video_export_cgi(s,e,output_path,srt_path,codec,ov);
+    unlink(tmpwav);
+    return rc;
 }
 
 int wb_video_export_cgi(wb_session *s, wb_engine *e,

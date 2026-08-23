@@ -300,6 +300,12 @@ build/wb_test_perf: build/tools/test_perf.o build/src/wb_perf.o build/src/wb_mes
 test_perf: build/wb_test_perf
 	./build/wb_test_perf
 
+build/wb_test_delivery: build/tools/test_delivery.o build/src/wb_delivery.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_delivery: build/wb_test_delivery
+	./build/wb_test_delivery
+
 
 build/wb_test_agent_cgi: build/tools/test_agent_cgi.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)

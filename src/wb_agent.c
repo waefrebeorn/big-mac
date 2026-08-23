@@ -10,6 +10,7 @@
 #include "wbus/wbus_anim.h"
 #include "wbus/wbus_assets.h"
 #include "wbus/wbus_perf.h"
+#include "wbus/wbus_delivery.h"
 #include "wbus/wbus_cgiexport.h"
 #include "wbus/wbus_shadowbin.h"
 #include "wb_internal.h"   /* wb_wav_read/write_pcm16 (internal) */
@@ -314,6 +315,34 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         int rc = wb_wav_write_pcm16(out, data, frames, ch, sr);
         free(data);
         return rc;
+    }
+    /* R064: delivery — normalize rendered audio to a LUFS target and emit
+     * a YouTube-chapter description block from markers. */
+    if (strcmp(cmd, "normalize") == 0) {
+        /* normalize <wav> [lufs] : two-pass EBU R128 loudness normalize */
+        char *src = tok(&p);
+        double target = atof(tok(&p));
+        if (target == 0) target = -14.0;
+        if (!src || !src[0]) {
+            fprintf(stderr, "ERR:usage:normalize <wav> [lufs]\n");
+            return -1;
+        }
+        int rc = wb_delivery_normalize_wav(src, target);
+        printf("normalize: %s -> %.0f LUFS (rc=%d)\n", src, target, rc);
+        return rc;
+    }
+    if (strcmp(cmd, "chapters") == 0) {
+        char *out = tok(&p);
+        char desc[4096];
+        int n = wb_delivery_chapters(s, desc, sizeof desc);
+        if (n <= 0) { fprintf(stderr, "ERR:chapters:need-2-plus-markers\n"); return -1; }
+        const char *path = out && out[0] ? out : "/tmp/bigmac_chapters.txt";
+        FILE *f = fopen(path, "w");
+        if (!f) { fprintf(stderr, "ERR:chapters:cannot-write:%s\n", path); return -1; }
+        fputs(desc, f);
+        fclose(f);
+        printf("chapters: %d written to %s\n", n, path);
+        return 0;
     }
     if (strcmp(cmd, "quit") == 0) return 0;
     fprintf(stderr, "wb_agent: unknown command '%s'\n", cmd);

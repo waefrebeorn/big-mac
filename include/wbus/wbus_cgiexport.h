@@ -45,6 +45,16 @@ int wb_video_export_cgi(wb_session *s, wb_engine *e,
                         wb_video_codec codec,
                         const wb_cgi_overlay *overlay);
 
+/* R064: same as above but normalizes the rendered audio to target LUFS
+ * (two-pass EBU R128) BEFORE the video mux — a one-call platform-ready
+ * master. target_lufs 0 disables (plain export). */
+int wb_video_export_delivery(wb_session *s, wb_engine *e,
+                             const char *output_path,
+                             const char *srt_path,
+                             wb_video_codec codec,
+                             const wb_cgi_overlay *overlay,
+                             double target_lufs);
+
 #ifdef __cplusplus
 }
 #endif

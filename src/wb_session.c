@@ -10,6 +10,7 @@
 #include <math.h>
 #include "wbus.h"
 #include "wbus_video.h"
+#include "wbus/wbus_clip_edit.h"
 
 /* ---- create ------------------------------------------------------------- */
 wb_session *wb_session_create(void) {
@@ -997,5 +998,116 @@ int wb_session_export_fcpxml(const wb_session *s, const char *xml_path) {
     fprintf(f, "  </library>\n");
     fprintf(f, "</fcpxml>\n");
     fclose(f);
+    return 0;
+}
+
+/* ---- G14: direct-manipulation clip move/trim (mouse drag model ops) ----- */
+int wb_session_move_clip(wb_session *s, int track, int clip,
+                         int new_track, double new_start) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    if (new_track < 0 || new_track >= (int)s->track_count) return -1;
+    wb_track *src = &s->tracks[track];
+    if (clip < 0 || (uint32_t)clip >= src->clip_count) return -1;
+    wb_clip moving = src->clips[clip];
+    /* clips may only land on tracks that host the same media kind */
+    if (moving.type != s->tracks[new_track].kind
+        && !(track == new_track))
+        return -1;
+    if (new_start < 0.0) new_start = 0.0;
+    moving.start = new_start;
+    wb_track *dst = &s->tracks[new_track];
+    wb_clip *na = realloc(dst->clips, (dst->clip_count + 1) * sizeof(wb_clip));
+    if (!na) return -1;
+    dst->clips = na;
+    dst->clips[dst->clip_count++] = moving;
+    /* remove from source (compact the array; indices shift by one) */
+    for (uint32_t i = (uint32_t)clip; i + 1 < src->clip_count; i++)
+        src->clips[i] = src->clips[i + 1];
+    src->clip_count--;
+    /* keep the session length covering the clip's tail */
+    double end = moving.start + moving.length;
+    if (end > s->length) s->length = end;
+    return 0;
+}
+
+static int trim_common(wb_session *s, int track, int clip, wb_clip **out) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if (clip < 0 || (uint32_t)clip >= tr->clip_count) return -1;
+    *out = &tr->clips[clip];
+    return 0;
+}
+
+#define WB_TRIM_MIN_SMP (WB_SAMPLE_RATE * 0.01)   /* 10 ms minimum clip */
+/* MIDI clips keep start/length/notes in SECONDS; audio uses SAMPLES. */
+static double trim_min_len(const wb_clip *cl) {
+    return cl->type == 0 ? 1e-6 : WB_TRIM_MIN_SMP;
+}
+
+int wb_session_trim_clip_head(wb_session *s, void *ed,
+                              int track, int clip, double delta) {
+    wb_clip *cl;
+    if (trim_common(s, track, clip, &cl) != 0) return -1;
+    double minlen = trim_min_len(cl);
+    if (delta > cl->length - minlen) delta = cl->length - minlen;
+    if (delta < 0.0 && cl->start + delta < 0.0) delta = -cl->start;
+    cl->start += delta;
+    cl->length -= delta;
+    if (cl->type == 1) {
+        /* audio: keep the waveform anchored — sliding the head forward reads
+         * further into the source buffer (start_in_source semantics); sliding
+         * it back left rewinds the offset so revealed material plays. */
+        wb_clip_edit_table *et = (wb_clip_edit_table *)ed;
+        if (et) {
+            wb_clip_edit *e = wb_clip_edit_get(et, track, clip);
+            e->start_in_source += delta;
+            if (e->start_in_source < 0.0) e->start_in_source = 0.0;
+        }
+    } else if (cl->type == 0) {
+        /* MIDI: notes live relative to clip start — keep them at their
+         * absolute timeline spots by shifting against the clip, then clamp
+         * into [0,length]. */
+        for (uint32_t k = 0; k < cl->note_count; k++) {
+            wb_note *nt = &cl->notes[k];
+            nt->start -= delta;
+            double nend = nt->start + nt->dur;
+            if (nend <= 0.0) { nt->dur = 0.0; continue; }
+            if (nt->start < 0.0) {
+                nt->dur -= -nt->start;
+                nt->start = 0.0;
+            }
+            if (nt->dur < 0.0) nt->dur = 0.0;
+        }
+    }
+    return 0;
+}
+
+int wb_session_trim_clip_tail(wb_session *s, void *ed,
+                              int track, int clip, double delta) {
+    wb_clip *cl;
+    if (trim_common(s, track, clip, &cl) != 0) return -1;
+    (void)ed;
+    double minlen = trim_min_len(cl);
+    double newlen = cl->length + delta;
+    if (newlen < minlen) newlen = minlen;
+    if (cl->type == 1 && cl->audio_frames > 0) {
+        /* audio: cannot extend past what the buffer still has to give */
+        wb_clip_edit_table *et = (wb_clip_edit_table *)ed;
+        double sis = 0.0;
+        if (et) sis = wb_clip_edit_get(et, track, clip)->start_in_source;
+        double avail = (double)cl->audio_frames - sis;
+        if (avail < WB_TRIM_MIN_SMP) avail = WB_TRIM_MIN_SMP;
+        if (newlen > avail) newlen = avail;
+    } else if (cl->type == 0) {
+        /* MIDI: shortening the tail drops/clamps notes past the new end */
+        for (uint32_t k = 0; k < cl->note_count; k++) {
+            wb_note *nt = &cl->notes[k];
+            if (nt->start >= newlen) { nt->dur = 0.0; continue; }
+            if (nt->start + nt->dur > newlen) nt->dur = newlen - nt->start;
+        }
+    }
+    cl->length = newlen;
+    double end = cl->start + cl->length;
+    if (end > s->length) s->length = end;
     return 0;
 }

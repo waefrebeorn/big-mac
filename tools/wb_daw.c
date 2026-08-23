@@ -186,6 +186,9 @@ typedef struct app {
     int tr_scroll;           /* R051: first visible transcript row */
     wb_perf *perf;           /* R065: live performance engine */
     int      perf_recording;
+    /* R067: JKL scrubbing + I/O loop points */
+    int      jkl_speed;      /* -8..+8 (0 = stopped) */
+    double   io_in, io_out;  /* sample positions; out<=in means unset */
     /* R050: CGI drag-rotate */
     int cgi_dragging;
     int cgi_last_x, cgi_last_y;
@@ -2089,6 +2092,21 @@ static void perf_tick(app *a) {
             if (p >= 0) wb_engine_note(a->engine, ti, (uint8_t)p, 100);
         }
     }
+    /* R067: JKL shuttle — advance the playhead at shuttle speed when
+     * stopped; while playing, L/J re-trigger playback direction via
+     * engine seek steps. Simple approach: when not playing, JKL moves
+     * the head directly (scrub); when playing, speed multiplies seeks. */
+    if (a->jkl_speed != 0) {
+        double step = a->jkl_speed * (WB_SAMPLE_RATE / 30.0);
+        double np = a->t.song_pos + step;
+        if (np < 0) np = 0;
+        /* loop over I/O if both marked */
+        if (a->io_out > a->io_in) {
+            if (np > a->io_out) np = a->io_in;
+            if (np < a->io_in - WB_SAMPLE_RATE) np = a->io_out;
+        }
+        wb_engine_seek(a->engine, np);
+    }
     /* R065: performance clock follows the transport while recording so
      * captured events land on musical time. */
     if (a->perf && a->perf_recording && a->t.playing)
@@ -2566,6 +2584,46 @@ static void handle_key(app *a, SDL_Keycode k) {
         break;
     case SDLK_RIGHT: wb_engine_seek(a->engine, a->t.song_pos + WB_SAMPLE_RATE/4); break;
     case SDLK_LEFT:  wb_engine_seek(a->engine, a->t.song_pos - WB_SAMPLE_RATE/4); break;
+
+    /* R067: JKL shuttle — the editor's muscle memory.
+     * J = reverse (speed grows each press), K = pause, L = forward.
+     * Scoped to ARRANGE/EDIT tabs so PAD/STEP music keys keep working. */
+    case SDLK_j:
+        if (a->tab == 0 || a->tab == 1) {
+            if (a->jkl_speed > 0) a->jkl_speed = -1;
+            else if (a->jkl_speed > -8) a->jkl_speed--;
+            else a->jkl_speed = 0;
+            printf("shuttle: %d\n", a->jkl_speed);
+        }
+        break;
+    case SDLK_l:
+        if (a->tab == 0 || a->tab == 1) {
+            if (a->jkl_speed < 0) a->jkl_speed = 1;
+            else if (a->jkl_speed < 8) a->jkl_speed++;
+            else a->jkl_speed = 0;
+            printf("shuttle: %d\n", a->jkl_speed);
+        }
+        break;
+    case SDLK_k:
+        if (a->tab == 0 || a->tab == 1) {
+            a->jkl_speed = 0;
+            if (a->t.playing) wb_engine_stop(a->engine);
+        } else {
+            if (a->tab == 2) step_commit_to_clip(a);   /* R036 behavior */
+        }
+        break;
+    case SDLK_o:
+        if (!ctrl && (a->tab == 0 || a->tab == 1)) {
+            a->io_out = a->t.song_pos;
+            printf("mark OUT: %.2fs\n", a->io_out / WB_SAMPLE_RATE);
+        } else if (ctrl) {
+            load_project(a, "/tmp/bigmac_proj.wbus"); /* Ctrl+O: open demo */
+        }
+        break;
+    case SDLK_SEMICOLON:   /* IN marker (I is taken by import on EDIT tabs) */
+        a->io_in = a->t.song_pos;
+        printf("mark IN: %.2fs\n", a->io_in / WB_SAMPLE_RATE);
+        break;
     case SDLK_b:
         if (a->tab == 6 && a->vid_has_clip && a->vid_captions_ready && (mod & KMOD_CTRL)) {
             /* Ctrl+B: burn captions (CAPTIONS tab) */
@@ -2615,9 +2673,6 @@ static void handle_key(app *a, SDL_Keycode k) {
                      (int)(a->t.song_pos / WB_SAMPLE_RATE * 100));
             printf("video: export path set -> %s\n", a->vid_export);
         }
-        break;
-    case SDLK_o:
-        if (ctrl) load_project(a, "/tmp/bigmac_proj.wbus"); /* Ctrl+O: open demo project */
         break;
     case SDLK_p:
         /* toggle the VST3 parameter editor for the selected track */
@@ -2695,14 +2750,11 @@ static void handle_key(app *a, SDL_Keycode k) {
             printf("scale: %s (root %d)\n", scale_name(a->scale_root, a->scale_type), a->scale_root);
         }
         break;
-    case SDLK_l:
-        /* cycle scale root down */
-        a->scale_root = (a->scale_root + 11) % 12;
-        a->param_drag = -1;
-        printf("scale: %s (root %d)\n", scale_name(a->scale_root, a->scale_type), a->scale_root);
-        break;
     case SDLK_i:
-        if (a->tab >= 4 && a->tab <= 7) {
+        if (a->tab == 0 || a->tab == 1) {
+            a->io_in = a->t.song_pos;   /* R067: IN on arrange tabs too */
+            printf("mark IN: %.2fs\n", a->io_in / WB_SAMPLE_RATE);
+        } else if (a->tab >= 4 && a->tab <= 7) {
             const char *dv = "/Users/waefrebeorn/Documents/big-mac/test_media/demo.mp4";
             if (access(dv, F_OK) != 0) dv = "/Users/waefrebeorn/Videos/demo.mp4";
             if (access(dv, F_OK) != 0) {
@@ -2851,9 +2903,6 @@ static void handle_key(app *a, SDL_Keycode k) {
                    ti, a->sel_lane, a->sel_t0, a->sel_t1, made);
             a->marquee_active = 0;
         }
-        break;
-    case SDLK_k:  /* R036: commit the STEP pattern into the track's clip */
-        if (a->tab == 2) step_commit_to_clip(a);
         break;
     default: break;
     }

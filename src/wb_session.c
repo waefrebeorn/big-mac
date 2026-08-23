@@ -133,7 +133,60 @@ wb_track *wb_session_add_track(wb_session *s, const char *name, int kind) {
     tr->solo = 0;
     tr->route = -1;   /* default: route to master, not a bus */
     tr->active_lane = 0;   /* R030: main lane active by default */
+    tr->rec_armed = 0;     /* G09: not record-armed */
     return tr;
+}
+
+/* G09 (Wave2): remove a track and close the gap. Frees the removed
+ * track's clips/notes, memmoves the array, and retargets references:
+ * automation lane targets, insert sidechain keys, aux send targets,
+ * routes (a route to a bus after the removed index shifts down). */
+int wb_session_remove_track(wb_session *s, uint32_t idx) {
+    if (!s || idx >= s->track_count) return -1;
+    wb_track *tk = &s->tracks[idx];
+    for (uint32_t c = 0; c < tk->clip_count; c++) free(tk->clips[c].notes);
+    free(tk->clips);
+    tk->clips = NULL; tk->clip_count = 0;
+
+    for (uint32_t t = idx; t + 1 < s->track_count; t++)
+        s->tracks[t] = s->tracks[t + 1];
+    s->track_count--;
+
+    /* retarget references to tracks after the removed index */
+    for (uint32_t t = 0; t < s->track_count; t++) {
+        wb_track *r = &s->tracks[t];
+        if (r->route > (int)idx && r->route != -1) r->route--;
+        else if (r->route == (int)idx)             r->route = -1;
+        for (int k = 0; k < WB_MAX_INSERT_SLOTS; k++) {
+            if (r->sidechain[k] == (int)idx)       r->sidechain[k] = -1;
+            else if (r->sidechain[k] > (int)idx)   r->sidechain[k]--;
+        }
+        for (int k = 0; k < 2; k++) {
+            if (r->send_target[k] == (int)idx)     r->send_target[k] = -1;
+            else if (r->send_target[k] > (int)idx) r->send_target[k]--;
+        }
+    }
+    /* automation lanes: drop lanes targeting the removed track, shift others */
+    uint32_t w = 0;
+    for (uint32_t a = 0; a < s->automation_count; a++) {
+        wb_automation_lane *al = s->automation[a];
+        if (al->target == (int)idx) { wb_automation_lane_destroy(al); continue; }
+        if (al->target > (int)idx) al->target--;
+        s->automation[w++] = al;
+    }
+    s->automation_count = w;
+    return 0;
+}
+
+/* G09 (Wave2): swap two adjacent tracks (reorder up/down in the gutter). */
+int wb_session_move_track(wb_session *s, uint32_t idx, int delta) {
+    if (!s || delta == 0) return -1;
+    int64_t j = (int64_t)idx + delta;
+    if (j < 0 || j >= (int64_t)s->track_count) return -1;
+    wb_track tmp      = s->tracks[idx];
+    s->tracks[idx]    = s->tracks[j];
+    s->tracks[j]      = tmp;
+    return 0;
 }
 
 /* Append a MIDI note to a track's first clip (creating one if needed). */

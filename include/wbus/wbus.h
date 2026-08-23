@@ -126,6 +126,8 @@ typedef struct wb_track {
     /* R030: take-lanes — only the clip on this lane is heard; switch to
      * audition/comp another take. 0 = main lane. */
     int active_lane;
+    /* G09 (Wave2): per-track record-arm (arrangement REC button). */
+    int rec_armed;
 } wb_track;
 
 /* ---- automation envelopes ---------------------------------------------- */
@@ -178,6 +180,8 @@ wb_session *wb_session_demo(void);         /* 2-track demo song */
 void        wb_session_destroy(wb_session *s);
 wb_session *wb_session_copy(const wb_session *s); /* deep independent copy */
 wb_track   *wb_session_add_track(wb_session *s, const char *name, int kind);
+int          wb_session_remove_track(wb_session *s, uint32_t idx); /* G09 */
+int          wb_session_move_track(wb_session *s, uint32_t idx, int delta); /* G09 */
 int         wb_session_add_note(wb_track *tr, double start, double dur, int pitch, int vel);
 /* Remove the note in `tr` closest to (start,pitch) within a small tolerance.
  * Returns 0 if a note was removed, -1 if none matched. */

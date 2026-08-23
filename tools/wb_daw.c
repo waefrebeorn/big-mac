@@ -237,6 +237,11 @@ typedef struct app {
     int  export_range_mode;          /* 0 = WHOLE, 1 = IN..playhead */
     int  export_res_h;               /* 0/1080 native, 480, 720 */
     int  delivery_profile_idx;       /* G52: index into g_delivery_cycle */
+    /* G09: arrangement-gutter track management */
+    int  rename_armed;               /* typing appends to the track name */
+    int  rename_track;               /* track being renamed */
+    int  last_click_track;           /* double-click detection */
+    Uint32 last_click_ms;
 } app;
 
 /* G52: EXPORT-tab delivery preset cycle (names map to wb_delivery profiles;
@@ -602,9 +607,23 @@ static void draw_arrangement(app *a) {
         setc(a->ren, C_TEXT); wb_ui_draw_text(a->ren, 6, y+6, tr->name, 1, C_TEXT);
         char vol[12]; snprintf(vol,sizeof(vol),"%.0f%%",tr->volume*100);
         wb_ui_draw_text(a->ren, 6, y+18, vol, 1, C_TEXT_DIM);
-        /* R038: per-track Mute / Solo buttons in the gutter (conventional DAW track header) */
-        ui_button(a->ren, 1000+ti, GUTTER_W-46, y+4, 20, 14, "M", tr->mute);
-        ui_button(a->ren, 2000+ti, GUTTER_W-24, y+4, 20, 14, "S", tr->solo);
+        /* R038: per-track Mute / Solo buttons in the gutter (conventional DAW track header)
+         * G09: REC arm + delete + up/down reorder join the gutter row. */
+        ui_button(a->ren, 6000+ti, GUTTER_W-90, y+4, 20, 14, "R", tr->rec_armed);
+        ui_button(a->ren, 1000+ti, GUTTER_W-68, y+4, 20, 14, "M", tr->mute);
+        ui_button(a->ren, 2000+ti, GUTTER_W-46, y+4, 20, 14, "S", tr->solo);
+        ui_button(a->ren, 7000+ti, GUTTER_W-24, y+4, 20, 14, "x", 0);
+        ui_button(a->ren, 7300+ti, GUTTER_W-46, y+20, 20, 14, "^", 0);
+        ui_button(a->ren, 7400+ti, GUTTER_W-24, y+20, 20, 14, "v", 0);
+        /* G09: the name itself is a region — double-click arms rename */
+        {
+            SDL_Rect nmr = { 4, y+4, GUTTER_W-96, 14 };
+            region_add(500+ti, nmr.x, nmr.y, nmr.w, nmr.h);
+        }
+        if (a->rename_armed && a->rename_track == ti) {   /* rename cursor */
+            SDL_Rect cur = { 6, y+16, (int)strlen(tr->name)*6 + 2, 2 };
+            setc(a->ren, C_ACCENT); SDL_RenderFillRect(a->ren, &cur);
+        }
 
         /* clip contents: notes (MIDI) or waveform (audio) */
         for (uint32_t c=0;c<tr->clip_count;c++) {
@@ -2733,6 +2752,50 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                             a->browser_open = 0;
                             browser_import(a, p);
                         }
+                    } else if (id >= 500 && id < 600) {   /* G09: track name */
+                        int ti = id - 500;
+                        Uint32 now = SDL_GetTicks();
+                        if (a->last_click_track == ti &&
+                            now - a->last_click_ms < 450) {
+                            a->rename_armed = 1; a->rename_track = ti;
+                            snprintf(a->last_status, sizeof a->last_status,
+                                     "RENAME track %d: type, ENTER commits", ti);
+                        }
+                        a->last_click_track = ti; a->last_click_ms = now;
+                    } else if (id >= 6000 && id < 6100) { /* G09: REC arm */
+                        int ti = id - 6000;
+                        if (ti < (int)a->session->track_count) {
+                            a->session->tracks[ti].rec_armed =
+                                !a->session->tracks[ti].rec_armed;
+                            wb_engine_set_session(a->engine, a->session);
+                            printf("track %d rec %s\n", ti,
+                                   a->session->tracks[ti].rec_armed ? "ARMED" : "off");
+                        }
+                    } else if (id >= 7000 && id < 7100) { /* G09: delete track */
+                        int ti = id - 7000;
+                        if (ti < (int)a->session->track_count &&
+                            a->session->track_count > 1) {
+                            daw_checkpoint(a);
+                            char nm[64]; snprintf(nm, sizeof nm, "%.60s",
+                                                  a->session->tracks[ti].name);
+                            wb_session_remove_track(a->session, (uint32_t)ti);
+                            wb_engine_set_session(a->engine, a->session);
+                            snprintf(a->last_status, sizeof a->last_status,
+                                     "DELETED track %.40s", nm);
+                            printf("track: removed '%s'\n", nm);
+                        }
+                    } else if ((id >= 7300 && id < 7400) ||
+                               (id >= 7400 && id < 7500)) { /* G09: reorder */
+                        int up = id >= 7300 && id < 7400;
+                        int ti = (id % 100);
+                        int j = ti + (up ? -1 : 1);
+                        if (j >= 0 && j < (int)a->session->track_count) {
+                            daw_checkpoint(a);
+                            wb_session_move_track(a->session, (uint32_t)ti,
+                                                  up ? -1 : 1);
+                            wb_engine_set_session(a->engine, a->session);
+                            printf("track: moved %d -> %d\n", ti, j);
+                        }
                     } else if (id >= 1000 && id < 2000) {  /* per-track Mute in gutter */
                         int ti = id - 1000;
                         if (ti < (int)a->session->track_count) {
@@ -3204,18 +3267,50 @@ static void handle_motion(app *a, SDL_MouseMotionEvent m) {
 static void handle_key(app *a, SDL_Keycode k) {
     Uint32 mod = SDL_GetModState();
     int ctrl = (mod & KMOD_CTRL) != 0;
+    /* G09: rename capture — printable keys append to the track name,
+     * ENTER commits (disarms), ESC disarms. */
+    if (a->rename_armed && a->session &&
+        a->rename_track < (int)a->session->track_count) {
+        wb_track *tr = &a->session->tracks[a->rename_track];
+        if (k == SDLK_RETURN || k == SDLK_KP_ENTER) {
+            a->rename_armed = 0;
+            printf("rename: committed '%s'\n", tr->name);
+            return;
+        }
+        if (k == SDLK_ESCAPE) { a->rename_armed = 0; return; }
+        if (k == SDLK_BACKSPACE) {
+            size_t L = strlen(tr->name);
+            if (L > 0) tr->name[L-1] = 0;
+            return;
+        }
+        if (!ctrl && k >= SDLK_SPACE && k <= SDLK_z &&
+            strlen(tr->name) + 1 < sizeof(tr->name)) {
+            size_t L = strlen(tr->name);
+            tr->name[L] = (char)k;
+            tr->name[L+1] = 0;
+        }
+        return;   /* swallow everything else while renaming */
+    }
     switch (k) {
     case SDLK_SPACE:
         if (a->t.playing) wb_engine_stop(a->engine); else wb_engine_play(a->engine);
         break;
-    case SDLK_RIGHT: wb_engine_seek(a->engine, a->t.song_pos + WB_SAMPLE_RATE/4); break;
-    case SDLK_LEFT:  wb_engine_seek(a->engine, a->t.song_pos - WB_SAMPLE_RATE/4); break;
+    case SDLK_RIGHT:
+        /* G15: in TRIM MODE arrows nudge the edit point frame-wise */
+        if (a->trim_mode) { trim_nudge(a, WB_TRIM_FRAME); break; }
+        wb_engine_seek(a->engine, a->t.song_pos + WB_SAMPLE_RATE/4);
+        break;
+    case SDLK_LEFT:
+        if (a->trim_mode) { trim_nudge(a, -WB_TRIM_FRAME); break; }
+        wb_engine_seek(a->engine, a->t.song_pos - WB_SAMPLE_RATE/4);
+        break;
 
     /* R067: JKL shuttle — the editor's muscle memory.
      * J = reverse (speed grows each press), K = pause, L = forward.
      * Scoped to ARRANGE/EDIT tabs so PAD/STEP music keys keep working. */
     case SDLK_j:
-        if (a->tab == 0 || a->tab == 1) {
+        /* G15: JKL shuttles preview audio around the cut in TRIM MODE too */
+        if (a->tab == 0 || a->tab == 1 || (a->tab == 5 && a->trim_mode)) {
             if (a->jkl_speed > 0) a->jkl_speed = -1;
             else if (a->jkl_speed > -8) a->jkl_speed--;
             else a->jkl_speed = 0;

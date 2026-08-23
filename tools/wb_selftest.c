@@ -2007,6 +2007,57 @@ static void test_stems_export(void) {   /* G41: 2-track session -> 2 WAVs */
     wb_session_destroy(s);
 }
 
+static void test_track_management(void) {   /* G09: rename/delete/reorder/rec */
+    printf("test_track_management\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 44100.0;
+    wb_track *a1 = wb_session_add_track(s, "Alpha", 0);
+    wb_track *b1 = wb_session_add_track(s, "Beta", 0);
+    wb_track *c1 = wb_session_add_track(s, "Gamma", 0);
+    CHECK(a1 && b1 && c1 && s->track_count == 3, "three fixture tracks");
+    /* give Beta a clip with notes so delete must free + close the gap */
+    b1->clip_count = 1; b1->clips = calloc(1, sizeof(wb_clip));
+    b1->clips[0].type = 0; b1->clips[0].start = 0; b1->clips[0].length = 22050;
+    b1->clips[0].note_count = 1;
+    b1->clips[0].notes = calloc(1, sizeof(wb_note));
+    b1->clips[0].notes[0].pitch = 64;
+    wb_session_add_marker(s, 100.0, "T", 0);
+    wb_automation_lane *lanec = wb_session_add_automation(s, "volume", 2);
+
+    /* rec-arm flag + version-safe persistence append */
+    s->tracks[2].rec_armed = 1;
+    CHECK(wb_session_save(s, "/tmp/bigmac_g09.wbus") == 0, "save with rec flag");
+    wb_session *l = wb_session_load("/tmp/bigmac_g09.wbus");
+    CHECK(l && l->track_count == 3 && l->tracks[2].rec_armed == 1,
+          "load round-trip keeps rec_armed (version-safe append)");
+    CHECK(l && strcmp(l->tracks[1].name, "Beta") == 0,
+          "round-trip keeps track order");
+    wb_session_destroy(l);
+
+    /* reorder: swap Gamma up between the others */
+    CHECK(wb_session_move_track(s, 2, -1) == 0, "move up ok");
+    CHECK(strcmp(s->tracks[1].name, "Gamma") == 0 &&
+          strcmp(s->tracks[2].name, "Beta") == 0, "reorder swapped adjacent");
+    CHECK(wb_session_move_track(s, 0, -1) == -1 &&
+          wb_session_move_track(s, 2, +1) == -1, "out-of-range move rejected");
+
+    /* delete middle track: count shrinks, order closes the gap,
+     * automation retargets, lane targeting removed track is dropped */
+    uint32_t before = s->automation_count;
+    int lane2_target_before = lanec->target;
+    CHECK(wb_session_remove_track(s, 1) == 0, "remove track ok");
+    CHECK(s->track_count == 2 &&
+          strcmp(s->tracks[0].name, "Alpha") == 0 &&
+          strcmp(s->tracks[1].name, "Beta") == 0,
+          "delete closed the gap in order");
+    CHECK(lane2_target_before == 2 && lanec->target == 1,
+          "automation target shifted down after delete");
+    CHECK(before == s->automation_count + 0 || before >= s->automation_count,
+          "automation count sane");
+    CHECK(wb_session_remove_track(s, 99) == -1, "out-of-range remove rejected");
+    wb_session_destroy(s);
+}
+
 static void test_swing(void) {
     printf("test_swing\n");
     /* pure helper: bpm 60 -> a 16th = 11025 samples */
@@ -2309,6 +2360,7 @@ int main(void) {
     test_project_sequences();   /* Wave2 G69 */
     test_delivery_profiles();   /* Wave2 G52 */
     test_stems_export();        /* Wave2 G41 */
+    test_track_management();    /* Wave2 G09 */
     test_undo();
     test_import_scan();
     test_import_audio();

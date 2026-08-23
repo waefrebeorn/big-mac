@@ -51,6 +51,11 @@ int wb_delivery_measure_loudness(const char *wav_path,
 /* Normalize a WAV in place (pass 2) to target LUFS with linear mode. */
 int wb_delivery_normalize_wav(const char *wav_path, double target_lufs);
 
+/* G41 (Wave2): stems export — render every non-bus track to its own WAV
+ * (zero-based start, full session length) into dir/trackNN_name.wav.
+ * Returns the number of stems written, or -1 on error. */
+int wb_delivery_export_stems(wb_session *s, const char *dir);
+
 /* Generate YouTube description chapter block from session markers into buf:
  * "00:00 Intro\n00:12 Verse\n..." (requires >=2 markers; first at 0).
  * Returns number of chapters written, or 0 if markers insufficient. */

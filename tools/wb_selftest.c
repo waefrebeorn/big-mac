@@ -19,6 +19,8 @@
 #include "wb_internal.h"
 #include "wbus_capture.h"     /* Wave1 G93/G94 */
 #include "wbus_export_job.h"  /* Wave1 G38 */
+#include "wbus_delivery.h"    /* Wave2 G52 */
+#include "wbus/wbus_clip_edit.h" /* Wave2 G14/G23/G64 */
 
 static int failures = 0;
 static int checks = 0;
@@ -1935,6 +1937,76 @@ static void sw_note(void *v, int pitch, int vel) {
     (void)pitch; (void)vel;
     if (g_sw_n < 64 && v) g_sw_hits[g_sw_n++] = g_sw_blk;   /* block index */
 }
+static void test_delivery_profiles(void) {   /* G52: preset lookup -> LUFS */
+    printf("test_delivery_profiles\n");
+    int count = 0;
+    const wb_delivery_profile *ps = wb_delivery_profiles(&count);
+    CHECK(ps && count == 5, "five named loudness profiles");
+    CHECK(wb_delivery_profile_by_name("YOUTUBE")->lufs == -14.0,
+          "YOUTUBE targets -14 LUFS");
+    CHECK(fabs(wb_delivery_profile_by_name("NETFLIX")->lufs - (-27.0)) < 1e-9 &&
+          fabs(wb_delivery_profile_by_name("NETFLIX")->tp_ceiling - (-2.0)) < 1e-9 &&
+          fabs(wb_delivery_profile_by_name("NETFLIX")->lra_max - 18.0) < 1e-9,
+          "NETFLIX: -27 LUFS / -2 dBTP / LRA cap 18");
+    CHECK(fabs(wb_delivery_profile_by_name("EBU-R128")->lufs - (-23.0)) < 1e-9,
+          "BROADCAST alias (EBU-R128) targets -23 LUFS");
+    CHECK(fabs(wb_delivery_profile_by_name("PODCAST")->lufs - (-16.0)) < 1e-9,
+          "PODCAST targets -16 LUFS");
+    CHECK(fabs(wb_delivery_profile_by_name("ATSC-A85")->lufs - (-24.0)) < 1e-9,
+          "ATSC-A85 targets -24 LUFS");
+    CHECK(wb_delivery_profile_by_name("NOPE") == NULL, "unknown profile rejected");
+}
+
+static void test_stems_export(void) {   /* G41: 2-track session -> 2 WAVs */
+    printf("test_stems_export\n");
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 44100.0;   /* 1 second */
+    for (int t = 0; t < 2; t++) {
+        char nm[16]; snprintf(nm, sizeof nm, "Stem%d", t);
+        wb_track *tr = wb_session_add_track(s, nm, 0);
+        CHECK(tr != NULL, "stem fixture track added");
+        tr->clip_count = 1; tr->clips = calloc(1, sizeof(wb_clip));
+        tr->clips[0].type = 0; tr->clips[0].start = 0;
+        tr->clips[0].length = 44100;
+        tr->clips[0].note_count = 1;
+        tr->clips[0].notes = calloc(1, sizeof(wb_note));
+        tr->clips[0].notes[0].start = 0;
+        tr->clips[0].notes[0].dur = 22050;
+        tr->clips[0].notes[0].pitch = 60 + t * 4;
+        tr->clips[0].notes[0].vel = 100;
+    }
+    char cmd[256];
+    snprintf(cmd, sizeof cmd, "rm -rf /tmp/bigmac_stems_test");
+    if (system(cmd) != 0) { /* best-effort cleanup */ }
+    int ns = wb_delivery_export_stems(s, "/tmp/bigmac_stems_test");
+    CHECK(ns == 2, "two stems written for a 2-track session");
+    /* verify both WAVs exist and their data chunk holds exactly
+     * session_length * 2ch * 2bytes = 44100*4 bytes */
+    for (int t = 0; t < 2; t++) {
+        char path[256];
+        snprintf(path, sizeof path, "/tmp/bigmac_stems_test/track%02d_Stem%d.wav",
+                 t + 1, t);
+        FILE *f = fopen(path, "rb");
+        CHECK(f != NULL, "stem wav exists");
+        if (!f) continue;
+        unsigned char hdr[12];
+        CHECK(fread(hdr, 1, 12, f) == 12 && !memcmp(hdr, "RIFF", 4) &&
+              !memcmp(hdr + 8, "WAVE", 4), "stem is a RIFF/WAVE file");
+        /* scan chunks for 'data' */
+        int ok = 0; uint32_t dsize = 0;
+        unsigned char ch[8];
+        while (fread(ch, 1, 8, f) == 8) {
+            uint32_t sz = ch[4] | ch[5]<<8 | ch[6]<<16 | (uint32_t)ch[7]<<24;
+            if (!memcmp(ch, "data", 4)) { dsize = sz; ok = 1; break; }
+            fseek(f, (long)((sz + 1) & ~1u), SEEK_CUR);
+        }
+        CHECK(ok && dsize == 44100u * 4,
+              "stem data chunk = full-length interleaved stereo PCM16");
+        fclose(f);
+    }
+    wb_session_destroy(s);
+}
+
 static void test_swing(void) {
     printf("test_swing\n");
     /* pure helper: bpm 60 -> a 16th = 11025 samples */
@@ -2234,6 +2306,9 @@ int main(void) {
     test_bus_routing();
     test_sends();   /* Wave1 G30/G74 */
     test_swing();   /* Wave1 G89 */
+    test_project_sequences();   /* Wave2 G69 */
+    test_delivery_profiles();   /* Wave2 G52 */
+    test_stems_export();        /* Wave2 G41 */
     test_undo();
     test_import_scan();
     test_import_audio();

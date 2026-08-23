@@ -236,7 +236,19 @@ typedef struct app {
     wb_export_job ejob;              /* one-slot background export queue */
     int  export_range_mode;          /* 0 = WHOLE, 1 = IN..playhead */
     int  export_res_h;               /* 0/1080 native, 480, 720 */
+    int  delivery_profile_idx;       /* G52: index into g_delivery_cycle */
 } app;
+
+/* G52: EXPORT-tab delivery preset cycle (names map to wb_delivery profiles;
+ * "BROADCAST" is the friendly alias for the EBU-R128 profile). */
+static const char *g_delivery_cycle[] = { "YOUTUBE", "NETFLIX", "BROADCAST", "PODCAST" };
+#define G_DELIVERY_N ((int)(sizeof g_delivery_cycle / sizeof g_delivery_cycle[0]))
+static const wb_delivery_profile *daw_delivery_profile(int idx) {
+    if (idx < 0 || idx >= G_DELIVERY_N) idx = 0;
+    const char *nm = g_delivery_cycle[idx];
+    if (!strcmp(nm, "BROADCAST")) nm = "EBU-R128";
+    return wb_delivery_profile_by_name(nm);
+}
 
 /* forward decl: logging note wrapper used by the MIDI thread too */
 static void daw_note(app *a, int track, uint8_t pitch, uint8_t vel);
@@ -1527,6 +1539,13 @@ static void draw_action_bar(app *a) {
             ui_button(a->ren, 9004, ex+3*(sw+4),  by, sw, bh, "1080p", a->export_res_h==0);
             if (wb_export_job_running(&a->ejob))
                 ui_button(a->ren, 9005, ex+4*(sw+4), by, sw, bh, "CANCEL", 1);
+            /* G52: delivery preset cycle + DELIVER (profile-normalized master) */
+            {
+                ui_button(a->ren, 9100, ex+5*(sw+4), by, sw+20, bh, g_delivery_cycle[a->delivery_profile_idx], 1);
+                int dx = ex + 5*(sw+4) + sw + 24;
+                ui_button(a->ren, 9101, dx, by, 76, bh, "DELIVER", 0);
+                ui_button(a->ren, 9102, dx+80, by, 70, bh, "STEMS", 0);   /* G41 */
+            }
         }
         if (tab == 4)   /* Wave1 G01: open the in-GUI media browser */
             ui_button(a->ren, BTN_BROWSE, bx+3*(bw+6), by, bw, bh, "BROWSE", a->browser_open);
@@ -1932,7 +1951,15 @@ static void draw_video_tab_panel(app *a) {
         snprintf(buf, sizeof(buf), "Resolution: %s",
                  a->export_res_h == 480 ? "854x480" :
                  a->export_res_h == 720 ? "1280x720" : "1920x1080");
-        wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 16;
+        wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 14;
+        /* G52: active delivery preset */
+        {
+            const wb_delivery_profile *dp = daw_delivery_profile(a->delivery_profile_idx);
+            snprintf(buf, sizeof(buf), "Profile: %s (%.1f LUFS)",
+                     g_delivery_cycle[a->delivery_profile_idx],
+                     dp ? dp->lufs : -14.0);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_ACCENT); yy += 14;
+        }
         /* G38: background render queue — progress bar polled each frame */
         if (wb_export_job_running(&a->ejob)) {
             int pct = (int)(a->ejob.progress * 100.0 + 0.5);
@@ -2047,6 +2074,7 @@ static void video_tab_enter(app *a) {
     memset(&a->ejob, 0, sizeof a->ejob);     /* G38 */
     a->export_range_mode = 0;                /* G39: WHOLE by default */
     a->export_res_h = 0;                     /* G40: native by default */
+    a->delivery_profile_idx = 0;             /* G52: YOUTUBE default */
     snprintf(a->ffmpeg_path, sizeof(a->ffmpeg_path), "/Users/waefrebeorn/.local/bin/ffmpeg");
     snprintf(a->whisper_cli_path, sizeof(a->whisper_cli_path),
              "/Users/waefrebeorn/whisper.cpp/build/bin/whisper-cli");
@@ -2765,6 +2793,63 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                                                 "CANCEL REQUESTED"); break;
                         }
                         printf("export: mode=%d res=%d\n", a->export_range_mode, a->export_res_h);
+                    } else if (id == 9100) {  /* G52: cycle delivery preset */
+                        a->delivery_profile_idx = (a->delivery_profile_idx + 1) % G_DELIVERY_N;
+                        const wb_delivery_profile *dp =
+                            daw_delivery_profile(a->delivery_profile_idx);
+                        snprintf(a->last_status, sizeof a->last_status,
+                                 "PROFILE: %s (%.0f LUFS)",
+                                 g_delivery_cycle[a->delivery_profile_idx],
+                                 dp ? dp->lufs : -14.0);
+                        printf("delivery: profile %s (%.1f LUFS, TP %.1f)\n",
+                               g_delivery_cycle[a->delivery_profile_idx],
+                               dp ? dp->lufs : -14.0, dp ? dp->tp_ceiling : -1.5);
+                    } else if (id == 9101) {  /* G52: DELIVER with chosen profile */
+                        const wb_delivery_profile *dp =
+                            daw_delivery_profile(a->delivery_profile_idx);
+                        if (!a->vid_has_clip) {
+                            snprintf(a->last_status, sizeof a->last_status,
+                                     "DELIVER: no video loaded");
+                            return;
+                        }
+                        char out[512];
+                        snprintf(out, sizeof(out), "/tmp/bigmac_master_%d.mov",
+                                 (int)getpid());
+                        int rc = wb_video_export_delivery(
+                            a->session, a->engine, out,
+                            a->vid_captions_ready ? a->vid_srt : NULL,
+                            a->export_codec_h264 ? WB_VIDEO_CODEC_H264
+                                                 : WB_VIDEO_CODEC_PRORES,
+                            NULL, dp ? dp->lufs : -14.0);
+                        if (rc == 0)
+                            snprintf(a->last_status, sizeof a->last_status,
+                                     "DELIVERED [%s %.0f LUFS]: %.60s",
+                                     g_delivery_cycle[a->delivery_profile_idx],
+                                     dp ? dp->lufs : -14.0, out);
+                        else
+                            snprintf(a->last_status, sizeof a->last_status,
+                                     "DELIVER FAILED rc=%d", rc);
+                        printf("deliver[%s]: rc=%d out=%s\n",
+                               g_delivery_cycle[a->delivery_profile_idx], rc, out);
+                    } else if (id == 9102) {  /* G41: STEMS export */
+                        if (!a->session || a->session->track_count == 0) {
+                            snprintf(a->last_status, sizeof a->last_status,
+                                     "STEMS: empty session");
+                            return;
+                        }
+                        snprintf(a->last_status, sizeof a->last_status,
+                                 "STEMS: rendering tracks...");
+                        char dir[256];
+                        snprintf(dir, sizeof dir, "/tmp/bigmac_stems_%d",
+                                 (int)getpid());
+                        int ns = wb_delivery_export_stems(a->session, dir);
+                        if (ns >= 0)
+                            snprintf(a->last_status, sizeof a->last_status,
+                                     "STEMS: %d files in %.80s", ns, dir);
+                        else
+                            snprintf(a->last_status, sizeof a->last_status,
+                                     "STEMS FAILED");
+                        printf("stems: %d -> %s\n", ns, dir);
                     } else if (id >= 3000 && id < 4000) {  /* scene-launch column (launch all tracks' clip on that scene) */
                         int sc = id - 3000;
                         for (uint32_t t = 0; t < a->session->track_count; t++) {

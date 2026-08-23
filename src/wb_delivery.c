@@ -4,6 +4,50 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <sys/stat.h>
+
+/* G41 (Wave2): stems export — render each non-bus track to its own WAV.
+ * Every stem starts at zero and spans the full session length, so the
+ * files drop straight onto any DAW timeline in sync. */
+int wb_delivery_export_stems(wb_session *s, const char *dir);
+
+static void sanitize_name(char *dst, size_t cap, const char *src) {
+    size_t o = 0;
+    for (size_t i = 0; src[i] && o + 1 < cap; i++)
+        dst[o++] = (src[i] >= 'a' && src[i] <= 'z') ||
+                   (src[i] >= 'A' && src[i] <= 'Z') ||
+                   (src[i] >= '0' && src[i] <= '9') ? src[i] : '_';
+    dst[o] = 0;
+    if (!dst[0]) snprintf(dst, cap, "track");
+}
+
+int wb_delivery_export_stems(wb_session *s, const char *dir) {
+    if (!s || !dir || s->length <= 0) return -1;
+    mkdir(dir, 0755);
+    int written = 0;
+    for (uint32_t ti = 0; ti < s->track_count; ti++) {
+        if (s->tracks[ti].kind == 2) continue;      /* mix bus: no stem */
+        wb_session *one = wb_session_copy(s);       /* deep independent copy */
+        if (!one) return written > 0 ? written : -1;
+        /* solo this track by muting everything else */
+        for (uint32_t m = 0; m < one->track_count; m++)
+            one->tracks[m].mute = (m == ti) ? 0 : 1;
+        wb_sample *pcm = NULL;
+        uint32_t frames = 0;
+        if (wb_engine_render_session(NULL, one, &pcm, &frames) == 0 && pcm) {
+            char base[96], path[512];
+            sanitize_name(base, sizeof base, s->tracks[ti].name);
+            snprintf(path, sizeof path, "%s/track%02u_%s.wav", dir,
+                     (unsigned)(written + 1), base);
+            if (wb_wav_write_pcm16(path, pcm, frames, 2, WB_SAMPLE_RATE) == 0)
+                written++;
+            free(pcm);
+        }
+        wb_session_destroy(one);
+    }
+    return written;
+}
+
 
 #ifndef WB_DELIVERY_FFMPEG
 #define WB_DELIVERY_FFMPEG "/Users/waefrebeorn/.local/bin/ffmpeg"

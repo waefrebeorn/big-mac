@@ -16,6 +16,8 @@
 #include "wbus/wbus_cgiexport.h"
 #include "wbus/wbus_shadowbin.h"
 #include "wb_internal.h"   /* wb_wav_read/write_pcm16 (internal) */
+#include <unistd.h>
+#define WB_AGENT_FFMPEG "/Users/waefrebeorn/.local/bin/ffmpeg"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -62,6 +64,71 @@ static int do_import(wb_session *s, const char *src) {
     if (vt < 0) vt = wb_session_add_video_track(s, "V1");
     int clip = wb_session_add_video_clip(s, vt, src, 0.0);
     return clip >= 0 ? 0 : -1;
+}
+
+/* R071: audio import — load a WAV by path onto an instrument/audio track.
+ * Non-WAV sources are transcoded via ffmpeg first (same binary policy as
+ * the rest of wb_video). Returns 0/-1. */
+static int do_import_audio(wb_session *s, const char *src, double pos_s) {
+    char wavpath[1024];
+    snprintf(wavpath, sizeof wavpath, "%s", src);
+    const char *ext = strrchr(src, '.');
+    if (!ext || (strcmp(ext, ".wav") != 0 && strcmp(ext, ".WAV") != 0)) {
+        /* transcode to a temp wav */
+        snprintf(wavpath, sizeof wavpath,
+                 "/tmp/bigmac_import_%d.wav", (int)getpid());
+        char cmd[2600];
+        snprintf(cmd, sizeof cmd,
+            "\"%s\" -y -i \"%s\" -ar %d -ac 2 \"%s\" >/dev/null 2>&1",
+            WB_AGENT_FFMPEG, src, WB_SAMPLE_RATE, wavpath);
+        if (system(cmd) != 0) {
+            fprintf(stderr, "ERR:import-audio:transcode-failed:%s\n", src);
+            return -1;
+        }
+    }
+    fprintf(stderr, "import-audio: reading %s\n", wavpath);
+    float *data = NULL; uint32_t frames = 0; int ch = 0, sr = 0;
+    if (wb_wav_read_pcm16(wavpath, &data, &frames, &ch, &sr) != 0 || !data) {
+        fprintf(stderr, "ERR:import-audio:read-failed:%s\n", wavpath);
+        return -1;
+    }
+    fprintf(stderr, "import-audio: decoded %u frames ch=%d sr=%d\n", frames, ch, sr);
+    if (sr != WB_SAMPLE_RATE) {
+        /* resample via ffmpeg rather than guessing */
+        free(data);
+        char cmd[2600];
+        snprintf(wavpath, sizeof wavpath,
+                 "/tmp/bigmac_import_%d.wav", (int)getpid());
+        snprintf(cmd, sizeof cmd,
+            "\"%s\" -y -i \"%s\" -ar %d -ac 2 \"%s\" >/dev/null 2>&1",
+            WB_AGENT_FFMPEG, src, WB_SAMPLE_RATE, wavpath);
+        if (system(cmd) != 0 ||
+            wb_wav_read_pcm16(wavpath, &data, &frames, &ch, &sr) != 0 ||
+            !data) {
+            fprintf(stderr, "ERR:import-audio:resample-failed\n");
+            return -1;
+        }
+    }
+    /* find or create an audio track */
+    int at = -1;
+    for (uint32_t t = 0; t < s->track_count; t++)
+        if (s->tracks[t].kind == WB_TRACK_KIND_AUDIO) { at = (int)t; break; }
+    if (at < 0) {
+        wb_track *nt = wb_session_add_track(s, "Audio", 1);
+        fprintf(stderr, "import-audio: add_track=%p count=%u\n",
+                (void*)nt, s->track_count);
+        if (nt) at = (int)s->track_count - 1;
+    }
+    if (at < 0) { fprintf(stderr, "ERR:import-audio:no-audio-track\n"); free(data); return -1; }
+    fprintf(stderr, "import-audio: adding clip to track %d\n", at);
+    double len_s = (double)frames / WB_SAMPLE_RATE;
+    int ci = wb_session_add_audio_clip(&s->tracks[at], pos_s * WB_SAMPLE_RATE,
+                                       (double)frames, data, frames, ch);
+    free(data);
+    if (ci < 0) { fprintf(stderr, "ERR:import-audio:add-clip-failed\n"); return -1; }
+    printf("import-audio: track %d clip %d %.2fs from %s\n",
+           at, ci, len_s, src);
+    return 0;
 }
 
 /* ---- R059: CGI command state (one live scene per agent session) -------- */
@@ -189,6 +256,72 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
     if (strcmp(cmd, "import") == 0) {
         char *src = tok(&p);
         return do_import(s, src);
+    }
+    /* R071: audio import — the music-video blocker. */
+    if (strcmp(cmd, "import-audio") == 0) {
+        char *src = tok(&p);
+        double pos = atof(tok(&p));
+        if (!src || !src[0]) {
+            fprintf(stderr, "ERR:usage:import-audio <path> [pos_s]\n");
+            return -1;
+        }
+        wb_agent_checkpoint(s);
+        return do_import_audio(s, src, pos);
+    }
+    /* R071: marker creation — chapters depend on it. */
+    if (strcmp(cmd, "marker") == 0) {
+        double pos = atof(tok(&p));
+        char *label = tok(&p);
+        if (pos <= 0 && label == NULL) {
+            fprintf(stderr, "ERR:usage:marker <pos_s> <label>\n");
+            return -1;
+        }
+        int rc = wb_session_add_marker(s, pos * WB_SAMPLE_RATE,
+                                       label ? label : "mark", 0);
+        printf("marker: %s @ %.2fs\n", label ? label : "mark", pos);
+        return rc >= 0 ? 0 : -1;
+    }
+    /* R071: move a video clip to a new timeline position. */
+    if (strcmp(cmd, "move") == 0) {
+        wb_agent_checkpoint(s);
+        int track = atoi(tok(&p));
+        int clip  = atoi(tok(&p));
+        double pos = atof(tok(&p));
+        if (track < 0 || track >= (int)s->track_count) {
+            fprintf(stderr, "ERR:move:no-such-track\n"); return -1;
+        }
+        wb_track *tr = &s->tracks[track];
+        if ((uint32_t)clip >= tr->clip_count) {
+            fprintf(stderr, "ERR:move:no-such-clip\n"); return -1;
+        }
+        wb_clip *cl = &tr->clips[clip];
+        cl->start = pos;
+        if (cl->video) cl->video->timeline_pos = pos;
+        printf("move: track %d clip %d -> %.2fs\n", track, clip, pos);
+        return 0;
+    }
+    /* R071: delete a clip (with undo). */
+    if (strcmp(cmd, "delete") == 0) {
+        wb_agent_checkpoint(s);
+        int track = atoi(tok(&p));
+        int clip  = atoi(tok(&p));
+        if (track < 0 || track >= (int)s->track_count ||
+            (uint32_t)clip >= s->tracks[track].clip_count) {
+            fprintf(stderr, "ERR:delete:no-such-clip\n"); return -1;
+        }
+        wb_track *tr = &s->tracks[track];
+        wb_clip *cl = &tr->clips[clip];
+        if (cl->type == 2 && cl->video) {
+            if (wb_session_remove_video_clip(s, track, clip) != 0) return -1;
+        } else {
+            if (cl->type == 1 && cl->audio_data) { free(cl->audio_data); cl->audio_data = NULL; }
+            free(cl->notes); cl->notes = NULL;
+            memmove(&tr->clips[clip], &tr->clips[clip+1],
+                    (tr->clip_count - clip - 1) * sizeof(wb_clip));
+            tr->clip_count--;
+        }
+        printf("delete: track %d clip %d removed\n", track, clip);
+        return 0;
     }
     if (strcmp(cmd, "split") == 0) {
         wb_agent_checkpoint(s);   /* R062: undoable */

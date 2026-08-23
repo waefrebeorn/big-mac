@@ -312,6 +312,18 @@ build/wb_test_perf_export: build/tools/test_perf_export.o $(CORE_OBJS)
 test_perf_export: build/wb_test_perf_export
 	./build/wb_test_perf_export
 
+build/wb_test_mv: build/tools/test_mv.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_mv: build/wb_test_mv
+	./build/wb_test_mv
+
+build/wb_test_export_mv: build/tools/test_export_mv.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_export_mv: build/wb_test_export_mv
+	./build/wb_test_export_mv
+
 build/wb_test_perf_freeze: build/tools/test_perf_freeze.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 

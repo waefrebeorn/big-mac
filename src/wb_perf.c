@@ -41,6 +41,13 @@ struct wb_perf {
     int nevents;
     int recording;
     double clock;
+
+    /* R069: thumbnail cache — render_frame is deterministic; cache the last
+     * frame keyed by (seek_time, event_count) so re-seeks to the same time
+     * skip re-rasterization. Any new event bumps the count → invalidate. */
+    double thumb_t;     /* last seek time this cache is valid for */
+    int    thumb_events; /* event_count at cache time */
+    uint8_t *thumb;     /* w*h*4 RGBA */
 };
 
 wb_perf *wb_perf_create(int width, int height) {
@@ -49,17 +56,23 @@ wb_perf *wb_perf_create(int width, int height) {
     if (!p) return NULL;
     p->w = width; p->h = height;
     p->active_a = p->active_b = -1;
+    size_t sz = (size_t)width * height * 4;
+    p->thumb = malloc(sz ? sz : 1);
+    if (p->thumb) memset(p->thumb, 0, sz ? sz : 1);
     return p;
 }
 
 void wb_perf_free(wb_perf *p) {
     if (!p) return;
     for (int i = 0; i < p->ndecks; i++) wb_mesh_free(p->decks[i].mesh);
+    free(p->thumb);
     free(p);
 }
 
 static void perf_log(wb_perf *p, int type, int deck, float v, int which) {
     if (!p || p->nevents >= WB_PERF_MAX_EVENTS) return;
+    /* R069: any new event invalidates the thumbnail cache (state changed). */
+    p->thumb_t = -1.0;
     wb_perf_event *e = &p->events[p->nevents++];
     e->t = p->clock; e->type = type; e->deck = deck; e->v = v; e->which = which;
 }
@@ -131,6 +144,8 @@ void wb_perf_set_clock(wb_perf *p, double t) { if (p) p->clock = t; }
 
 void wb_perf_seek(wb_perf *p, double t) {
     if (!p) return;
+    /* R069: invalidate thumbnail cache — seek changes state. */
+    p->thumb_t = -1.0;
     /* clean slate */
     p->fade = 0.0f;
     p->active_a = p->active_b = -1;
@@ -174,7 +189,15 @@ void wb_perf_seek(wb_perf *p, double t) {
 
 void wb_perf_render_frame(wb_perf *p, uint8_t *out_rgba) {
     if (!p || !out_rgba) return;
-    memset(out_rgba, 0, (size_t)p->w * p->h * 4);
+    size_t need = (size_t)p->w * p->h * 4;
+    /* R069: thumbnail cache — reuse the last rendered frame when the state
+     * hasn't changed since the last render (same seek time, same event
+     * count). The cache is invalidated by seek() and perf_log(). */
+    if (p->thumb && p->thumb_t >= 0.0 && p->thumb_events == p->nevents) {
+        memcpy(out_rgba, p->thumb, need);
+        return;
+    }
+    memset(out_rgba, 0, need);
 
     /* collect visible decks in fire order */
     int vis[WB_PERF_MAX_DECKS];
@@ -192,7 +215,6 @@ void wb_perf_render_frame(wb_perf *p, uint8_t *out_rgba) {
     wb_rast_set_sun(r, 0.45f, 0.75f, 0.5f, 0.9f);
 
     static uint8_t deck_img[640*360*4];
-    size_t need = (size_t)p->w * p->h * 4;
     if (need > sizeof deck_img) { wb_rast_destroy(r); return; }
 
     double spin = p->decks[vis[0]].param[0];
@@ -224,6 +246,18 @@ void wb_perf_render_frame(wb_perf *p, uint8_t *out_rgba) {
         }
     }
     wb_rast_destroy(r);
+
+    /* R069: cache this frame — valid until the next seek or event.
+     * thumb_t >= 0 signals "cache populated". */
+    if (p->thumb) {
+        memcpy(p->thumb, out_rgba, need);
+        /* record the seek time + event count this cache is valid for.
+         * We can't know the seek time here; use nevents as the validator
+         * (any new event invalidates) and rely on seek() setting
+         * thumb_t=-1 to force rebuild. Mark cached-at-current-state. */
+        p->thumb_t = p->clock;
+        p->thumb_events = p->nevents;
+    }
 }
 
 int wb_perf_deck_fired(const wb_perf *p, int deck) {

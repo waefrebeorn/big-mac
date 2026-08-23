@@ -300,6 +300,12 @@ build/wb_test_perfclip: build/tools/test_perfclip.o build/src/wb_perfclip.o $(CO
 test_perfclip: build/wb_test_perfclip
 	./build/wb_test_perfclip
 
+build/wb_test_thumbnail: build/tools/test_thumbnail.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_thumbnail: build/wb_test_thumbnail
+	./build/wb_test_thumbnail
+
 build/wb_test_perf_freeze: build/tools/test_perf_freeze.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 

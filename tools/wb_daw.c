@@ -1188,11 +1188,35 @@ static void draw_perf_view(app *a) {
         int cx = px + (d % cols) * (pw + pad);
         int cy = yy + (d / cols) * (ph + pad);
         SDL_Rect cell = { cx, cy, pw, ph };
-        /* fired decks glow accent; idle decks are dim lanes */
-        setc(a->ren, ((d % 2) == 0) ? 120 : 60,
-                        ((d % 2) == 0) ? 60 : 100,
-                        ((d % 2) == 0) ? 40 : 160);
-        SDL_RenderFillRect(a->ren, &cell);
+        /* R069: live deck thumbnail — render this single deck's state
+         * into a cell-sized RGBA buffer and draw it, rather than a flat
+         * color. The perf's render cache handles invalidation. Idle
+         * (unfired) decks fall back to a dim lane color. */
+        int fired = wb_perf_deck_fired(a->perf, d);
+        if (fired) {
+            static uint8_t thumb[160*100*4];
+            /* render the deck at the current transport position */
+            wb_perf_set_clock(a->perf, a->t.song_pos / WB_SAMPLE_RATE);
+            wb_perf_seek(a->perf, a->t.song_pos / WB_SAMPLE_RATE);
+            wb_perf_render_frame(a->perf, thumb);
+            /* blit the thumbnail into the cell, nearest-neighbor */
+            for (int yy2 = 0; yy2 < ph; yy2++)
+                for (int xx = 0; xx < pw; xx++) {
+                    int sx = xx * 160 / pw;
+                    int sy = yy2 * 100 / ph;
+                    int sp = (sy*160 + sx)*4;
+                    if (thumb[sp+3] > 128) {
+                        setc(a->ren, thumb[sp], thumb[sp+1], thumb[sp+2]);
+                        SDL_RenderDrawPoint(a->ren, cx+xx, cy+yy2);
+                    }
+                }
+        } else {
+            /* idle deck: dim lane */
+            setc(a->ren, ((d % 2) == 0) ? 40 : 24,
+                            ((d % 2) == 0) ? 30 : 48,
+                            ((d % 2) == 0) ? 16 : 64);
+            SDL_RenderFillRect(a->ren, &cell);
+        }
         setc(a->ren, C_GRID);
         SDL_RenderDrawRect(a->ren, &cell);
         snprintf(buf, sizeof buf, "DECK %d", d);

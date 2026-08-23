@@ -18,6 +18,7 @@
 #include "wbus_compositor.h"
 #include "wb_internal.h"
 #include "wbus_capture.h"     /* Wave1 G93/G94 */
+#include "wbus_precision.h"   /* Wave2 lane B: G15/G16/G66 */
 #include "wbus_export_job.h"  /* Wave1 G38 */
 #include "wbus_delivery.h"    /* Wave2 G52 */
 #include "wbus/wbus_clip_edit.h" /* Wave2 G14/G23/G64 */
@@ -1534,6 +1535,98 @@ static void test_video_edit(void) {
     wb_session_destroy(s);
 }
 
+/* ---- Wave2 lane B: G15 trim nudge + G16 razor + G66 drop modes --------- */
+static void test_precision_edit(void) {
+    printf("test_precision_edit\n");
+    wb_session *s = wb_session_create();
+    wb_track *tr = wb_session_add_track(s, "Vid", 3);
+    wb_track *tr2 = wb_session_add_track(s, "Vid2", 3);
+    /* two back-to-back 2s clips on each track (no ffmpeg needed) */
+    for (int t = 0; t < 2; t++) {
+        wb_track *tk = t == 0 ? tr : tr2;
+        double pos = 0.0;
+        for (int i = 0; i < 2; i++) {
+            tk->clips = realloc(tk->clips, (tk->clip_count+1)*sizeof(wb_clip));
+            wb_clip *cl = &tk->clips[tk->clip_count++];
+            memset(cl, 0, sizeof(*cl));
+            cl->type = 2; cl->start = pos;
+            cl->video = calloc(1, sizeof(wb_video_clip));
+            wb_video_clip_init(cl->video);
+            cl->video->start_in_source = 0.0;
+            cl->video->duration = 2.0;
+            cl->video->timeline_pos = pos;
+            cl->length = 2.0;
+            pos += 2.0;
+        }
+    }
+    s->length = 4.0;
+
+    /* G15: nudge OUT of clip 0 by +1 frame rolls clip 1's head */
+    CHECK(wb_session_nudge_edit_point(s, 0, 0, 1, 0.04) == 0, "nudge out +1f");
+    CHECK(fabs(tr->clips[0].length - 2.04) < 1e-9, "out-nudge grew clip to 2.04s");
+    CHECK(fabs(tr->clips[1].start - 2.04) < 1e-9, "roll slid neighbor start to 2.04");
+    CHECK(fabs(tr->clips[1].length - 1.96) < 1e-9, "roll shrank neighbor to 1.96s");
+    CHECK(fabs(tr->clips[1].video->start_in_source - 0.04) < 1e-9,
+          "neighbor source window advanced by the nudge");
+
+    /* G15: nudge IN of clip 1 by -2 frames rolls clip 0's tail (cut slides
+     * left: clip1 starts earlier with an earlier source window, prev shrinks) */
+    tr->clips[1].video->start_in_source = 0.5;   /* room to nudge back */
+    CHECK(wb_session_nudge_edit_point(s, 0, 1, 0, -0.08) == 0, "nudge in -2f");
+    CHECK(fabs(tr->clips[0].length - 1.96) < 1e-9, "in-nudge rolled prev tail to 1.96s");
+    CHECK(fabs(tr->clips[1].start - 1.96) < 1e-9, "clip1 start moved back to 1.96s");
+    CHECK(fabs(tr->clips[1].video->start_in_source - 0.42) < 1e-9,
+          "neighbor source window backed up by the nudge");
+
+    /* G15: nearest-edge picker */
+    int edge = -1;
+    CHECK(wb_precision_nearest_edge(s, 0, 0, 0.01, &edge) == 0 && edge == 0,
+          "nearest edge of 0.01s is IN");
+    CHECK(wb_precision_nearest_edge(s, 0, 0, 1.90, &edge) == 0 && edge == 1,
+          "nearest edge of 1.90s is OUT");
+
+    /* G16: razor split-all at 1.0s on track 0 only -> 1 split */
+    int cuts = wb_session_razor_split_all_at_time(s, 1.0, 0, 0);
+    CHECK(cuts == 1, "razor single track made exactly 1 cut");
+    CHECK(tr->clip_count == 3, "track 0 now has 3 clips");
+    CHECK(fabs(tr->clips[1].start - 1.0) < 1e-6, "razor right half starts at cut");
+
+    /* G16: razor all tracks at 2.5s -> both tracks cut */
+    cuts = wb_session_razor_split_all_at_time(s, 2.5, 0, 1);
+    CHECK(cuts == 2, "razor all-tracks cut both tracks");
+    CHECK(tr->clip_count == 4 && tr2->clip_count == 3, "both tracks gained clips");
+
+    /* G16: razor where nothing lives -> 0, and invalid args -> -1 */
+    CHECK(wb_session_razor_split_all_at_time(s, 99.0, 0, 1) == 0, "razor off-media cuts nothing");
+    CHECK(wb_session_razor_split_all_at_time(NULL, 1.0, 0, 1) == -1, "razor NULL session errors");
+
+    /* G66: overwrite places freely; insert ripples later clips right.
+     * Track 0 at this point: [0,1][1,1.96][1.96,2.5][2.5,4.08]; placing a
+     * 1s clip at 1.2s must ripple clips starting >= 1.2 (the last two). */
+    uint32_t base_n = tr->clip_count;
+    CHECK(base_n == 4, "track 0 has 4 clips before placement");
+    CHECK(fabs(tr->clips[base_n - 1].start - 2.5) < 1e-6, "last clip starts at 2.5s");
+    CHECK(wb_session_drop_place(s, 0, 1.2, 1.0, WB_DROP_OVERWRITE) == 0,
+          "overwrite shifts nothing");
+    CHECK(wb_session_drop_place(s, 0, 1.2, 1.0, WB_DROP_INSERT) == 2,
+          "insert shifted exactly the later clips");
+    CHECK(fabs(tr->clips[base_n - 1].start - 3.5) < 1e-6,
+          "last clip moved right by the inserted span");
+
+    /* G15: clamp — repeated big out-nudges stop at the neighbor's last frame */
+    for (int i = 0; i < 100; i++) wb_session_nudge_edit_point(s, 0, 0, 1, 0.5);
+    CHECK(tr->clips[0].length > 1.9 && fabs((tr->clips[0].start + tr->clips[0].length)
+          - tr->clips[1].start) < 1e-6, "repeated out-nudges clamp at neighbor frame");
+
+    for (int t = 0; t < 2; t++) {
+        wb_track *tk = t == 0 ? tr : tr2;
+        for (uint32_t c = 0; c < tk->clip_count; c++) {
+            if (tk->clips[c].video) { wb_video_clip_free(tk->clips[c].video); free(tk->clips[c].video); }
+        }
+    }
+    wb_session_destroy(s);
+}
+
 /* ---- test: R026 export HONORS the edit model (trim + concat) ----------- */
 static void test_video_export_edit(void) {
     printf("test_video_export_edit\n");
@@ -1818,6 +1911,137 @@ static void test_remove_note(void) {
     int rc3 = wb_session_remove_note(tr, 0, 60);
     CHECK(rc3 == -1, "remove_note on empty clip returns -1 (no crash)");
     wb_session_destroy(s);
+}
+
+/* ---- test: G14 mouse clip move/trim model ops --------------------------- */
+static void test_clip_move_trim(void) {
+    printf("test_clip_move_trim\n");
+    /* --- move: audio clip across same-kind tracks ----------------------- */
+    wb_session *s = wb_session_create();
+    s->bpm = 120.0; s->length = 4*44100.0;
+    wb_track *a0 = wb_session_add_track(s, "A1", 1);   /* audio */
+    wb_track *a1 = wb_session_add_track(s, "A2", 1);   /* audio */
+    wb_track *m0  = wb_session_add_track(s, "M1", 0);  /* MIDI */
+    uint32_t nf = 44100;
+    wb_sample *buf = malloc(nf * sizeof(wb_sample));
+    for (uint32_t i = 0; i < nf; i++) buf[i] = 0.25f;
+    wb_session_add_audio_clip(a0, 0, (double)nf, buf, nf, 1);
+    CHECK(a0->clip_count == 1 && a1->clip_count == 0, "audio clip on track A1");
+
+    /* kind mismatch must be rejected: audio clip -> MIDI track */
+    CHECK(wb_session_move_clip(s, 0, 0, 2, 44100.0) == -1,
+          "move_clip rejects cross-kind target track");
+    CHECK(a0->clip_count == 1, "rejected move leaves clip in place");
+
+    /* valid move to the other audio track at t=1s */
+    CHECK(wb_session_move_clip(s, 0, 0, 1, 44100.0) == 0, "move_clip succeeds");
+    CHECK(a0->clip_count == 0 && a1->clip_count == 1, "clip relocated between tracks");
+    CHECK(a1->clips[0].start == 44100.0, "moved clip lands at new start");
+    CHECK(a1->clips[0].length == (double)nf && a1->clips[0].audio_data != NULL,
+          "moved clip keeps its buffer and length");
+    /* negative start clamps to 0 */
+    CHECK(wb_session_move_clip(s, 1, 0, 0, -500.0) == 0
+          && s->tracks[0].clips[0].start == 0.0, "negative start clamps to 0");
+    CHECK(wb_session_move_clip(s, 0, 99, 1, 0.0) == -1, "bad clip index rejected");
+
+    /* side-table migration travels fades with the clip */
+    wb_clip_edit_table *et = wb_clip_edit_create();
+    wb_clip_edit_get(et, 0, 0)->fade_in = 0.5f;
+    wb_clip_edit_move(et, 0, 0, 1, 0);
+    CHECK(wb_clip_edit_get(et, 1, 0)->fade_in == 0.5f, "edit entry migrates with moved clip");
+    CHECK(wb_clip_edit_get(et, 0, 0)->fade_in == 0.0f, "source edit entry cleared");
+
+    /* --- trim head: audio keeps buffer alignment via start_in_source ----- */
+    int rc = wb_session_trim_clip_head(s, et, 0, 0, 22050.0);   /* +0.5s */
+    CHECK(rc == 0, "trim head succeeds");
+    wb_clip *cl = &s->tracks[0].clips[0];
+    CHECK(cl->start == 22050.0 && cl->length == (double)nf - 22050.0,
+          "head trim shifts start and shrinks length");
+    CHECK(wb_clip_edit_get(et, 0, 0)->start_in_source == 22050.0,
+          "head trim advances start_in_source (buffer stays aligned)");
+
+    /* --- trim tail ------------------------------------------------------ */
+    double len_before = s->tracks[0].clips[0].length;
+    rc = wb_session_trim_clip_tail(s, et, 0, 0, 22050.0);
+    CHECK(rc == 0 && s->tracks[0].clips[0].length > len_before,
+          "tail extends right");
+    /* but never past what remains in the source buffer after start_in_source */
+    wb_clip *ct = &s->tracks[0].clips[0];
+    double sis = wb_clip_edit_get(et, 0, 0)->start_in_source;
+    CHECK(ct->length <= (double)ct->audio_frames - sis + 1.0,
+          "tail extension capped by remaining source frames");
+
+    /* head can be extended back left — rewinding start_in_source */
+    rc = wb_session_trim_clip_head(s, et, 0, 0, -11025.0);
+    CHECK(rc == 0 && s->tracks[0].clips[0].start == 11025.0,
+          "head can be extended back left");
+    CHECK(wb_clip_edit_get(et, 0, 0)->start_in_source == 11025.0,
+          "left extension rewinds start_in_source");
+    /* over-trim is clamped to a minimum-length clip */
+    rc = wb_session_trim_clip_head(s, et, 0, 0, 10.0 * 44100.0);
+    CHECK(rc == 0 && s->tracks[0].clips[0].length >= WB_SAMPLE_RATE * 0.01 - 1.0,
+          "over-trim clamps to minimum clip length");
+    rc = wb_session_trim_clip_tail(s, et, 0, 0, -100.0 * 44100.0);
+    CHECK(rc == 0 && ct->length >= WB_SAMPLE_RATE * 0.01 - 1.0,
+          "over-trim tail clamps to minimum length");
+
+    /* --- MIDI clip: trim moves start and clamps notes -------------------- */
+    wb_track *mt = &s->tracks[2];
+    CHECK(mt->kind == 0, "MIDI track present");
+    wb_session_add_note(mt, 0.25, 1.0, 60, 100);   /* note times relative to clip */
+    wb_session_add_note(mt, 2.5, 1.0, 64, 100);
+    wb_clip *mc = &mt->clips[0];
+    mc->type = 0; mc->start = 1.0; mc->length = 4.0;
+    rc = wb_session_trim_clip_head(s, NULL, 2, 0, 0.5);
+    CHECK(rc == 0 && mc->start == 1.5, "MIDI head trim moves clip start");
+    CHECK(mc->notes[0].start == 0.0 && fabs(mc->notes[0].dur - 0.75) < 1e-9,
+          "note crossing the new head is clamped into the clip");
+    CHECK(fabs(mc->notes[1].start - 2.0) < 1e-9,
+          "notes keep their absolute timeline spots after a head trim");
+
+    free(buf);
+    wb_clip_edit_destroy(et);
+    wb_session_destroy(s);
+}
+
+/* ---- test: G64 crossfade curve types ------------------------------------ */
+static void test_crossfade_curves(void) {
+    printf("test_crossfade_curves\n");
+    const double sr = WB_SAMPLE_RATE;
+    wb_clip_edit e; memset(&e, 0, sizeof(e));
+    double length = 4.0 * sr;
+    e.fade_in = 1.0;
+
+    e.curve = 0;   /* linear (equal-gain) */
+    float lin_mid  = wb_clip_edit_env(&e, 0.5 * sr, length, sr);
+    float lin_full = wb_clip_edit_env(&e, sr, length, sr);
+    CHECK(fabsf(lin_mid - 0.5f) < 1e-3f, "linear fade-in midpoint = 0.5");
+    CHECK(lin_full == 1.0f, "linear fade-in ends at unity");
+
+    e.curve = 1;   /* equal-power sqrt */
+    float eq_mid  = wb_clip_edit_env(&e, 0.5 * sr, length, sr);
+    float eq_quart = wb_clip_edit_env(&e, 0.25 * sr, length, sr);
+    CHECK(fabsf(eq_mid - 0.7071f) < 1e-3f, "equal-power midpoint ~ sqrt(0.5)");
+    CHECK(eq_mid > lin_mid, "G64: equal-power env at midpoint > linear env at midpoint");
+    CHECK(fabsf(eq_quart - 0.5f) < 1e-3f, "equal-power quarter point = 0.5");
+
+    e.curve = 2;   /* smoothstep S-curve */
+    float ss_mid   = wb_clip_edit_env(&e, 0.5 * sr, length, sr);
+    float ss_quart = wb_clip_edit_env(&e, 0.25 * sr, length, sr);
+    float ss_3q    = wb_clip_edit_env(&e, 0.75 * sr, length, sr);
+    CHECK(fabsf(ss_mid - 0.5f) < 1e-3f, "smoothstep midpoint = 0.5 (symmetric)");
+    CHECK(ss_quart < ss_mid && ss_mid < ss_3q, "smoothstep rises monotonically");
+    CHECK(ss_quart < lin_mid, "smoothstep below linear in first half (S-shape)");
+
+    /* fade-out uses the complementary shaped ramp too */
+    e.fade_in = 0; e.fade_out = 1.0; e.curve = 1;
+    float eqo_mid = wb_clip_edit_env(&e, 3.5 * sr, length, sr);
+    CHECK(fabsf(eqo_mid - 0.7071f) < 1e-3f, "equal-power fade-out midpoint ~ sqrt(0.5)");
+
+    /* out-of-range curve falls back to linear */
+    e.curve = 7; e.fade_out = 0; e.fade_in = 1.0;
+    float bad_mid = wb_clip_edit_env(&e, 0.5 * sr, length, sr);
+    CHECK(fabsf(bad_mid - 0.5f) < 1e-3f, "invalid curve index falls back to linear");
 }
 
 /* ---- test: bus/group routing -------------------------------------------- */
@@ -2105,7 +2329,70 @@ static void test_swing(void) {
     wb_session_destroy(s);
 }
 
-/* ---- test: Launchpad grid→note mapping (classic LP, pure logic) ------- */
+/* ---- test: Wave2 G69 multiple timelines (wb_project) -------------------- */
+static void test_project_sequences(void) {
+    printf("test_project_sequences\n");
+    wb_project *p = wb_project_create();
+    CHECK(p != NULL, "project created");
+    CHECK(wb_project_sequence_count(p) == 1, "new project has 1 sequence");
+    CHECK(wb_project_active_index(p) == 0, "sequence 0 active by default");
+
+    /* add two more, each with distinct content */
+    int i1 = wb_project_add_sequence(p, "Verse alt");
+    int i2 = wb_project_add_sequence(p, NULL);   /* auto-named */
+    CHECK(i1 == 1 && i2 == 2, "sequences appended 1,2");
+    CHECK(wb_project_sequence_count(p) == 3, "count is 3");
+
+    wb_session *s1 = wb_project_sequence(p, 1);
+    wb_session *s2 = wb_project_sequence(p, 2);
+    CHECK(s1 != NULL && s2 != NULL, "sequences retrievable");
+    CHECK(strstr(s1->name, "Verse alt") != NULL, "named sequence kept its name");
+    CHECK(strstr(s2->name, "Sequence") != NULL, "NULL name auto-names");
+
+    /* put a marker in s1 only — proves independence */
+    wb_session_add_marker(s1, 44100.0, "X", 0);
+    CHECK(s1->marker_count == 1 && s2->marker_count == 0,
+          "sequences are independent models");
+
+    /* switch active */
+    CHECK(wb_project_set_active(p, 2) == 0, "set_active ok");
+    CHECK(wb_project_active(p) == s2, "active returns sequence 2");
+
+    /* remove middle; indices shift, 0 protected */
+    CHECK(wb_project_remove_sequence(p, 0) == -1, "cannot remove sequence 0");
+    CHECK(wb_project_remove_sequence(p, 1) == 0, "remove sequence 1 ok");
+    CHECK(wb_project_sequence_count(p) == 2, "count back to 2");
+    CHECK(wb_project_set_active(p, 5) == -1, "out-of-range active rejected");
+
+    /* save/load round-trip incl. legacy path */
+    wb_session *a0 = wb_project_sequence(p, 0);
+    wb_session_add_marker(a0, 88200.0, "A0", 1);
+    CHECK(wb_project_save(p, "/tmp/wb_proj_test.wbusproj") == 0, "project save ok");
+    wb_project *q = wb_project_load("/tmp/wb_proj_test.wbusproj");
+    CHECK(q != NULL, "project load ok");
+    if (q) {
+        CHECK(wb_project_sequence_count(q) == 2, "round-trip keeps count");
+        wb_session *qa = wb_project_sequence(q, 0);
+        CHECK(qa && qa->marker_count == 1, "round-trip keeps markers");
+        CHECK(wb_project_active_index(q) == wb_project_active_index(p), "round-trip keeps active");
+        wb_project_destroy(q);
+    }
+
+    /* legacy single-session file loads as one-sequence project */
+    wb_session *legacy = wb_session_demo();
+    wb_session_save(legacy, "/tmp/wb_proj_legacy.wbus");
+    wb_session_destroy(legacy);
+    wb_project *lg = wb_project_load("/tmp/wb_proj_legacy.wbus");
+    CHECK(lg != NULL, "legacy file loads as project");
+    if (lg) {
+        CHECK(wb_project_sequence_count(lg) == 1, "legacy = one sequence");
+        wb_project_destroy(lg);
+    }
+    remove("/tmp/wb_proj_test.wbusproj");
+    remove("/tmp/wb_proj_legacy.wbus");
+    wb_project_destroy(p);
+}
+
 static void test_launchpad(void) {
     printf("test_launchpad\n");
     /* grid corners — classic Launchpad layout: row*16 + col */
@@ -2352,6 +2639,7 @@ int main(void) {
     test_launch_record();      /* Wave1 G94 */
     test_export_job();         /* Wave1 G38 */
     test_video_edit();
+    test_precision_edit();   /* Wave2 lane B: G15/G16/G66 */
     test_video_export_edit();
     test_preview_seek();
     test_bus_routing();
@@ -2371,6 +2659,8 @@ int main(void) {
     test_sidechain();
     test_modulation();
     test_midifx();
+    test_clip_move_trim();      /* Wave2 G14 */
+    test_crossfade_curves();    /* Wave2 G64 */
 
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

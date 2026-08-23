@@ -289,20 +289,25 @@ int wb_session_comp_region(wb_session *s, int track, int src_lane, double t0, do
             double left_len  = a - cs;
             double right_len = ce - b;
             wb_clip orig = *cl;
+            float orig_gain = cl->clip_gain;   /* capture BEFORE realloc moves the array */
             for (uint32_t k = c; k + 1 < tk->clip_count; k++) tk->clips[k] = tk->clips[k+1];
             tk->clip_count--;
-            tk->clips = realloc(tk->clips, (tk->clip_count + 3) * sizeof(wb_clip));
+            wb_clip *old_clips = tk->clips;
+            wb_clip *newclips = realloc(tk->clips, (tk->clip_count + 3) * sizeof(wb_clip));
+            if (!newclips) { free(comp.audio_data); free(orig.audio_data); return -1; }
+            tk->clips = newclips;
+            (void)old_clips;
             if (left_len > 0.5) {
                 wb_clip *L = &tk->clips[tk->clip_count++]; memset(L, 0, sizeof(*L));
                 L->type = 1; L->lane = src_lane; L->start = cs; L->length = left_len;
-                L->audio_channels = ch; L->audio_frames = (uint32_t)left_len; L->clip_gain = cl->clip_gain;
+                L->audio_channels = ch; L->audio_frames = (uint32_t)left_len; L->clip_gain = orig_gain;
                 L->audio_data = malloc((size_t)left_len*ch*sizeof(wb_sample));
                 if (L->audio_data) memcpy(L->audio_data, orig.audio_data, (size_t)left_len*ch*sizeof(wb_sample));
             }
             if (right_len > 0.5) {
                 wb_clip *R = &tk->clips[tk->clip_count++]; memset(R, 0, sizeof(*R));
                 R->type = 1; R->lane = src_lane; R->start = b; R->length = right_len;
-                R->audio_channels = ch; R->audio_frames = (uint32_t)right_len; R->clip_gain = cl->clip_gain;
+                R->audio_channels = ch; R->audio_frames = (uint32_t)right_len; R->clip_gain = orig_gain;
                 R->audio_data = malloc((size_t)right_len*ch*sizeof(wb_sample));
                 if (R->audio_data) memcpy(R->audio_data, orig.audio_data + (uint32_t)(b-cs)*ch, (size_t)right_len*ch*sizeof(wb_sample));
             }

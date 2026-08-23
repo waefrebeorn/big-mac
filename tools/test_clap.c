@@ -91,7 +91,6 @@ int main(int argc, char **argv) {
 
     test_clap_engine_graph(dir);
 
-    printf("\n=== Engine graph integration ===\n");
     wb_clap_host_destroy(host);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

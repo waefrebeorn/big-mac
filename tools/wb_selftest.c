@@ -89,8 +89,8 @@ static void test_synth_audio(void) {
 /* ---- test 3: wav round-trip ------------------------------------------ */
 static void test_wav(void) {
     printf("test_wav\n");
-    wb_sample data[1000];
-    for (int i = 0; i < 1000; i++) data[i] = (float)sin(i * 0.1);
+    wb_sample data[2000]; /* frames * channels — writer reads interleaved stereo */
+    for (int i = 0; i < 2000; i++) data[i] = (float)sin(i * 0.1);
     int rc = wb_wav_write_pcm16("/tmp/wb_test.wav", data, 1000, 2, 44100);
     CHECK(rc == 0, "wav write returns 0");
 

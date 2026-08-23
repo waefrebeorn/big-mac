@@ -35,6 +35,8 @@
 #include "wbus_delivery.h"
 #include "wb_internal.h"
 #include "wb_ui.h"
+#include <time.h>
+#include <sys/stat.h>
 
 /* 480p proxy dimensions — mirror wb_video.c */
 #ifndef PROXY_SCALE_W
@@ -3316,7 +3318,10 @@ int main(int argc, char **argv) {
          * content; atomic via wb_session_save's own write. Keeps last 5. */
         {
             time_t now = time(NULL);
-            if (a->session && now - a->last_autosave >= 120) {
+            /* G57: WB_AUTOSAVE_SECS overrides the 120s default (tests). */
+            const char *as_env = getenv("WB_AUTOSAVE_SECS");
+            long as_secs = as_env ? atol(as_env) : 120;
+            if (a->session && as_secs > 0 && now - a->last_autosave >= as_secs) {
                 const char *dir = "/tmp/bigmac_autosave";
                 mkdir(dir, 0755);
                 /* prune: keep only the 5 newest autosaves */

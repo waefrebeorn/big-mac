@@ -28,6 +28,20 @@ typedef enum {
     WB_DELIVERY_PODCAST
 } wb_delivery_preset;
 
+/* G55: named loudness profiles (spec target LUFS + true-peak ceiling dBTP).
+ * Sources: EBU R128 (-23/-1), ATSC A/85 CALM Act (-24/-2),
+ * Netflix Partner Help v1.6 (-27 dialogue-gated, -2 dBTP ceiling here),
+ * YouTube streaming (-14/-1.5), podcast -16. */
+typedef struct {
+    const char *name;
+    double lufs;        /* integrated target */
+    double tp_ceiling;  /* true-peak max dBTP (negative) */
+    double lra_max;     /* loudness-range cap for loudnorm (0=engine 11) */
+} wb_delivery_profile;
+
+const wb_delivery_profile *wb_delivery_profiles(int *count_out);
+const wb_delivery_profile *wb_delivery_profile_by_name(const char *name);
+
 /* Two-pass loudnorm measurement of a WAV file.
  * Writes measured_I/tp/LRA/thresh (needed by pass 2). Returns 0. */
 int wb_delivery_measure_loudness(const char *wav_path,

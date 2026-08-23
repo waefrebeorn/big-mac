@@ -48,6 +48,10 @@ int wb_delivery_measure_loudness(const char *wav_path,
     return 0;
 }
 
+/* G55: normalize honoring a named profile's LUFS target + TP ceiling. */
+int wb_delivery_normalize_wav_profile(const char *wav_path,
+                                      const wb_delivery_profile *prof);
+
 int wb_delivery_normalize_wav(const char *wav_path, double target_lufs) {
     if (!wav_path || target_lufs > 0) return -1;
     double I, TP, LRA, TH;
@@ -65,6 +69,51 @@ int wb_delivery_normalize_wav(const char *wav_path, double target_lufs) {
     int rc = system(cmd);
     if (rc != 0) return -1;
     /* swap back onto the original path */
+    char rn[1400];
+    snprintf(rn, sizeof rn, "mv %s %s", tmp, wav_path);
+    return system(rn) == 0 ? 0 : -1;
+}
+
+/* ---- G55: named loudness profiles -------------------------------------- */
+static const wb_delivery_profile g_profiles[] = {
+    { "EBU-R128",  -23.0, -1.0, 0.0 },   /* broadcast (Europe) */
+    { "ATSC-A85",  -24.0, -2.0, 0.0 },   /* US CALM Act */
+    { "NETFLIX",   -27.0, -2.0, 18.0 },  /* dialogue-gated; LRA 4-18 */
+    { "YOUTUBE",   -14.0, -1.5, 0.0 },   /* streaming */
+    { "PODCAST",   -16.0, -1.5, 0.0 },   /* stereo podcast */
+};
+
+const wb_delivery_profile *wb_delivery_profiles(int *count_out) {
+    if (count_out) *count_out = (int)(sizeof g_profiles / sizeof g_profiles[0]);
+    return g_profiles;
+}
+
+const wb_delivery_profile *wb_delivery_profile_by_name(const char *name) {
+    if (!name) return NULL;
+    for (size_t i = 0; i < sizeof g_profiles / sizeof g_profiles[0]; i++)
+        if (strcmp(g_profiles[i].name, name) == 0) return &g_profiles[i];
+    return NULL;
+}
+
+int wb_delivery_normalize_wav_profile(const char *wav_path,
+                                      const wb_delivery_profile *prof) {
+    if (!wav_path || !prof || prof->lufs > 0 || prof->tp_ceiling >= 0)
+        return -1;
+    double I, TP, LRA, TH;
+    if (wb_delivery_measure_loudness(wav_path, &I,&TP,&LRA,&TH) != 0)
+        return -1;
+    double lra_cap = prof->lra_max > 0 ? prof->lra_max : 11.0;
+    char cmd[1600];
+    const char *tmp = "/tmp/bigmac_norm.wav";
+    snprintf(cmd, sizeof cmd,
+        "\"%s\" -y -i \"%s\" -af "
+        "loudnorm=linear=true:i=%.1f:lra=%.1f:tp=%.1f:"
+        "measured_I=%.2f:measured_TP=%.2f:measured_LRA=%.2f:"
+        "measured_thresh=%.2f "
+        "-ar 48000 \"%s\" >/dev/null 2>&1",
+        WB_DELIVERY_FFMPEG, wav_path, prof->lufs, lra_cap, prof->tp_ceiling,
+        I, TP, LRA, TH, tmp);
+    if (system(cmd) != 0) return -1;
     char rn[1400];
     snprintf(rn, sizeof rn, "mv %s %s", tmp, wav_path);
     return system(rn) == 0 ? 0 : -1;

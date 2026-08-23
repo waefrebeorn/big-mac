@@ -16,8 +16,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>   /* G10/G70: access/F_OK for offline-file checks */
 
 #include "wbus.h"
+
+/* G04: read the remainder of the current line (after tokens already consumed)
+ * into `out`, stripping the trailing newline. Returns the length, -1 on EOF. */
+static int read_line_rest(FILE *f, char *out, size_t sz) {
+    int c, i = 0;
+    /* skip leading whitespace up to the first non-space on this line */
+    do { c = fgetc(f); } while (c == ' ' || c == '\t');
+    while (c != EOF && c != '\n' && c != '\r' && i < (int)sz - 1) {
+        out[i++] = (char)c; c = fgetc(f);
+    }
+    out[i] = '\0';
+    if (c == '\r') { c = fgetc(f); if (c != '\n') ungetc(c, f); }
+    return i > 0 ? i : (c == EOF ? -1 : 0);
+}
 
 
 /* ---- token stream ------------------------------------------------------- */
@@ -100,6 +115,10 @@ int wb_session_save(const wb_session *s, const char *path) {
     /* R022: arrangement markers */
     for (uint32_t m = 0; m < s->marker_count; m++)
         fprintf(f, "marker %.3f %d %s\n", s->markers[m].pos, s->markers[m].kind, s->markers[m].label);
+    /* G04: media bin (persistent, re-placable) */
+    for (uint32_t b = 0; b < s->bin_count; b++)
+        fprintf(f, "bin %d %.6f %s\n", s->bin_entries[b].kind, s->bin_entries[b].duration,
+                s->bin_entries[b].path);
     fclose(f);
     return 0;
 }
@@ -241,8 +260,35 @@ wb_session *wb_session_load(const char *path) {
             wb_session_add_marker(s, mpos, mlabel, mkind);
             continue;
         }
+        /* G04: media bin entries ("bin <kind> <dur> <path>"). The path is the
+         * rest of the line so it may contain spaces. The bin is also populated
+         * implicitly by imports; on load we still parse persisted entries. */
+        if (strcmp(tok,"bin")==0) {
+            tok=next_tok(&ts); int bkind = tok?atoi(tok):0;
+            tok=next_tok(&ts); double bdur = tok?atof(tok):0.0;
+            char bpath[1024] = {0};
+            if (read_line_rest(ts.f, bpath, sizeof(bpath)) <= 0) {
+                /* line had no path remainder: ignore silently */
+            } else {
+                char nm[256] = {0};
+                const char *sp = strrchr(bpath, '/');
+                const char *base = sp ? sp+1 : bpath;
+                snprintf(nm, sizeof(nm), "%s", base);
+                if (s->bin_count < WB_MAX_BIN) {
+                    wb_bin_entry *e = &s->bin_entries[s->bin_count++];
+                    snprintf(e->path, sizeof(e->path), "%s", bpath);
+                    snprintf(e->name, sizeof(e->name), "%s", nm);
+                    e->kind = (bkind != 0) ? 1 : 0;
+                    e->duration = bdur;
+                    e->offline = (access(bpath, F_OK) != 0) ? 1 : 0;  /* G70 */
+                }
+            }
+            continue;
+        }
         /* unknown top-level token: skip its value if it follows a key */
     }
+    /* G70: once fully loaded, recompute offline state from disk reality. */
+    wb_session_update_offline(s);
     fclose(f);
     return s;
 }

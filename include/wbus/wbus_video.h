@@ -42,6 +42,7 @@ typedef struct wb_video_clip {
     double start_in_source;  /* seconds into the source to start playing */
     double duration;         /* seconds to play from source */
     double timeline_pos;     /* seconds on the timeline where this clip starts */
+    int    offline;          /* G70: 1 if source_path is missing on disk */
 } wb_video_clip;
 
 void wb_video_clip_init(wb_video_clip *c);

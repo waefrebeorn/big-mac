@@ -8,6 +8,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <unistd.h>   /* G70: access() for offline detection */
+#include <dirent.h>   /* G70: directory scan for relink */
 #include "wbus.h"
 #include "wbus_video.h"
 #include "wbus/wbus_clip_edit.h"
@@ -552,6 +554,7 @@ int wb_session_add_video_clip(wb_session *s, int track, const char *source_path,
     wb_video_clip_init(cl->video);
     snprintf(cl->video->source_path, sizeof(cl->video->source_path), "%s", source_path);
     cl->video->timeline_pos = timeline_pos;
+    cl->video->offline = (access(source_path, F_OK) != 0) ? 1 : 0;  /* G70 */
 
     /* R042 DEEP FIX (cascade): resolve the clip's source duration here so the
      * clip carries a real length. We use the ffprobe SHELL helper (the same
@@ -1110,4 +1113,121 @@ int wb_session_trim_clip_tail(wb_session *s, void *ed,
     double end = cl->start + cl->length;
     if (end > s->length) s->length = end;
     return 0;
+}
+
+/* ---- G04: media bin ------------------------------------------------------- */
+/* basename helper: pointer into `path` after the last '/'. */
+static const char *bin_basename(const char *path) {
+    if (!path) return "";
+    const char *base = strrchr(path, '/');
+    return base ? base + 1 : path;
+}
+
+int wb_session_add_bin_entry(wb_session *s, const char *path, int kind,
+                             double duration) {
+    if (!s || !path || !path[0]) return -1;
+    if (s->bin_count >= WB_MAX_BIN) return -1;
+    wb_bin_entry *e = &s->bin_entries[s->bin_count];
+    memset(e, 0, sizeof(*e));
+    snprintf(e->path, sizeof(e->path), "%s", path);
+    snprintf(e->name, sizeof(e->name), "%s", bin_basename(path));
+    e->kind = (kind != 0) ? 1 : 0;   /* normalize: 0 audio / 1 video */
+    e->duration = duration;
+    e->offline = (access(path, R_OK) != 0) ? 1 : 0;
+    s->bin_count++;
+    return (int)(s->bin_count - 1);
+}
+
+void wb_session_update_offline(wb_session *s) {
+    if (!s) return;
+    for (uint32_t i = 0; i < s->bin_count; i++)
+        s->bin_entries[i].offline = (access(s->bin_entries[i].path, F_OK) != 0);
+    for (uint32_t t = 0; t < s->track_count; t++) {
+        wb_track *tr = &s->tracks[t];
+        for (uint32_t c = 0; c < tr->clip_count; c++) {
+            wb_clip *cl = &tr->clips[c];
+            if (cl->type == 2 && cl->video)
+                cl->video->offline = (access(cl->video->source_path, F_OK) != 0);
+        }
+    }
+}
+
+/* G70: search the given directory for a file matching `basename`; if found,
+ * append its full path. Returns 1 on a hit, 0 otherwise. */
+static int find_by_basename(const char *dir, const char *basename,
+                            char out[1024]) {
+    if (!dir || !basename || !basename[0]) return 0;
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    int hit = 0;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        if (e->d_name[0] == '.') continue;
+        if (strcasecmp(e->d_name, basename) == 0) {
+            snprintf(out, 1024, "%s/%s", dir, e->d_name);
+            hit = 1;
+            break;
+        }
+    }
+    closedir(d);
+    return hit;
+}
+
+/* Relink one offline bin entry by basename against a candidate list of dirs. */
+static int relink_one(wb_session *s, int idx) {
+    wb_bin_entry *e = &s->bin_entries[idx];
+    if (!e->offline || !e->path[0]) return 0;
+    const char *base = bin_basename(e->path);
+    const char *home = getenv("HOME");
+    const char *candidates[] = {
+        home,                         /* the original file's directory is */
+        home ? "/Users/waefrebeorn/Movies" : NULL,
+        home ? "/Users/waefrebeorn/Desktop" : NULL,
+        home ? "/Users/waefrebeorn/Documents" : NULL,
+    };
+    /* first: the directory the entry originally came from */
+    char orig_dir[1024];
+    const char *slash = strrchr(e->path, '/');
+    if (slash) {
+        size_t n = (size_t)(slash - e->path);
+        if (n >= sizeof(orig_dir)) n = sizeof(orig_dir) - 1;
+        memcpy(orig_dir, e->path, n);
+        orig_dir[n] = '\0';
+        candidates[0] = orig_dir;
+    } else {
+        candidates[0] = ".";
+    }
+    char found[1024];
+    for (size_t c = 0; c < sizeof(candidates)/sizeof(candidates[0]); c++) {
+        if (!candidates[c]) continue;
+        if (find_by_basename(candidates[c], base, found)) {
+            snprintf(e->path, sizeof(e->path), "%s", found);
+            e->offline = 0;
+            /* G70: mirror the relinked path onto any video clip that pointed
+             * at the same (now-stale) source_path. */
+            for (uint32_t t = 0; t < s->track_count; t++) {
+                wb_track *tr = &s->tracks[t];
+                for (uint32_t cl = 0; cl < tr->clip_count; cl++) {
+                    wb_clip *c2 = &tr->clips[cl];
+                    if (c2->type == 2 && c2->video &&
+                        strcmp(c2->video->source_path, e->path) != 0 &&
+                        strcasecmp(bin_basename(c2->video->source_path), base) == 0) {
+                        snprintf(c2->video->source_path,
+                                 sizeof(c2->video->source_path), "%s", found);
+                        c2->video->offline = 0;
+                    }
+                }
+            }
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int wb_session_relink_bin(wb_session *s) {
+    if (!s) return 0;
+    int relinked = 0;
+    for (uint32_t i = 0; i < s->bin_count; i++)
+        if (relink_one(s, (int)i)) relinked++;
+    return relinked;
 }

@@ -32,7 +32,7 @@ every gap below is a break in one of those seven loops.
 ## B. ORGANIZE loop
 [G08] P0 WIRED(undo/redo UI buttons + auto-checkpoints) — Undo/redo UI + history panel (Premiere History panel; trimming
       actions tracked per edit).
-[G09] P1 — Track management: rename, delete, reorder (drag), rec-arm button,
+[G09] P1 WIRED(track rename/delete/reorder/rec-arm in gutter) — Track management: rename, delete, reorder (drag), rec-arm button,
       height resize (audit-confirmed missing).
 [G10] P1 — Snap toggle + snap-to-markers/grid (FL scale/snap highlighting).
 [G11] P2 — Project templates + recent-files list + new-project dialog
@@ -42,12 +42,12 @@ every gap below is a break in one of those seven loops.
       bars colored but slots blank).
 
 ## C. ROUGH-CUT loop
-[G14] P0 — Mouse clip operations on ARRANGE: drag move between tracks/positions,
+[G14] P0 WIRED(mouse clip move + edge trim, model helpers) — Mouse clip operations on ARRANGE: drag move between tracks/positions,
       edge-drag trims, marquee multi-select + group ops (FCP/Premiere baseline).
-[G15] P1 — Trim MODE: JKL dynamic trimming while playing, frame-step nudge,
+[G15] P1 WIRED(trim mode: T enters, frame nudge, JKL shuttle) — Trim MODE: JKL dynamic trimming while playing, frame-step nudge,
       extend-edit-to-playhead, ripple-trim-to-playhead variants
       (Premiere dynamic trimming doc; we have J/K/L shuttle only).
-[G16] P1 — Razor at playhead / blade-all-tracks shortcut (Cmd-B class).
+[G16] P1 WIRED(razor tool R + click splits all under x) — Razor at playhead / blade-all-tracks shortcut (Cmd-B class).
 [G17] P1 — Slide edit (move content, neighbors adjust) distinct from slip
       (Derek Lieu trick list: slide vs slip are separate tools everywhere).
 [G18] P2 — Replace edit / match frame (source monitor ↔ timeline roundtrip).
@@ -99,7 +99,7 @@ every gap below is a break in one of those seven loops.
 [G39] P1 WIRED(export range IN/OUT) — Export range: selection / in-out / whole (audit-confirmed missing).
 [G40] P1 WIRED(resolution row 480p/720p/1080p) — Export settings UI: resolution/fps/bitrate/audio format fields
       (audit-confirmed static text only).
-[G41] P1 — Stems export: selected tracks → individual files, same start
+[G41] P1 WIRED(STEMS export per-track WAVs) — Stems export: selected tracks → individual files, same start
       (Logic stems workflow; collaboration requirement).
 [G42] P2 — Platform preset targets: YouTube -14 LUFS, Netflix -27 LKFS/-2dBTP,
       broadcast -23 (loudness spec docs; we normalize to one target only).
@@ -132,7 +132,7 @@ Scale Awareness, Cubase Chord Track/Expression Maps, Roger Linn swing spec
 Premiere metadata panel, packafoma Premiere wishlist.
 
 ### Delivery loop additions
-[G52] P1 — Export presets: user-saved + platform presets (Resolve/ME ship them).
+[G52] P1 WIRED(export delivery presets YOUTUBE/NETFLIX/BROADCAST/PODCAST) — Export presets: user-saved + platform presets (Resolve/ME ship them).
 [G53] P2 — Batch render matrix: per-region/marker wildcard naming, multiple
       simultaneous outputs per job (Reaper $region wildcards; Resolve multi-codec).
 [G54] P2 — Watch-folder auto-render (AME model; pairs with G43).
@@ -159,17 +159,17 @@ Premiere metadata panel, packafoma Premiere wishlist.
 ### NLE timeline additions
 [G63] P1 — Draggable transitions between clips with dynamic re-linking when
       clips move (Shotcut's #1 complaint is non-dynamic crossfades breaking).
-[G64] P2 — Crossfade curve types: equal-power / constant-power / +3dB choice
+[G64] P2 WIRED(crossfade curve types linear/equal-power/smoothstep) — Crossfade curve types: equal-power / constant-power / +3dB choice
       (engine has equal-gain linear only; Resolve offers all three).
-[G65] P1 — Two-up precision trim display (FCP Precision Editor) — trims are
+[G65] P1 WIRED(two-up precision trim display) — Two-up precision trim display (FCP Precision Editor) — trims are
       blind today; show outgoing/incoming frames at the edit point.
-[G66] P2 — Insert/overwrite/append/connect drop modes (FCP Q/W/E; Premiere
+[G66] P2 WIRED(drop modes OVERWRITE/INSERT cycle O) — Insert/overwrite/append/connect drop modes (FCP Q/W/E; Premiere
       toggle) — keyboard-only placement is currently ambiguous.
 [G67] P2 — Basic color correction: Lift/Gamma/Gain wheels + waveform scope
       (even exposure fixes matter; Kdenlive outclasses minimal editors here).
 [G68] P2 — Metadata columns/sorting + clip color labels in the bin (editors
       "spend as much time looking for clips as editing").
-[G69] P1 — Multiple timelines/sequences per project (every NLE has many; one
+[G69] P1 WIRED(multiple timelines wb_project container) — Multiple timelines/sequences per project (every NLE has many; one
       timeline limits any real edit).
 [G70] P2 — Relink/offline-media handling — hardcoded absolute paths break the
       moment a project moves (r/editors relink threads).

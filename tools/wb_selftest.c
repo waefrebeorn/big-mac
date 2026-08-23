@@ -1923,9 +1923,12 @@ static void test_clip_move_trim(void) {
     wb_track *a1 = wb_session_add_track(s, "A2", 1);   /* audio */
     wb_track *m0  = wb_session_add_track(s, "M1", 0);  /* MIDI */
     uint32_t nf = 44100;
-    wb_sample *buf = malloc(nf * sizeof(wb_sample));
-    for (uint32_t i = 0; i < nf; i++) buf[i] = 0.25f;
-    wb_session_add_audio_clip(a0, 0, (double)nf, buf, nf, 1);
+    /* source buffer holds 2s but the clip only uses its first 1s — leaves
+     * headroom so a right-edge drag can reveal unplayed material */
+    uint32_t srf = 88200;
+    wb_sample *buf = malloc(srf * sizeof(wb_sample));
+    for (uint32_t i = 0; i < srf; i++) buf[i] = 0.25f;
+    wb_session_add_audio_clip(a0, 0, (double)nf, buf, srf, 1);
     CHECK(a0->clip_count == 1 && a1->clip_count == 0, "audio clip on track A1");
 
     /* kind mismatch must be rejected: audio clip -> MIDI track */
@@ -1960,6 +1963,13 @@ static void test_clip_move_trim(void) {
     CHECK(wb_clip_edit_get(et, 0, 0)->start_in_source == 22050.0,
           "head trim advances start_in_source (buffer stays aligned)");
 
+    /* head can be extended back left — rewinding start_in_source */
+    rc = wb_session_trim_clip_head(s, et, 0, 0, -11025.0);
+    CHECK(rc == 0 && s->tracks[0].clips[0].start == 11025.0,
+          "head can be extended back left");
+    CHECK(wb_clip_edit_get(et, 0, 0)->start_in_source == 11025.0,
+          "left extension rewinds start_in_source");
+
     /* --- trim tail ------------------------------------------------------ */
     double len_before = s->tracks[0].clips[0].length;
     rc = wb_session_trim_clip_tail(s, et, 0, 0, 22050.0);
@@ -1970,13 +1980,6 @@ static void test_clip_move_trim(void) {
     double sis = wb_clip_edit_get(et, 0, 0)->start_in_source;
     CHECK(ct->length <= (double)ct->audio_frames - sis + 1.0,
           "tail extension capped by remaining source frames");
-
-    /* head can be extended back left — rewinding start_in_source */
-    rc = wb_session_trim_clip_head(s, et, 0, 0, -11025.0);
-    CHECK(rc == 0 && s->tracks[0].clips[0].start == 11025.0,
-          "head can be extended back left");
-    CHECK(wb_clip_edit_get(et, 0, 0)->start_in_source == 11025.0,
-          "left extension rewinds start_in_source");
     /* over-trim is clamped to a minimum-length clip */
     rc = wb_session_trim_clip_head(s, et, 0, 0, 10.0 * 44100.0);
     CHECK(rc == 0 && s->tracks[0].clips[0].length >= WB_SAMPLE_RATE * 0.01 - 1.0,
@@ -1987,7 +1990,7 @@ static void test_clip_move_trim(void) {
 
     /* --- MIDI clip: trim moves start and clamps notes -------------------- */
     wb_track *mt = &s->tracks[2];
-    CHECK(mt->kind == 0, "MIDI track present");
+    CHECK(mt == m0 && m0->kind == 0, "MIDI track present");
     wb_session_add_note(mt, 0.25, 1.0, 60, 100);   /* note times relative to clip */
     wb_session_add_note(mt, 2.5, 1.0, 64, 100);
     wb_clip *mc = &mt->clips[0];

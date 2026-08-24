@@ -859,6 +859,29 @@ static void draw_arrangement(app *a) {
                     setc(a->ren, cpal[cs][0], cpal[cs][1], cpal[cs][2]);
                 }
                 SDL_RenderDrawRect(a->ren, &clipbox);
+                /* G29: take-folder visual — inactive take-lanes dimmed with a
+                 * TAKE n badge; the active (played) lane gets an accent edge */
+                {
+                    int is_active_lane = ((int)cl->lane == tr->active_lane);
+                    if (!is_active_lane) {
+                        /* dim with a dark grid-colored fill (no alpha channel
+                         * in the palette helper; solid scrim reads clearly) */
+                        SDL_Rect dim = { clipbox.x+1, clipbox.y+1,
+                                         clipbox.w-2, clipbox.h-2 };
+                        setc(a->ren, 25, 25, 30);
+                        SDL_RenderFillRect(a->ren, &dim);
+                        char tk[16];
+                        snprintf(tk, sizeof(tk), "TAKE %d", cl->lane);
+                        wb_ui_draw_text(a->ren, clipbox.x+3,
+                                        clipbox.y+clipbox.h-11, tk, 1, C_TEXT_DIM);
+                    } else if (cl->lane > 0) {
+                        setc(a->ren, C_ACCENT);
+                        SDL_RenderDrawLine(a->ren, clipbox.x, clipbox.y,
+                                           clipbox.x, clipbox.y+clipbox.h);
+                        wb_ui_draw_text(a->ren, clipbox.x+3, clipbox.y+2,
+                                        "COMP", 1, C_ACCENT);
+                    }
+                }
                 int rx = clipbox.x + clipbox.w;
                 /* R067: mark perf clips distinctly — they replay an event
                  * list, not media. Draw a dotted deck-grid pattern. */

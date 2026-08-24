@@ -2668,10 +2668,12 @@ float wb_session_normalize_loudness(wb_session *s, int track, int clip,
     double cur = wb_lufs_integrated_lufs(&l);
     if (cur <= -70.0) return -999.0f;            /* silence */
     double gain_db = target_lufs - cur;
-    /* peak guard: never push the true peak past full scale */
-    double pk = wb_lufs_peak(&l);
-    if (pk > 1e-6 && gain_db > 20.0 * log10(1.0 / pk))
-        gain_db = 20.0 * log10(1.0 / pk);
+    /* R073 hop 34: peak guard now uses the real inter-sample true peak
+     * (hop 33), not the K-weighted reading — K-weighting colors the
+     * amplitude and can under- or over-estimate the headroom */
+    float tpk = wb_session_true_peak(s, track, clip);
+    if (tpk > 1e-6f && gain_db > 20.0 * log10(1.0 / tpk))
+        gain_db = 20.0 * log10(1.0 / tpk);
 
     float g = (float)pow(10.0, gain_db / 20.0);
     for (uint32_t i = 0; i < cl->audio_frames * ch; i++)

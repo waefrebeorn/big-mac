@@ -173,7 +173,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
       timeline limits any real edit).
 [G70] P2 — Relink/offline-media handling — hardcoded absolute paths break the  **WIRED R073: video offline flag + wb_session_update_offline + find_by_basename relink scan (lane C)**
       moment a project moves (r/editors relink threads).
-[G71] P2 — Render cache/pre-render previews for smooth scrubbing (Resolve smart
+[G71] P2 — Render cache/pre-render previews for smooth scrubbing (Resolve smart  **WIRED R073: preview WAV render cache with sidecar invalidation, 4 gate checks**
       cache); thumbnail/waveform disk cache for big projects (R066 wavcache is
       in-RAM only).
 [G72] P3 — Speed ramps / retiming curves (FCP Retime Editor class).

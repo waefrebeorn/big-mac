@@ -402,6 +402,13 @@ float wb_session_normalize(wb_session *s, int track, int clip,
  * target with a true-peak guard. Returns gain in dB, or -999 on error. */
 /* R073 hop 48: render a child session and commit it as an audio clip in the
  * parent (Vegas-style "flatten nested sequence"). */
+/* R073 hop 54: keyframable speed ramps — bind a speed curve to a clip;
+ * retime_source_time integrates it into a source-time mapping. */
+int wb_session_set_retime_ramp(struct wb_clip_edit_table *et, int track,
+                               int clip, struct wb_param_track *speed);
+double wb_session_retime_source_time(const struct wb_clip_edit_table *et,
+                                     int track, int clip,
+                                     double tl_offset);
 int wb_session_bounce_sequence(struct wb_engine *e, struct wb_session *parent,
                                int track, double dest,
                                struct wb_session *child);

@@ -34,6 +34,8 @@ typedef struct wb_clip_edit {
                               3t^2-2t^3) */
     int    mc_group;       /* G20: multicam group id (0 = none) */
     int    mc_angle;       /* G20: active angle index within the group */
+    struct wb_param_track *ramp; /* R073 hop 54: keyframable speed curve
+                                    (NOT owned; caller keeps it alive) */
     double retime;         /* G72: playback rate factor (1.0 = normal, 2.0 =
                               double-speed, 0.5 = half-speed). Timeline length
                               stays; source consumed faster/slower. */

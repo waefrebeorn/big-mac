@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include "wbus/wbus_clip_edit.h"
+#include "wbus/wbus_param_track.h"
 
 /* Table layout: a sparse-ish 2D store. We keep one `wb_clip_edit*` per track,
  * each a growable array indexed by clip. Neutral entries are calloc'd (all
@@ -132,4 +133,33 @@ float wb_clip_edit_env(const wb_clip_edit *e, double f, double length,
     if (env < 0.0f) env = 0.0f;
     if (env > 1.0f) env = 1.0f;
     return env;
+}
+
+/* ---- R073 hop 54: keyframable speed ramps ---------------------------------- */
+int wb_session_set_retime_ramp(wb_clip_edit_table *et, int track, int clip,
+                               wb_param_track *speed) {
+    if (!et || speed) { /* et required; speed may be NULL to unbind */ }
+    wb_clip_edit *e = wb_clip_edit_get(et, track, clip);
+    if (!e) return -1;
+    e->ramp = speed;   /* NOT owned — caller keeps the curve alive */
+    return 0;
+}
+
+double wb_session_retime_source_time(const wb_clip_edit_table *et,
+                                     int track, int clip,
+                                     double tl_offset) {
+    if (!et || tl_offset < 0) return tl_offset;
+    const wb_clip_edit *e = wb_clip_edit_get((wb_clip_edit_table*)et,
+                                             track, clip);
+    if (!e) return tl_offset;
+    if (!e->ramp) {
+        double r = e->retime > 0.01 ? e->retime : 1.0;
+        return tl_offset * r;                    /* constant rate */
+    }
+    /* numeric integration of speed(t) over [0, tl_offset] in 1/100s steps */
+    const double STEP = 0.01;
+    double src = 0.0;
+    for (double t = 0; t < tl_offset; t += STEP)
+        src += wb_param_track_value_at(e->ramp, t + STEP*0.5) * STEP;
+    return src;
 }

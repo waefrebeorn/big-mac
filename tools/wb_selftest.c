@@ -4558,6 +4558,25 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(child);
     }
 
+    /* R073 hop 54: keyframable speed ramp integrates into source time */
+    {
+        wb_clip_edit_table *et = wb_clip_edit_create();
+        wb_param_track *ramp = wb_param_track_create();
+        CHECK(et && ramp, "R073: ramp fixtures created");
+        wb_param_track_set(ramp, 0.0, 0.5f, WB_KF_LINEAR);
+        wb_param_track_set(ramp, 1.0, 2.0f, WB_KF_LINEAR);
+        int rc = wb_session_set_retime_ramp(et, 0, 0, ramp);
+        CHECK(rc == 0, "R073: ramp bound");
+        double s1 = wb_session_retime_source_time(et, 0, 0, 1.0);
+        CHECK(fabs(s1 - 1.25) < 0.02,
+              "R073: ramp integral maps 1s -> 1.25 source-sec");
+        printf("         R073 ramp src_t(1s)=%.3f (want ~1.25)\n", s1);
+        double s0 = wb_session_retime_source_time(et, 0, 0, 0.0);
+        CHECK(s0 == 0.0, "R073: zero offset maps to zero");
+        wb_param_track_free(ramp);
+        wb_clip_edit_destroy(et);
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
 }
 

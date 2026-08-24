@@ -2335,3 +2335,73 @@ int wb_capture_frame(wb_session *s, int track, double dest,
     if (wb_session_add_bin_entry(s, label, 2, 0.0) < 0) return -1;
     return 0;
 }
+
+/* ---- R073 hop 15: tempo estimation ---------------------------------------- */
+/* Estimate a clip's tempo in BPM by autocorrelating its (whitened) onset
+ * strength envelope over the 60..180 BPM range; returns 0 if unsure. */
+double wb_session_estimate_bpm(const wb_session *s, int track, int clip) {
+    if (!s || track < 0 || track >= (int)s->track_count) return 0;
+    const wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return 0;
+    const wb_clip *cl = &tr->clips[clip];
+    if (!cl->audio_data || cl->audio_frames < WB_SAMPLE_RATE / 2) return 0;
+    uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+
+    /* onset strength per 512-sample frame */
+    const uint32_t HOP = 512;
+    uint32_t nframes = cl->audio_frames / HOP;
+    if (nframes < 32) return 0;
+    float *flux = calloc(nframes, sizeof(float));
+    if (!flux) return 0;
+    for (uint32_t f = 0; f < nframes; f++) {
+        float d = 0;
+        const wb_sample *base = cl->audio_data + f * HOP * ch;
+        for (uint32_t i = 1; i < HOP; i++) {
+            float dv = fabsf(base[i * ch]) - fabsf(base[(i-1) * ch]);
+            if (dv > 0) d += dv;
+        }
+        flux[f] = d;
+    }
+    /* subtract local mean so periodic accents dominate */
+    float mean = 0;
+    for (uint32_t f = 0; f < nframes; f++) mean += flux[f];
+    mean /= nframes;
+    for (uint32_t f = 0; f < nframes; f++)
+        flux[f] = flux[f] > mean ? flux[f] - mean : 0;
+
+    double fps = WB_SAMPLE_RATE / (double)HOP;      /* frames per second */
+    double best_corr = -1e30; double best_bpm = 0;
+    for (double bpm = 60; bpm <= 180; bpm += 0.5) {
+        double lag_f = 60.0 * fps / bpm;            /* lag in frames */
+        uint32_t lag = (uint32_t)(lag_f + 0.5);
+        if (lag < 2 || lag + 2 >= nframes) continue;
+        double corr = 0;
+        for (uint32_t f = 0; f + lag < nframes; f++)
+            corr += flux[f] * flux[f + lag];
+        corr /= (nframes - lag);                    /* normalize by overlap */
+        if (corr > best_corr) { best_corr = corr; best_bpm = bpm; }
+    }
+    /* R073: octave-error correction — a click train matches equally at 2x
+     * the true period; prefer the faster tempo when the half-lag correlates
+     * comparably (standard Gouyon/Klapuri heuristic). */
+    if (best_bpm > 0 && best_bpm < 180) {
+        double fps2 = WB_SAMPLE_RATE / 512.0;
+        uint32_t half_lag = (uint32_t)(60.0 * fps2 / best_bpm / 2.0 + 0.5);
+        if (half_lag >= 2 && half_lag + 2 < nframes) {
+            double corr2 = 0;
+            for (uint32_t f = 0; f + half_lag < nframes; f++)
+                corr2 += flux[f] * flux[f + half_lag];
+            corr2 /= (nframes - half_lag);
+            /* score at half the winning lag = double BPM */
+            uint32_t win_lag = (uint32_t)(60.0 * fps2 / best_bpm + 0.5);
+            double corr_win = 0;
+            for (uint32_t f = 0; f + win_lag < nframes; f++)
+                corr_win += flux[f] * flux[f + win_lag];
+            corr_win /= (nframes - win_lag);
+            if (corr2 >= corr_win * 0.9)
+                best_bpm *= 2.0;
+        }
+    }
+    free(flux);
+    return best_corr > 0 ? best_bpm : 0;
+}

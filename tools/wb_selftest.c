@@ -4116,6 +4116,32 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(qs);
     }
 
+
+    /* R073 hop 15: tempo estimation — 120 BPM clicks detected */
+    {
+        wb_session *qs = wb_session_create();
+        wb_track *qt = wb_session_add_track(qs, "click",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: bpm track created");
+        uint32_t qnf = 4 * WB_SAMPLE_RATE;   /* 4 seconds */
+        wb_sample *qb = calloc((size_t)qnf, sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: bpm buffer allocated");
+        /* click every 0.5s = 120 BPM, sharp attack + fast decay */
+        for (int h = 0; h < 8; h++) {
+            uint32_t pos = (uint32_t)((0.05f + h * 0.5f) * WB_SAMPLE_RATE);
+            for (uint32_t j = 0; j < 100 && pos + j < qnf; j++)
+                qb[pos + j] = (wb_sample)(0.8f * (1 - j / 100.0f));
+        }
+        CHECK(wb_session_add_audio_clip(qt, 0, 4.0, qb, qnf, 1) == 0,
+              "R073: bpm clip created");
+        free(qb);
+        double bpm = wb_session_estimate_bpm(qs, 0, 0);
+        CHECK(bpm > 114 && bpm < 126,
+              "R073: tempo estimated near 120 BPM");
+        printf("         R073 estimated %.1f BPM (want ~120)\n", bpm);
+        wb_session_destroy(qs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

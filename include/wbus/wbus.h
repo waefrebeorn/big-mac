@@ -373,6 +373,8 @@ void wb_engine_get_master_meter(wb_engine *e, float *peak, float *rms);
  * until wb_engine_clear_clip_latch(). */
 int  wb_engine_get_clip_latch(const wb_engine *e);
 void wb_engine_clear_clip_latch(wb_engine *e);
+/* R073 hop 15: estimate an audio clip's tempo (60..180 BPM), 0 if unsure. */
+double wb_session_estimate_bpm(const wb_session *s, int track, int clip);
 /* G32: live K-weighted readings from the master path. lufs_st = short-term
  * LUFS (smoothed, 0.0 = silence/unset), true_peak = linear true peak
  * (0..1+, slow-release hold). Either pointer may be NULL. */

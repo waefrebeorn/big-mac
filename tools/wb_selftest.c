@@ -4329,6 +4329,32 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(qs);
     }
 
+
+    /* R073 hop 28: edge fades taper to ~zero */
+    {
+        wb_session *qs = wb_session_create();
+        wb_track *qt = wb_session_add_track(qs, "f",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: fade track created");
+        uint32_t qnf = WB_SAMPLE_RATE;
+        wb_sample *qb = malloc((size_t)qnf * sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: fade buffer allocated");
+        for (uint32_t i = 0; i < qnf; i++)
+            qb[i] = (wb_sample)(0.8 * sin(2*M_PI*440.0*i/WB_SAMPLE_RATE));
+        CHECK(wb_session_add_audio_clip(qt, 0, 1.0, qb, qnf, 1) == 0,
+              "R073: fade clip created");
+        free(qb);
+        wb_session_edge_fades(qs, 0, 0, 10.0);
+        /* first sample ~sin(pi/2/220)=~0.007*0.8; last similar */
+        float first = qt->clips[0].audio_data[0];
+        float last  = qt->clips[0].audio_data[qnf-1];
+        CHECK(fabsf(first) < 0.03f && fabsf(last) < 0.03f,
+              "R073: edges tapered by equal-power fades");
+        printf("         R073 fades: |first|=%.4f |last|=%.4f\n",
+               fabsf(first), fabsf(last));
+        wb_session_destroy(qs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

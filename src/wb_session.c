@@ -2580,5 +2580,41 @@ int wb_session_split_audio_clip(wb_session *s, int track, int clip,
                                        (double)right_n / WB_SAMPLE_RATE,
                                        right, right_n, (int)ch);
     free(right);
+    if (rc == 0) {
+        /* R073 hop 28: belt-and-braces equal-power micro-fades at the cut */
+        wb_session_edge_fades(s, track, clip, 5.0);
+        if ((uint32_t)(clip + 1) < tr->clip_count)
+            wb_session_edge_fades(s, track, clip + 1, 5.0);
+    }
     return rc == 0 ? 0 : -1;
+}
+
+/* ---- R073 hop 28: equal-power edge fades ----------------------------------- */
+/* Apply equal-power fade-in and fade-out of `fade_ms` each to an audio clip,
+ * in place. Equal power: amplitude ramps follow sin/cos so summed energy is
+ * constant when crossfaded against another equally-faded edge. */
+void wb_session_edge_fades(wb_session *s, int track, int clip,
+                           double fade_ms) {
+    if (!s || track < 0 || track >= (int)s->track_count) return;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return;
+    wb_clip *cl = &tr->clips[clip];
+    if (cl->type != 1 || !cl->audio_data || cl->audio_frames == 0) return;
+    uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+    uint32_t nf = (uint32_t)(fade_ms * WB_SAMPLE_RATE / 1000.0);
+    if (nf == 0) nf = 1;
+    if (nf > cl->audio_frames / 2) nf = cl->audio_frames / 2;
+
+    for (uint32_t i = 0; i < nf; i++) {
+        float fin  = (float)sin(M_PI * 0.5 * ((double)i + 0.5) / nf);
+        /* tail indexed from the end: forward position j = nf-1-i, and the
+         * equal-power partner of sin is cos over the SAME forward span */
+        double fj = (double)(nf - 1 - i);
+        float fout = (float)cos(M_PI * 0.5 * (fj + 0.5) / nf);
+        for (uint32_t c = 0; c < ch; c++) {
+            cl->audio_data[i * ch + c] *= fin;
+            uint32_t tail = cl->audio_frames - 1 - i;
+            cl->audio_data[tail * ch + c] *= fout;
+        }
+    }
 }

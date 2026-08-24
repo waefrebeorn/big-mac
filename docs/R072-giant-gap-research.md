@@ -104,7 +104,7 @@ every gap below is a break in one of those seven loops.
 [G42] P2 — Platform preset targets: YouTube -14 LUFS, Netflix -27 LKFS/-2dBTP,  **WIRED R073: full 5-profile delivery cycle incl. ATSC-A85; per-profile LUFS+TP honored end-to-end**
       broadcast -23 (loudness spec docs; we normalize to one target only).
 [G43] P2 — Watch-folder auto-export (AME watch folders).  **WIRED R073: WB_WATCH_DIR 5s poll, new media auto-imports**
-[G44] P2 — Text/title overlay tool: basic lower thirds/titles with font controls
+[G44] P2 — Text/title overlay tool: basic lower thirds/titles with font controls  **WIRED R073: wb_captions_burn_title (drawtext) + TITLE/TBURN UI with text capture**
       (titles = table stakes in every NLE incl. free ones; we have captions only).
 [G45] P3 — GIF/social aspect-ratio export presets (9:16, 1:1 crops).
 

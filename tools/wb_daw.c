@@ -2257,8 +2257,19 @@ static void draw_video_preview(app *a) {
     if (vd) {
         uint8_t *rgba = calloc(PROXY_SCALE_W * PROXY_SCALE_H, 4);
         int out_w = PROXY_SCALE_W, out_h = PROXY_SCALE_H;
+        /* R073 hop 53: honor the clip-edit retime factor — source time
+         * advances `retime` x faster than timeline time */
+        double rt = 1.0;
+        {
+            wb_clip_edit_table *et = wb_engine_clip_edit(a->engine);
+            if (et) {
+                const wb_clip_edit *ce =
+                    wb_clip_edit_get(et, a->vid_track, a->vid_clip);
+                if (ce && ce->retime > 0.01) rt = ce->retime;
+            }
+        }
         if (rgba &&
-            wb_video_decoder_seek(vd, in_src + clip_time) == 0 &&
+            wb_video_decoder_seek(vd, in_src + clip_time * rt) == 0 &&
             wb_video_decoder_decode_frame(vd, rgba, &out_w, &out_h) == 0) {
             SDL_Texture *tex = wb_video_frame_to_texture(a->ren, rgba, out_w, out_h);
             if (tex) {

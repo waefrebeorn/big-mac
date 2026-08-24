@@ -3605,6 +3605,50 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(ss);
     }
 
+
+    /* G26: time-stretch + pitch-shift */
+    {
+        uint32_t nf = 4 * WB_SAMPLE_RATE;
+        wb_sample *in = malloc((size_t)nf * 2 * sizeof(wb_sample));
+        CHECK(in != NULL, "G26: input allocated");
+        if (in) {
+            /* 220 Hz tone, stereo */
+            for (uint32_t i = 0; i < nf; i++) {
+                wb_sample v = (wb_sample)(0.5 *
+                    sin(2*M_PI*220.0*i/WB_SAMPLE_RATE));
+                in[i*2] = v; in[i*2+1] = v;
+            }
+            /* half-speed stretch: output should be ~2x longer */
+            wb_sample *out = NULL;
+            uint32_t no = wb_timestretch(in, nf, 2, 0.5, 0.0, &out);
+            CHECK(no > nf && no < (uint32_t)(nf * 2.5),
+                  "G26: half-speed roughly doubles length");
+            printf("         G26: %u -> %u frames (rate 0.5)\n", nf, no);
+            free(out);
+            /* double-speed: ~half length */
+            out = NULL;
+            no = wb_timestretch(in, nf, 2, 2.0, 0.0, &out);
+            CHECK(no > nf/3 && no < nf,
+                  "G26: double-speed roughly halves length");
+            free(out);
+            /* +12 semitones at rate 1: duration ~same, energy present */
+            out = NULL;
+            no = wb_timestretch(in, nf, 2, 1.0, 12.0, &out);
+            CHECK(no > (uint32_t)(nf*0.8) && no < (uint32_t)(nf*1.25),
+                  "G26: pitch-only keeps duration");
+            float peak = 0;
+            for (uint32_t i = 0; i < no; i++)
+                if (fabsf(out[i]) > peak) peak = fabsf(out[i]);
+            CHECK(peak > 0.05f, "G26: pitched output has signal");
+            free(out);
+            /* invalid inputs rejected */
+            CHECK(wb_timestretch(in, nf, 2, -1.0, 0.0, &out) == 0 &&
+                  wb_timestretch(in, nf, 2, 1.0, 99.0, &out) == 0,
+                  "G26: invalid rate/semitones rejected");
+            free(in);
+        }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

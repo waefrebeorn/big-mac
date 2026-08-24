@@ -4075,6 +4075,47 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(cs);
     }
 
+
+    /* R073 hop 13: sync survives very quiet recordings */
+    {
+        wb_session *qs = wb_session_create();
+        wb_session_add_track(qs, "A", WB_TRACK_KIND_AUDIO);
+        wb_session_add_track(qs, "B", WB_TRACK_KIND_AUDIO);
+        uint32_t qnf = WB_SAMPLE_RATE;
+        wb_sample *ba = calloc((size_t)qnf, sizeof(wb_sample));
+        wb_sample *bb = calloc((size_t)qnf + WB_SAMPLE_RATE/4,
+                               sizeof(wb_sample));
+        CHECK(ba && bb, "R073: quiet-sync buffers allocated");
+        unsigned seed = 99;
+        for (uint32_t k = 8; k < qnf / 32 - 4; k += 3) {
+            seed = seed * 1103515245 + 12345;
+            float v = ((seed >> 16) & 0xFF) / 255.0f - 0.5f;
+            if (fabsf(v) < 0.15f) v += 0.2f;
+            uint32_t ia = k * 32;
+            for (uint32_t j = 0; j < 24; j++)
+                if (ia + j < qnf)
+                    ba[ia + j] = (wb_sample)(v * (1 - j / 24.0f));
+            /* B is 20x quieter */
+            uint32_t ib = ia + WB_SAMPLE_RATE / 4;
+            for (uint32_t j = 0; j < 24; j++)
+                if (ib + j < qnf + WB_SAMPLE_RATE/4)
+                    bb[ib + j] = (wb_sample)(0.05f * v * (1 - j / 24.0f));
+        }
+        CHECK(wb_session_add_audio_clip(&qs->tracks[0], 0, 1.0, ba, qnf, 1) == 0,
+              "R073: quiet-sync clip A");
+        CHECK(wb_session_add_audio_clip(&qs->tracks[1], 0, 1.25, bb,
+              qnf + WB_SAMPLE_RATE/4, 1) == 0, "R073: quiet-sync clip B");
+        free(ba); free(bb);
+        double off = -999;
+        int rc = wb_session_sync_offset(qs, 0, 0, 1, 0, &off);
+        CHECK(rc == 0, "R073: sync works on 20x-quiet recording");
+        if (rc == 0)
+            CHECK(fabs(off - 0.25) < 0.005,
+                  "R073: quiet-recording offset exact");
+        printf("         R073 quiet off=%.5f\n", rc == 0 ? off : 0.0);
+        wb_session_destroy(qs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

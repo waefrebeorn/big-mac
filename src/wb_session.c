@@ -2017,6 +2017,18 @@ int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,
      * at 16x stride keeping the best candidate per 0.5s band (cheap), stage 2
      * rescans finely around it. Same result as the flat scan, ~16x cheaper. */
     int max_shift = 2 * WB_SAMPLE_RATE;
+    /* R073 hop 13: level-relative gates — absolute 0.01 cutoffs miss quiet
+     * recordings entirely; gate at 1% of each clip's own peak */
+    float pka = 0, pkb = 0;
+    for (uint32_t i = 0; i < na; i++) {
+        float v = fabsf(ca->audio_data[i * STRIDE * chn]);
+        if (v > pka) pka = v;
+    }
+    for (uint32_t i = 0; i < nb; i++) {
+        float v = fabsf(cb->audio_data[i * STRIDE * chn]);
+        if (v > pkb) pkb = v;
+    }
+    float ga = pka * 0.01f + 1e-6f, gb = pkb * 0.01f + 1e-6f;
     int coarse_step = STRIDE / 2 * 16;
     int coarse_best = 0; float coarse_score = -2.0f;
     for (int shift = -max_shift; shift <= max_shift; shift += coarse_step) {
@@ -2030,7 +2042,7 @@ int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,
             if (pos_b < 0 || pos_b >= (long)cb->audio_frames) continue;
             double a = fabs(ca->audio_data[i * STRIDE * chn]);
             double b = fabs(cb->audio_data[pos_b * chn]);
-            if (a < 0.01 && b < 0.01) continue;
+            if (a < ga && b < gb) continue;   /* below own noise floor */
             sab += a * b; sa2 += a * a; sb2 += b * b;
             n++;
         }

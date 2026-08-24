@@ -146,8 +146,14 @@ int wb_ui_text_to_rgba(const char *text, int scale,
                        wb_px *px, int W, int H, int x0, int y0) {
     (void)a;
     int cur = x0;
+    int cur_y = y0;
     for (const unsigned char *p = (const unsigned char *)text; *p; p++) {
         unsigned char ch = *p;
+        if (ch == '\n') {                       /* R073 hop 60: multi-line */
+            cur = x0;
+            cur_y += (GLYPH_H + 1) * scale;
+            continue;
+        }
         if (ch < 0x20 || ch > 0x7E) { cur += GLYPH_W*scale + 1; continue; }
         const unsigned char *glyph = FONT[ch - 0x20];
         for (int row = 0; row < GLYPH_H; row++) {
@@ -157,7 +163,7 @@ int wb_ui_text_to_rgba(const char *text, int scale,
                 for (int sy = 0; sy < scale; sy++)
                     for (int sx = 0; sx < scale; sx++) {
                         int X = cur + col*scale + sx;
-                        int Y = y0 + row*scale + sy;
+                        int Y = cur_y + row*scale + sy;
                         if (X < 0 || X >= W || Y < 0 || Y >= H) continue;
                         wb_px *q = &px[Y*W + X];
                         q->r = r; q->g = g; q->b = b; q->a = a;

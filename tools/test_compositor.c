@@ -796,6 +796,30 @@ int main(void) {
         wb_node_destroy(txt);
     }
 
+
+    /* R073 hop 60: multi-line text */
+    {
+        wb_node *txt = wb_node_source_text("AB\nCD", 3,
+                                           1.0f, 1.0f, 1.0f, 1.0f, 64, 64);
+        CHECK(txt != NULL, "mline: node created");
+        wb_frame *f = txt ? wb_node_pull(txt, 0.0, 0, 0, 64, 64) : NULL;
+        CHECK(f != NULL, "mline: frame pulled");
+        if (f) {
+            int lit_top = 0, lit_bot = 0;
+            for (int y = 20; y < 44; y++)
+                for (int x = 0; x < 64; x++)
+                    if (f->px[y*64+x].a > 0.5f) lit_top++;
+            for (int y = 46; y < 64; y++)
+                for (int x = 0; x < 64; x++)
+                    if (f->px[y*64+x].a > 0.5f) lit_bot++;
+            CHECK(lit_top > 0 && lit_bot > 0,
+                  "mline: both lines render");
+            wb_frame_free(f);
+        }
+        wb_node_destroy(txt);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);

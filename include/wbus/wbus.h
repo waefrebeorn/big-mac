@@ -392,6 +392,10 @@ int wb_session_split_audio_clip(wb_session *s, int track, int clip,
 /* R073 hop 28: equal-power fade-in/out at a clip's edges, in place. */
 void wb_session_edge_fades(wb_session *s, int track, int clip,
                            double fade_ms);
+/* R073 hop 29: peak-normalize a clip to `target` (e.g. 0.891 = -1 dBFS).
+ * Returns applied gain or -1 on error. */
+float wb_session_normalize(wb_session *s, int track, int clip,
+                           float target);
 /* G32: live K-weighted readings from the master path. lufs_st = short-term
  * LUFS (smoothed, 0.0 = silence/unset), true_peak = linear true peak
  * (0..1+, slow-release hold). Either pointer may be NULL. */

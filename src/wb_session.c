@@ -2618,3 +2618,31 @@ void wb_session_edge_fades(wb_session *s, int track, int clip,
         }
     }
 }
+
+/* ---- R073 hop 29: peak normalize ------------------------------------------- */
+/* Scale an audio clip so its peak hits `target` (0..1). Returns the applied
+ * gain (1.0 if no change needed), -1 on error. */
+float wb_session_normalize(wb_session *s, int track, int clip,
+                           float target) {
+    if (!s || target <= 0.0f || target > 1.0f) return -1.0f;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1.0f;
+    wb_clip *cl = &tr->clips[clip];
+    if (cl->type != 1 || !cl->audio_data || cl->audio_frames == 0)
+        return -1.0f;
+    uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+
+    float peak = 0;
+    for (uint32_t i = 0; i < cl->audio_frames; i++)
+        for (uint32_t c = 0; c < ch; c++) {
+            float v = fabsf(cl->audio_data[i * ch + c]);
+            if (v > peak) peak = v;
+        }
+    if (peak < 1e-6f) return 1.0f;               /* silence: nothing to do */
+    float gain = target / peak;
+    if (fabsf(gain - 1.0f) < 1e-4f) return 1.0f;
+    for (uint32_t i = 0; i < cl->audio_frames; i++)
+        for (uint32_t c = 0; c < ch; c++)
+            cl->audio_data[i * ch + c] *= gain;
+    return gain;
+}

@@ -4355,6 +4355,35 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(qs);
     }
 
+
+    /* R073 hop 29: peak normalize to -1 dBFS */
+    {
+        wb_session *qs = wb_session_create();
+        wb_track *qt = wb_session_add_track(qs, "n",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: norm track created");
+        uint32_t qnf = WB_SAMPLE_RATE / 2;
+        wb_sample *qb = calloc((size_t)qnf, sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: norm buffer allocated");
+        /* quiet sine peaking at 0.25 */
+        for (uint32_t i = 0; i < qnf; i++)
+            qb[i] = (wb_sample)(0.25 * sin(2*M_PI*220.0*i/WB_SAMPLE_RATE));
+        CHECK(wb_session_add_audio_clip(qt, 0, 0.5, qb, qnf, 1) == 0,
+              "R073: norm clip created");
+        free(qb);
+        float g = wb_session_normalize(qs, 0, 0, 0.891f);
+        CHECK(g > 3.5f && g < 3.6f,
+              "R073: applied gain ~3.564 (0.891/0.25)");
+        float peak = 0;
+        for (uint32_t i = 0; i < qt->clips[0].audio_frames; i++)
+            if (fabsf(qt->clips[0].audio_data[i]) > peak)
+                peak = fabsf(qt->clips[0].audio_data[i]);
+        CHECK(peak > 0.889f && peak <= 0.893f,
+              "R073: normalized peak lands at -1 dBFS");
+        printf("         R073 norm gain=%.3f peak=%.4f\n", g, peak);
+        wb_session_destroy(qs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

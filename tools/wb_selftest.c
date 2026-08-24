@@ -3036,6 +3036,59 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(bs);
     }
 
+
+    /* G28: strip silence — loud/silent/loud becomes two clips */
+    {
+        wb_session *gs = wb_session_create();
+        wb_track *gtr = wb_session_add_track(gs, "ss", 0);
+        CHECK(gtr != NULL, "G28: track created");
+        if (gtr) {
+            uint32_t nf = 4 * WB_SAMPLE_RATE;          /* 4s */
+            gtr->clips = calloc(1, sizeof(wb_clip));
+            gtr->clip_count = 1;
+            wb_clip *cl = &gtr->clips[0];
+            memset(cl, 0, sizeof(*cl));
+            cl->type = 1; cl->start = 0; cl->length = (double)nf;
+            cl->audio_channels = 1; cl->audio_frames = nf;
+            cl->audio_data = calloc(nf, sizeof(wb_sample));
+            /* layout: 1s silence | 1s tone | 1s silence | 1s tone */
+            for (uint32_t i = WB_SAMPLE_RATE; i < 2*WB_SAMPLE_RATE; i++)
+                cl->audio_data[i] = 0.5f * sinf(2.0f*3.14159f*440.0f*i/WB_SAMPLE_RATE);
+            for (uint32_t i = 3*WB_SAMPLE_RATE; i < nf; i++)
+                cl->audio_data[i] = 0.5f * sinf(2.0f*3.14159f*440.0f*i/WB_SAMPLE_RATE);
+            int nreg = wb_session_strip_silence(gs, 0, 0, 0.05f, 0.25);
+            CHECK(nreg == 2, "G28: two loud regions detected");
+            CHECK(gtr->clip_count == 2, "G28: clip split into two");
+            if (gtr->clip_count == 2) {
+                double l0 = gtr->clips[0].length;
+                double l1 = gtr->clips[1].length;
+                CHECK(l0 > 0.75 * WB_SAMPLE_RATE && l0 < 1.25 * WB_SAMPLE_RATE,
+                      "G28: region 1 is ~1s");
+                CHECK(l1 > 0.75 * WB_SAMPLE_RATE && l1 < 1.25 * WB_SAMPLE_RATE,
+                      "G28: region 2 is ~1s");
+                CHECK(gtr->clips[1].start > 2.7 * WB_SAMPLE_RATE &&
+                      gtr->clips[1].start < 3.3 * WB_SAMPLE_RATE,
+                      "G28: region 2 starts at its source offset (~3s)");
+            }
+            /* all-silent case */
+            wb_track *gtr2 = wb_session_add_track(gs, "mute", 0);
+            if (gtr2) {
+                gtr2->clips = calloc(1, sizeof(wb_clip));
+                gtr2->clip_count = 1;
+                wb_clip *c2 = &gtr2->clips[0];
+                memset(c2, 0, sizeof(*c2));
+                c2->type = 1; c2->length = WB_SAMPLE_RATE;
+                c2->audio_channels = 1;
+                c2->audio_frames = WB_SAMPLE_RATE;
+                c2->audio_data = calloc(WB_SAMPLE_RATE, sizeof(wb_sample));
+                CHECK(wb_session_strip_silence(gs, 1, 0, 0.05f, 0.1) == 0,
+                      "G28: all-silent clip yields zero regions");
+                CHECK(gtr2->clip_count == 0, "G28: silent clip removed");
+            }
+        }
+        wb_session_destroy(gs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

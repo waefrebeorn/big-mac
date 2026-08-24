@@ -1384,3 +1384,89 @@ int wb_session_relink_bin(wb_session *s) {
         if (relink_one(s, (int)i)) relinked++;
     return relinked;
 }
+
+/* ---- G28: strip silence / region detect --------------------------------- */
+/* Scan an audio clip's buffer for regions louder than thresh (linear 0..1)
+ * lasting at least min_sec. Each region becomes its OWN clip (samples copied,
+ * clear ownership); the original clip is removed. Returns the number of
+ * regions created (0 = clip was all silence -> clip removed, -1 on error). */
+int wb_session_strip_silence(wb_session *s, int track, int clip,
+                             float thresh, double min_sec) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    wb_clip *cl = &tr->clips[clip];
+    if (cl->type != 1 || !cl->audio_data || cl->audio_frames == 0) return -1;
+    uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+    uint32_t min_frames = (uint32_t)(min_sec * WB_SAMPLE_RATE);
+    if (min_frames < 1) min_frames = 1;
+
+    /* detect loud regions */
+    int regions[256][2];   /* [start_frame, end_frame) — cap 256 regions */
+    int nreg = 0;
+    int in_region = 0;
+    uint32_t rstart = 0, quiet_run = 0;
+    for (uint32_t i = 0; i < cl->audio_frames; i++) {
+        float peak = 0;
+        for (uint32_t c = 0; c < ch; c++) {
+            float v = fabsf(cl->audio_data[i * ch + c]);
+            if (v > peak) peak = v;
+        }
+        if (peak >= thresh) {
+            if (!in_region) { in_region = 1; rstart = i; }
+            quiet_run = 0;                       /* loud resets the hangover */
+        } else if (in_region) {
+            /* close only after silence PERSISTS min_frames (zero-crossing safe) */
+            if (++quiet_run >= min_frames) {
+                uint32_t rend = i - quiet_run + 1;
+                if (rend - rstart >= min_frames && nreg < 256) {
+                    regions[nreg][0] = (int)rstart;
+                    regions[nreg][1] = (int)rend;
+                    nreg++;
+                }
+                in_region = 0; quiet_run = 0;
+            }
+        }
+    }
+    if (in_region && cl->audio_frames - rstart >= min_frames && nreg < 256) {
+        regions[nreg][0] = (int)rstart; regions[nreg][1] = (int)cl->audio_frames; nreg++;
+    }
+    if (nreg == 0) {
+        /* all silence: remove the clip entirely */
+        free(cl->audio_data);
+        for (uint32_t i = (uint32_t)clip; i + 1 < tr->clip_count; i++)
+            tr->clips[i] = tr->clips[i + 1];
+        tr->clip_count--;
+        return 0;
+    }
+
+    /* build new clips, one per region (copies of their slice) */
+    wb_clip *newclips = calloc(nreg, sizeof(wb_clip));
+    if (!newclips) return -1;
+    for (int rgi = 0; rgi < nreg; rgi++) {
+        wb_clip *nc = &newclips[rgi];
+        *nc = *cl;                                    /* shallow copy */
+        uint32_t s0 = regions[rgi][0], s1 = regions[rgi][1];
+        uint32_t nf = s1 - s0;
+        nc->audio_data = malloc(nf * ch * sizeof(wb_sample));
+        if (!nc->audio_data) { nc->audio_frames = 0; continue; }
+        memcpy(nc->audio_data, cl->audio_data + s0 * ch,
+               nf * ch * sizeof(wb_sample));
+        nc->audio_frames = nf;
+        nc->start = cl->start + (double)s0;
+        nc->length = (double)nf;                      /* audio: samples */
+    }
+    /* remove original clip (owns the full buffer) */
+    free(cl->audio_data);
+    for (uint32_t i = (uint32_t)clip; i + 1 < tr->clip_count; i++)
+        tr->clips[i] = tr->clips[i + 1];
+    tr->clip_count--;
+    /* append the regions */
+    uint32_t base = tr->clip_count;
+    tr->clips = realloc(tr->clips, (tr->clip_count + nreg) * sizeof(wb_clip));
+    if (!tr->clips) { free(newclips); return -1; }
+    memcpy(tr->clips + base, newclips, nreg * sizeof(wb_clip));
+    tr->clip_count += nreg;
+    free(newclips);
+    return nreg;
+}

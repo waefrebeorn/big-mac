@@ -448,6 +448,11 @@ int  wb_session_add_bin_entry(wb_session *s, const char *path, int kind,
                              double duration);
 /* G68: sort the media bin (0 = name, 1 = kind+name, 2 = duration). */
 void wb_session_sort_bin(wb_session *s, int mode);
+/* G28: strip silence — split an audio clip into its loud regions
+ * (thresh linear 0..1, min_sec minimum region length). Returns region count;
+ * 0 = all silent (clip removed), -1 error. */
+int  wb_session_strip_silence(wb_session *s, int track, int clip,
+                              float thresh, double min_sec);
 
 /* (Re)compute the `offline` flag of every bin entry and video clip from disk
  * existence. Called on project load (G70) and before relink searches. */

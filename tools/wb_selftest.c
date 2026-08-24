@@ -3441,6 +3441,35 @@ static void test_scale_chord_step(void) {
         }
     }
 
+
+    /* G73: batch transitions across all cuts */
+    {
+        wb_session *bs = wb_session_create();
+        wb_track *btr = wb_session_add_track(bs, "bt", 0);
+        CHECK(btr != NULL, "G73: track created");
+        if (btr) {
+            btr->clips = calloc(3, sizeof(wb_clip));
+            btr->clip_count = 3;
+            for (int i = 0; i < 3; i++) {
+                memset(&btr->clips[i], 0, sizeof(wb_clip));
+                btr->clips[i].type = 0;
+                btr->clips[i].start = i * 2.0;
+                btr->clips[i].length = 2.0;
+            }
+            wb_clip_edit_table *bet = wb_clip_edit_create();
+            int cuts = wb_session_batch_transitions(bs, 0, bet, 0.4);
+            CHECK(cuts == 2, "G73: two cuts treated");
+            wb_clip_edit *e0 = wb_clip_edit_get(bet, 0, 0);
+            wb_clip_edit *e1 = wb_clip_edit_get(bet, 0, 1);
+            wb_clip_edit *e2 = wb_clip_edit_get(bet, 0, 2);
+            CHECK(e0->fade_out == 0.2f && e1->fade_in == 0.2f &&
+                  e1->fade_out == 0.2f && e2->fade_in == 0.2f,
+                  "G73: crossfades set on both sides of each cut");
+            wb_clip_edit_destroy(bet);
+        }
+        wb_session_destroy(bs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

@@ -1786,3 +1786,26 @@ double wb_session_set_retime(wb_clip_edit_table *et, int track, int clip,
     e->retime = rate;
     return rate;   /* caller recomputes length from their own units */
 }
+
+/* ---- G73: default-duration batch transitions ----------------------------- */
+/* Set fade_out on every clip and fade_in on its successor to `xf` seconds at
+ * every adjacent cut on the track (batch version of the per-cut G63 op).
+ * Returns the number of cuts treated. */
+int wb_session_batch_transitions(wb_session *s, int track, struct
+                                 wb_clip_edit_table *et, double xf) {
+    if (!s || !et || track < 0 || track >= (int)s->track_count) return -1;
+    if (xf <= 0) return -1;
+    wb_track *tr = &s->tracks[track];
+    int cuts = 0;
+    for (uint32_t i = 0; i + 1 < tr->clip_count; i++) {
+        wb_clip *a = &tr->clips[i], *b = &tr->clips[i+1];
+        wb_clip_edit *ea = wb_clip_edit_get(et, track, (int)i);
+        wb_clip_edit *eb = wb_clip_edit_get(et, track, (int)i+1);
+        if (!ea || !eb) continue;
+        double half = xf * 0.5;
+        ea->fade_out = (float)half;
+        eb->fade_in  = (float)half;
+        cuts++;
+    }
+    return cuts;
+}

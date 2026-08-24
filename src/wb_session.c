@@ -2540,3 +2540,45 @@ uint32_t wb_session_snap_zero_crossing(const wb_session *s, int track,
     }
     return pos;
 }
+
+/* ---- R073 hop 27: zero-crossing-split -------------------------------------- */
+/* Split an audio clip at time `split_secs` (snapped to the nearest zero
+ * crossing). Left clip keeps [0,split), right clip gets the rest starting at
+ * `start + split`. Returns 0, -1 on error. */
+int wb_session_split_audio_clip(wb_session *s, int track, int clip,
+                                double split_secs) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    wb_clip *cl = &tr->clips[clip];
+    if (cl->type != 1 || !cl->audio_data || cl->audio_frames < 4)
+        return -1;
+    uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+
+    uint32_t spf = (uint32_t)(split_secs * WB_SAMPLE_RATE);
+    if (spf == 0 || spf >= cl->audio_frames - 4) return -1;
+    /* pop-free cut: snap to a crossing within 5ms */
+    spf = wb_session_snap_zero_crossing(s, track, clip, spf,
+                                        WB_SAMPLE_RATE / 200);
+
+    uint32_t left_n = spf, right_n = cl->audio_frames - spf;
+    wb_sample *right = malloc((size_t)right_n * ch * sizeof(wb_sample));
+    if (!right) return -1;
+    memcpy(right, cl->audio_data + (size_t)spf * ch,
+           (size_t)right_n * ch * sizeof(wb_sample));
+
+    /* shrink the original to the left half */
+    wb_sample *left = realloc(cl->audio_data,
+                              (size_t)left_n * ch * sizeof(wb_sample));
+    if (!left) { free(right); return -1; }
+    cl->audio_data = left;
+    cl->audio_frames = left_n;
+    cl->length = (double)left_n / WB_SAMPLE_RATE;
+
+    double rstart = cl->start + (double)left_n / WB_SAMPLE_RATE;
+    int rc = wb_session_add_audio_clip(tr, rstart,
+                                       (double)right_n / WB_SAMPLE_RATE,
+                                       right, right_n, (int)ch);
+    free(right);
+    return rc == 0 ? 0 : -1;
+}

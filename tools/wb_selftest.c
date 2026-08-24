@@ -4292,6 +4292,43 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(zs);
     }
 
+
+    /* R073 hop 27: pop-free split */
+    {
+        wb_session *qs = wb_session_create();
+        wb_track *qt = wb_session_add_track(qs, "s",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: split track created");
+        uint32_t qnf = WB_SAMPLE_RATE;
+        wb_sample *qb = malloc((size_t)qnf * sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: split buffer allocated");
+        for (uint32_t i = 0; i < qnf; i++)
+            qb[i] = (wb_sample)(0.5 * sin(2*M_PI*220.0*i/WB_SAMPLE_RATE));
+        CHECK(wb_session_add_audio_clip(qt, 0, 1.0, qb, qnf, 1) == 0,
+              "R073: split clip created");
+        free(qb);
+        uint32_t before = qt->clip_count;
+        int rc = wb_session_split_audio_clip(qs, 0, 0, 0.5);
+        CHECK(rc == 0, "R073: split succeeded");
+        CHECK(qt->clip_count == before + 1,
+              "R073: split produced a second clip");
+        if (qt->clip_count >= 2) {
+            wb_clip *l = &qt->clips[0], *r = &qt->clips[1];
+            CHECK(l->audio_frames + r->audio_frames == qnf,
+                  "R073: split halves conserve samples");
+            /* both edges at zero crossings: near-zero boundary samples */
+            double le = fabs((double)
+                (l->audio_data[l->audio_frames-1]));
+            double rs = fabs((double)r->audio_data[0]);
+            CHECK(le < 0.02 && rs < 0.02,
+                  "R073: split edges are pop-free");
+            printf("         R073 split: left=%u right=%u "
+                   "(|end|=%.4f |start|=%.4f)\n",
+                   l->audio_frames, r->audio_frames, le, rs);
+        }
+        wb_session_destroy(qs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

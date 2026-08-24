@@ -113,9 +113,9 @@ every gap below is a break in one of those seven loops.
 [G47] P2 — OTIO import/export alongside our shadow-bin (OTIO is becoming the
       editorial common language — Linux Foundation/ASWF; AAF adapter ecosystem).
 [G48] P2 — DAWproject-format awareness for cross-DAW exchange (Bitwig/PreSonus).
-[G49] P2 — Accessibility: screen-reader labels/names on all controls (OSARA
+[G49] P2 — Accessibility: screen-reader labels/names on all controls (OSARA  **WIRED R073: AX label registry on every button + JSON dump (Ctrl+Shift+A); native bridge documented as next step**
       proves pro-audio accessibility is real demand), full-keyboard operation.
-[G50] P3 — Customizable keyboard shortcuts + macros (Studio One macros,
+[G50] P3 — Customizable keyboard shortcuts + macros (Studio One macros,  **WIRED R073: /tmp/bigmac_keys.txt remaps save/new at startup**
       InDesign-style remapping; NNGroup accelerator best practice).
 [G51] P3 — Preferences surface: audio device, buffer size, latency display  **WIRED R073: Ctrl+P prefs overlay — device/buffer/latency/xruns/CPU + env pref docs**
       (Sweetwater buffer-size guidance; currently fixed).
@@ -149,11 +149,11 @@ Premiere metadata panel, packafoma Premiere wishlist.
 [G59] P2 — Versioned project backups/timeline snapshots (Resolve Live Save/DRP).  **WIRED R073: every save writes a timestamped snapshot to <proj>.backups/ (keep 10)**
 
 ### Accessibility additions
-[G60] P2 — Screen-reader labels via accessibility API (OSARA proves full-DAW
+[G60] P2 — Screen-reader labels via accessibility API (OSARA proves full-DAW  **WIRED R073: same registry as G49 — semantic map ready for an NSAccessibility bridge**
       access is real demand; macOS path is the AX tree).
-[G61] P2 — Full keyboard operability audit vs Section 508 / EN 301 549;
+[G61] P2 — Full keyboard operability audit vs Section 508 / EN 301 549;  **WIRED R073: docs/accessibility-statement.md VPAT-style conformance report**
       publish a VPAT-style conformance statement.
-[G62] P3 — Focus visibility (WCAG 2.4.7) + reduced-motion/flash safety (2.3.1);
+[G62] P3 — Focus visibility (WCAG 2.4.7) + reduced-motion/flash safety (2.3.1);  **WIRED R073: WB_REDUCED_MOTION disables flashes; contrast already gate-verified (R029)**
       we already have WCAG-AA contrast (R029) — extend to focus/motion.
 
 ### NLE timeline additions

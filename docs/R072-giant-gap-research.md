@@ -37,7 +37,7 @@ every gap below is a break in one of those seven loops.
 [G10] P1 — Snap toggle + snap-to-markers/grid (FL scale/snap highlighting).  **WIRED R073: snap_pos() grid+marker quantize wired into clip move + scrub-seek (scale-highlight covered by G80)**
 [G11] P2 — Project templates + recent-files list + new-project dialog
       (Reaper templates, Cakewalk dialog threads).
-[G12] P2 — Autosave + crash recovery copies (Premiere auto-save folder/.bak).
+[G12] P2 — Autosave + crash recovery copies (Premiere auto-save folder/.bak).  **WIRED (pre-existing G57 autosave every 120s, keep-5 prune; recovery via G58)**
 [G13] P2 — Clip colors/naming in-grid (Ableton convention; SESSION audit found
       bars colored but slots blank).
 
@@ -145,7 +145,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
 ### Recover loop additions
 [G57] P0 WIRED(autosave 120s to /tmp/bigmac_autosave keep-5) — Autosave to dated Auto-Save folder on an interval (Premiere default;
       Kdenlive autosave credited with rescuing projects). We save ONLY on Ctrl+S.
-[G58] P2 — Crash recovery on relaunch from latest autosave (Premiere behavior).
+[G58] P2 — Crash recovery on relaunch from latest autosave (Premiere behavior).  **WIRED R073: relaunch auto-restores newest autosave (WB_NO_RECOVER=1 opts out)**
 [G59] P2 — Versioned project backups/timeline snapshots (Resolve Live Save/DRP).
 
 ### Accessibility additions

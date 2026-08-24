@@ -3234,6 +3234,41 @@ static void test_scale_chord_step(void) {
         } else { remove("/tmp/g82.wbus"); }
     }
 
+
+    /* G22: swap clips — positions exchange, kinds must match */
+    {
+        wb_session *ws = wb_session_create();
+        wb_track *wtr = wb_session_add_track(ws, "sw", 0);
+        CHECK(wtr != NULL, "G22: track created");
+        if (wtr) {
+            /* two separate MIDI CLIPS with one note each */
+            wtr->clips = calloc(2, sizeof(wb_clip));
+            wtr->clip_count = 2;
+            memset(&wtr->clips[0], 0, sizeof(wb_clip));
+            memset(&wtr->clips[1], 0, sizeof(wb_clip));
+            wtr->clips[0].type = 0;
+            wtr->clips[1].type = 0;
+            wtr->clips[0].notes = calloc(1, sizeof(wb_note));
+            wtr->clips[1].notes = calloc(1, sizeof(wb_note));
+            wtr->clips[0].note_count = 1;
+            wtr->clips[1].note_count = 1;
+            wtr->clips[0].start = 0;
+            wtr->clips[1].start = 2*WB_SAMPLE_RATE;
+            /* wb_note field order: start, dur, pitch, vel, mod, atouch */
+            wtr->clips[0].notes[0] = (wb_note){0, WB_SAMPLE_RATE, 60, 100, 0, 0};
+            wtr->clips[1].notes[0] = (wb_note){0, WB_SAMPLE_RATE, 72, 100, 0, 0};
+            double s0 = 0;
+            double s1 = 2*WB_SAMPLE_RATE;
+            int src = wb_session_swap_clips(ws, 0, 0, 0, 1);
+            if (src != 0) printf("         G22 DEBUG: swap rc=%d\n", src);
+            CHECK(src == 0, "G22: swap succeeds");
+            CHECK(fabs(wtr->clips[0].start - s1) < 1e-6 &&
+                  fabs(wtr->clips[1].start - s0) < 1e-6,
+                  "G22: positions exchanged");
+        }
+        wb_session_destroy(ws);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

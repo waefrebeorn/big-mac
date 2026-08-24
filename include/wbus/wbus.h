@@ -482,6 +482,9 @@ int         wb_session_chord_at(const wb_session *s, double pos,
                                 int *root, int *type);
 /* G82: snap a MIDI clip's notes into whichever chord sounds at each note. */
 int  wb_session_snap_to_chords(wb_session *s, int track, int clip);
+/* G22: swap two clips' timeline positions (alt+drop). Same media kind only. */
+int  wb_session_swap_clips(wb_session *s, int track_a, int clip_a,
+                           int track_b, int clip_b);
 /* G83: MIDI transformations — 0 humanize, 1 randomize-velocities,
  * 2 arpeggiate-up, 3 strum. Returns notes touched or -1. */
 int  wb_session_transform_notes(wb_session *s, int track, int clip, int mode);

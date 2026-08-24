@@ -4532,6 +4532,26 @@ static void handle_motion(app *a, SDL_MouseMotionEvent m) {
                      op is testable headless; the side-table entry travels
                      via wb_clip_edit_move. */
             double newstart = snap_pos(a, a->hd_clip_start0 + dsmp);  /* G10 */
+            /* G22: ALT+drop swaps with whichever clip sits under the target */
+            if (SDL_GetModState() & KMOD_ALT) {
+                int nti2 = y_to_track(a, m.y);
+                if (nti2 >= 0 && nti2 < (int)a->session->track_count) {
+                    wb_track *ttr = &a->session->tracks[nti2];
+                    for (uint32_t oc = 0; oc < ttr->clip_count; oc++) {
+                        if ((int)nti2 == a->hd_track && (int)oc == a->hd_clip)
+                            continue;
+                        wb_clip *o = &ttr->clips[oc];
+                        if (newstart < o->start + o->length &&
+                            newstart + cl->length > o->start &&
+                            o->type == cl->type) {
+                            wb_session_swap_clips(a->session,
+                                                  a->hd_track, a->hd_clip,
+                                                  nti2, (int)oc);
+                            return;
+                        }
+                    }
+                }
+            }
             if (newstart < 0) newstart = 0;
             int nti = y_to_track(a, m.y);
             if (nti >= 0 && nti < (int)a->session->track_count

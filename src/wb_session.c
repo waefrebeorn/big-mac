@@ -1689,3 +1689,27 @@ int wb_session_snap_to_chords(wb_session *s, int track, int clip) {
     }
     return n;
 }
+
+/* ---- G22: swap-clips drag ------------------------------------------------ */
+/* Swap the timeline positions of two clips on the same track (or across tracks
+ * hosting the same kind). Used by alt+drop in the arrangement: instead of
+ * overlapping, the target clip moves to where the dragged one started. */
+int wb_session_swap_clips(wb_session *s, int track_a, int clip_a,
+                          int track_b, int clip_b) {
+    if (!s || track_a < 0 || track_a >= (int)s->track_count) return -1;
+    if (track_b < 0 || track_b >= (int)s->track_count) return -1;
+    wb_track *ta = &s->tracks[track_a], *tb = &s->tracks[track_b];
+    if ((uint32_t)clip_a >= ta->clip_count) return -1;
+    if ((uint32_t)clip_b >= tb->clip_count) return -1;
+    if (ta->clips[clip_a].type != tb->clips[clip_b].type) return -1;
+    double sa = ta->clips[clip_a].start;
+    double sb = tb->clips[clip_b].start;
+    ta->clips[clip_a].start = sb;
+    tb->clips[clip_b].start = sa;
+    /* keep session length covered */
+    double e1 = sb + tb->clips[clip_b].length;
+    double e2 = sa + ta->clips[clip_a].length;
+    if (e1 > s->length) s->length = e1;
+    if (e2 > s->length) s->length = e2;
+    return 0;
+}

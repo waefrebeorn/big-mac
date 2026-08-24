@@ -280,6 +280,13 @@ typedef struct app {
         double rs[16], rd[16];       /* per-job range (seconds; -1 = whole) */
         char  out[16][400];          /* per-job output paths */
     } batch;
+    /* G90: song mode — chain of scene indices (SESSION lanes) played in
+     * order, one scene per `song_bars` bars. 0 = idle. */
+    int    song_chain[16];
+    int    song_len;                 /* entries used (0 = idle) */
+    int    song_pos;                 /* current chain index */
+    int    song_bars;                /* bars per step (default 1) */
+    int    song_last_bar;            /* bar count at last advance */
     int  export_range_mode;          /* 0 = WHOLE, 1 = IN..playhead */
     int  export_res_h;               /* 0/1080 native, 480, 720 */
     int  delivery_profile_idx;       /* G52: index into g_delivery_cycle */
@@ -1797,6 +1804,8 @@ static void draw_action_bar(app *a) {
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "STOP ALL", 0);
         ui_button(a->ren, BTN_ACT1, bx+bw+6,   by, bw, bh,
                   "REC ARR", a->launchrec_armed);                            /* G94 */
+        ui_button(a->ren, BTN_ACT2, bx+2*(bw+6), by, bw, bh,
+                  "SONG", a->song_len > 0);                                  /* G90 */
     } else {  /* video tabs 4..7 */
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "IMPORT", 0);
         ui_button(a->ren, BTN_ACT1, bx+bw+6,  by, bw, bh, "CAPTIONS", 0);
@@ -2979,6 +2988,47 @@ static void watch_poll(app *a) {
     a->watch_seen_crc = crc;
 }
 
+/* ---- G90: song mode (pattern chaining) ---------------------------------- */
+/* Launch scene `sc` on every track that has a clip on that lane (same
+ * semantics as a SESSION-tab scene click, without needing the click). */
+static void song_launch_scene(app *a, int sc) {
+    if (!a->session) return;
+    for (uint32_t t = 0; t < a->session->track_count; t++) {
+        wb_track *tk = &a->session->tracks[t];
+        for (uint32_t c = 0; c < tk->clip_count; c++) {
+            if (tk->clips[c].lane == sc) {
+                wb_engine_launch(a->engine, (int)t, (int)c);
+                break;
+            }
+        }
+    }
+    printf("song: scene %d\n", sc);
+}
+
+/* Advance the chain when the bar counter crosses `song_bars` boundaries.
+ * Called from perf_tick while playing. */
+static void song_tick(app *a) {
+    if (a->song_len <= 0 || !a->session || a->session->bpm <= 0) return;
+    double spb = 60.0 / a->session->bpm * WB_SAMPLE_RATE;      /* beat */
+    double bar = a->t.song_pos / (spb * 4.0);                  /* beats/bar=4 */
+    int barno = (int)bar;
+    int step_len = a->song_bars > 0 ? a->song_bars : 1;
+    if (barno / step_len == a->song_last_bar / step_len && a->song_pos != -1)
+        return;                                  /* still inside this step */
+    /* wrap detection: restart the chain when it plays past its end */
+    if (a->song_pos < 0 || a->song_pos >= a->song_len ||
+        barno < a->song_last_bar) {
+        a->song_pos = 0;
+        a->song_last_bar = 0;
+        song_launch_scene(a, a->song_chain[0]);
+        return;
+    }
+    a->song_pos++;
+    if (a->song_pos >= a->song_len) a->song_pos = 0;
+    a->song_last_bar = barno;
+    song_launch_scene(a, a->song_chain[a->song_pos]);
+}
+
 /* ---- R036: commit the STEP pattern into the track's arrangement clip -- */
 static void step_commit_to_clip(app *a) {
     int ti = a->selected_track; if (ti < 0 || !a->session) return;
@@ -3069,6 +3119,36 @@ static void handle_action(app *a, int act) {
                 a->launchrec_armed = 0;
             }
             printf("session-rec: %s\n", a->launchrec_armed ? "armed" : "disarmed+commit");
+        } else if (act == 2) {  /* G90: SONG mode — build chain from lanes, run */
+            if (a->song_len > 0) {
+                /* toggle off */
+                a->song_len = 0; a->song_pos = -1;
+                snprintf(a->last_status, sizeof a->last_status, "SONG MODE OFF");
+                printf("song: off\n");
+            } else {
+                /* build the chain from the distinct lane indices present */
+                a->song_len = 0;
+                for (int sc = 0; sc < 4 && a->song_len < 16; sc++) {
+                    int used = 0;
+                    for (uint32_t t = 0; t < a->session->track_count && !used; t++)
+                        for (uint32_t c = 0; c < a->session->tracks[t].clip_count; c++)
+                            if (a->session->tracks[t].clips[c].lane == sc)
+                                { used = 1; break; }
+                    if (used) a->song_chain[a->song_len++] = sc;
+                }
+                if (a->song_len > 0) {
+                    a->song_pos = -1;
+                    a->song_last_bar = 0;
+                    song_launch_scene(a, a->song_chain[0]);
+                    a->song_pos = 0;
+                    snprintf(a->last_status, sizeof a->last_status,
+                             "SONG: %d scenes chained", a->song_len);
+                    printf("song: chained %d scenes\n", a->song_len);
+                } else {
+                    snprintf(a->last_status, sizeof a->last_status,
+                             "SONG: no scene clips to chain");
+                }
+            }
         }
     } else if (tab == 2) {  /* STEP */
         if (act == 0) {  /* CLEAR pattern on selected track */
@@ -3286,6 +3366,7 @@ static void perf_tick(app *a) {
     /* R043-G7: live ticks for the upper-tier views (CGI rotation + AGI pipeline) */
     if (a->cgi && wb_workspace_cgi_active(a->ws)) wb_cgi_scene_tick(a->cgi, 1.0/60.0);
     if (a->agi && wb_workspace_agi_active(a->ws)) wb_agi_tick(a->agi, 1.0/60.0);
+    song_tick(a);   /* G90: pattern chaining / song mode */
 }
 
 static void handle_mouse(app *a, SDL_MouseButtonEvent b) {

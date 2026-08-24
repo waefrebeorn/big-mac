@@ -18,4 +18,9 @@ struct wb_session;
 int wb_cgi_beat_pulse(struct wb_session *s, int track, int clip,
                       struct wb_anim *a, int obj,
                       float base, float amount);
+
+/* R073 hop 57: camera shake driven by detected transients — kicks decay
+ * over ~200ms per hit. Returns camera keys written or -1. */
+int wb_cgi_camera_shake(struct wb_session *s, int track, int clip,
+                        struct wb_anim *a, float intensity);
 #endif

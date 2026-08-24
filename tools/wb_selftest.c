@@ -4649,6 +4649,37 @@ static void test_scale_chord_step(void) {
     }
 
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
+
+    /* R073 hop 57: camera shake follows transients */
+    {
+        wb_session *qs = wb_session_create();
+        qs->length = WB_SAMPLE_RATE;
+        wb_track *qt = wb_session_add_track(qs, "hits",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: shake track created");
+        uint32_t qnf = WB_SAMPLE_RATE;
+        wb_sample *qb = calloc((size_t)qnf, sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: shake buffer allocated");
+        for (int h = 0; h < 4; h++) {
+            uint32_t pos =
+                (uint32_t)((0.05f + h * 0.2f) * WB_SAMPLE_RATE);
+            for (uint32_t j = 0; j < 200 && pos + j < qnf; j++)
+                qb[pos + j] = (wb_sample)(0.8f * (1 - j / 200.0f));
+        }
+        CHECK(wb_session_add_audio_clip(qt, 0, 1.0, qb, qnf, 1) == 0,
+              "R073: shake clip added");
+        free(qb);
+        wb_anim *an = wb_anim_create(64, 64);
+        CHECK(an != NULL, "R073: shake anim created");
+        int wrote = wb_cgi_camera_shake(qs, 0, 0, an, 0.3f);
+        CHECK(wrote >= 8,
+              "R073: camera shake keys written for 4 hits x decay");
+        printf("         R073 shake keys=%d\n", wrote);
+        wb_anim_free(an);
+        wb_session_destroy(qs);
+    }
+
+    printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
     printf("\n%d checks, %d failures\n", checks, failures);
 }
 

@@ -110,3 +110,35 @@ int wb_cgi_beat_pulse(wb_session *s, int track, int clip,
     }
     return wrote;
 }
+
+/* ---- R073 hop 57: camera shake from transients ------------------------------ */
+/* Add camera-shake keys: at each detected transient the camera kicks by a
+ * pseudo-random angle offset that decays over ~200ms (keys at hit + decay
+ * steps). Uses G27 detector positions. Returns keys written or -1. */
+int wb_cgi_camera_shake(wb_session *s, int track, int clip,
+                        wb_anim *a, float intensity) {
+    if (!s || !a || intensity <= 0.0f) return -1;
+    uint32_t hits[256];
+    int nh = wb_session_detect_transients(s, track, clip, 0.5f,
+                                          hits, 256);
+    if (nh <= 0) return -1;
+    const double DECAY = 0.2;                    /* seconds per decay */
+    int wrote = 0;
+    unsigned seed = 12345;
+    for (int k = 0; k < nh; k++) {
+        double t0 = (double)hits[k] / WB_SAMPLE_RATE;
+        /* kick + a few decaying wobble keys */
+        for (int step = 0; step < 4; step++) {
+            double t = t0 + step * (DECAY / 4);
+            seed = seed * 1103515245 + 12345;
+            float sgn = ((seed >> 16) & 1) ? 1.0f : -1.0f;
+            float amp = intensity * sgn / (float)(step + 1);
+            if (wb_anim_key_camera(a, t,
+                                   amp * 0.3f,     /* pitch kick */
+                                   amp * 0.5f,     /* yaw kick   */
+                                   5.0f + amp) == 0)
+                wrote++;
+        }
+    }
+    return wrote;
+}

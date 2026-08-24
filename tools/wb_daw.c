@@ -283,6 +283,13 @@ typedef struct app {
     /* G90: song mode — chain of scene indices (SESSION lanes) played in
      * order, one scene per `song_bars` bars. 0 = idle. */
     int    song_chain[16];
+    /* G95: per-scene follow actions (Live 11+ two-action chance model).
+     * fa_action: 0=next,1=jump,2=other(random),3=fill(re-self),4=legato
+     * fa_chance: 0..100 % chance the action fires; else fall through to next.
+     * fa_target: scene index for JUMP. */
+    int    fa_action[16];
+    int    fa_chance[16];
+    int    fa_target[16];
     int    song_len;                 /* entries used (0 = idle) */
     int    song_pos;                 /* current chain index */
     int    song_bars;                /* bars per step (default 1) */
@@ -1806,6 +1813,15 @@ static void draw_action_bar(app *a) {
                   "REC ARR", a->launchrec_armed);                            /* G94 */
         ui_button(a->ren, BTN_ACT2, bx+2*(bw+6), by, bw, bh,
                   "SONG", a->song_len > 0);                                  /* G90 */
+        {   /* G95: follow-action cycle for the current chain position */
+            static const char *fan[] = { "NEXT", "JUMP", "OTHER", "FILL", "LEGATO" };
+            char flbl[24];
+            snprintf(flbl, sizeof(flbl), "%.6s %d%%",
+                     fan[a->fa_action[a->song_pos >= 0 ? a->song_pos : 0] & 7],
+                     a->fa_chance[a->song_pos >= 0 ? a->song_pos : 0]);
+            ui_button(a->ren, 63000, bx+3*(bw+6), by, bw, bh, flbl,
+                      a->fa_action[0] != 0);                                 /* G95 */
+        }
     } else {  /* video tabs 4..7 */
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "IMPORT", 0);
         ui_button(a->ren, BTN_ACT1, bx+bw+6,  by, bw, bh, "CAPTIONS", 0);
@@ -3005,8 +3021,42 @@ static void song_launch_scene(app *a, int sc) {
     printf("song: scene %d\n", sc);
 }
 
-/* Advance the chain when the bar counter crosses `song_bars` boundaries.
- * Called from perf_tick while playing. */
+/* G90/G95: advance the chain when the bar counter crosses `song_bars`
+ * boundaries. The next scene is chosen by the current scene's follow action
+ * (chance-weighted), else sequential. */
+static int song_next_scene(app *a) {
+    if (a->song_pos < 0 || a->song_pos >= 16) return 0;
+    int act = a->fa_action[a->song_pos];
+    int chance = a->fa_chance[a->song_pos];
+    int fires = chance >= 100 || (rand() % 100) < chance;
+    switch (act) {
+    case 1:                                  /* JUMP to target */
+        if (fires && a->fa_target[a->song_pos] >= 0 &&
+            a->fa_target[a->song_pos] < a->song_len)
+            return a->fa_target[a->song_pos];
+        break;
+    case 2:                                  /* OTHER: any chain entry != self */
+        if (fires && a->song_len > 1) {
+            int pick;
+            do { pick = rand() % a->song_len; } while (pick == a->song_pos);
+            return pick;
+        }
+        break;
+    case 3:                                  /* FILL: re-trigger self */
+        if (fires) return a->song_pos;
+        break;
+    case 4:                                  /* LEGATO: next, but don't relaunch
+                                                currently-playing clips — the
+                                                launch call below already only
+                                                starts non-playing clips, so
+                                                this behaves as smooth-next */
+        return (a->song_pos + 1) % a->song_len;
+    default:                                 /* 0 = NEXT */
+        break;
+    }
+    return (a->song_pos + 1) % a->song_len;
+}
+
 static void song_tick(app *a) {
     if (a->song_len <= 0 || !a->session || a->session->bpm <= 0) return;
     double spb = 60.0 / a->session->bpm * WB_SAMPLE_RATE;      /* beat */
@@ -3023,8 +3073,7 @@ static void song_tick(app *a) {
         song_launch_scene(a, a->song_chain[0]);
         return;
     }
-    a->song_pos++;
-    if (a->song_pos >= a->song_len) a->song_pos = 0;
+    a->song_pos = song_next_scene(a);
     a->song_last_bar = barno;
     song_launch_scene(a, a->song_chain[a->song_pos]);
 }
@@ -3474,6 +3523,21 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                     handle_action(a, id - BTN_ACT0); break;
                 case 62000:   /* G92: retrig on the selected step (STEP tab) */
                     handle_action(a, 4); break;
+                case 63000: { /* G95: cycle follow action + chance for the
+                                 current song-mode chain position. Left = next
+                                 action; right = chance 25->50->100->0. */
+                    int p = a->song_pos >= 0 ? a->song_pos : 0;
+                    if (b.button == SDL_BUTTON_RIGHT) {
+                        a->fa_chance[p] = a->fa_chance[p] == 0 ? 25 :
+                                          a->fa_chance[p] == 25 ? 50 :
+                                          a->fa_chance[p] == 50 ? 100 : 0;
+                    } else {
+                        a->fa_action[p] = (a->fa_action[p] + 1) % 5;
+                    }
+                    printf("song: scene %d follow=%d chance=%d%%\n",
+                           p, a->fa_action[p], a->fa_chance[p]);
+                    break;
+                }
                 case BTN_WS4+100: {  /* CAPTIONS tab: CHAP — chapters from markers */
                     if (a->session && a->session->marker_count >= 2) {
                         char buf[4096];

@@ -211,7 +211,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
       steps; wb_swing_offset helper applied in wb_transport_schedule_notes_sw
       and STEP perf_tick; toolbar SWING -/+ + % readout; test_swing.]
 [G90] P2 — Pattern chaining/song mode (MPC chaining; FL patterns-as-clips).
-[G91] P3 — Step-fill utilities (every 2nd/4th, random fill).
+[G91] P3 — Step-fill utilities (every 2nd/4th, random fill).  **WIRED R073: FILL button — every 2nd/4th (shift) / random (alt)**
 [G92] P3 — Note repeats/retrigs with accents (Bitwig Note Repeats).
 [G93] P1 WIRED(capture-quantize rolling note log -> 16th-grid clip) — Capture-quantize: record what you JUST played without pre-arming
       (Live capture MIDI) — jamming becomes material.

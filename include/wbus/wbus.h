@@ -459,6 +459,9 @@ void wb_session_sort_bin(wb_session *s, int mode);
  * 0 = all silent (clip removed), -1 error. */
 int  wb_session_strip_silence(wb_session *s, int track, int clip,
                               float thresh, double min_sec);
+/* G83: MIDI transformations — 0 humanize, 1 randomize-velocities,
+ * 2 arpeggiate-up, 3 strum. Returns notes touched or -1. */
+int  wb_session_transform_notes(wb_session *s, int track, int clip, int mode);
 
 /* (Re)compute the `offline` flag of every bin entry and video clip from disk
  * existence. Called on project load (G70) and before relink searches. */

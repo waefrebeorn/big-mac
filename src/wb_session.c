@@ -1543,3 +1543,58 @@ int wb_session_three_point_edit(wb_session *s, int track, const char *source,
     }
     return ni;
 }
+
+/* ---- G83: MIDI transformations ------------------------------------------ */
+/* mode: 0 = humanize (randomize vel +-8, start +-10ms), 1 = randomize order
+ * of velocities, 2 = arpeggiate up (sort notes by pitch, re-space evenly
+ * across the clip), 3 = strum (offset each successive note by 15ms).
+ * Returns the number of notes touched, or -1 on error. */
+int wb_session_transform_notes(wb_session *s, int track, int clip, int mode) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    wb_clip *cl = &tr->clips[clip];
+    if (cl->type != 0 || !cl->notes || cl->note_count == 0) return -1;
+    int n = 0;
+    switch (mode) {
+    case 0:   /* humanize */
+        for (uint32_t k = 0; k < cl->note_count; k++, n++) {
+            wb_note *nt = &cl->notes[k];
+            nt->vel = (uint8_t)(nt->vel + (rand() % 17) - 8);
+            if (nt->vel > 127) nt->vel = 127; if (nt->vel < 1) nt->vel = 1;
+            double jitter = ((rand() % 441) - 220);        /* +-~5ms samples */
+            nt->start += jitter; if (nt->start < 0) nt->start = 0;
+        }
+        break;
+    case 1: { /* randomize velocity order */
+        for (uint32_t k = cl->note_count; k-- > 1; n++) {
+            uint32_t j = rand() % (k + 1);
+            uint8_t tv = cl->notes[k].vel;
+            cl->notes[k].vel = cl->notes[j].vel;
+            cl->notes[j].vel = tv;
+        }
+        break;
+    }
+    case 2: { /* arpeggiate up: sort by pitch, spread across clip length */
+        for (uint32_t a = 0; a + 1 < cl->note_count; a++)
+            for (uint32_t b = a + 1; b < cl->note_count; b++)
+                if (cl->notes[b].pitch < cl->notes[a].pitch) {
+                    wb_note t = cl->notes[a]; cl->notes[a] = cl->notes[b];
+                    cl->notes[b] = t;
+                }
+        double span = cl->length > 0 ? cl->length : (double)WB_SAMPLE_RATE;
+        for (uint32_t k = 0; k < cl->note_count; k++, n++) {
+            cl->notes[k].start = span * (double)k / (double)cl->note_count;
+        }
+        break;
+    }
+    case 3:   /* strum: 15ms per successive note in current order */
+        for (uint32_t k = 0; k < cl->note_count; k++, n++) {
+            cl->notes[k].start += (double)k * 0.015 * WB_SAMPLE_RATE;
+        }
+        break;
+    default:
+        return -1;
+    }
+    return n;
+}

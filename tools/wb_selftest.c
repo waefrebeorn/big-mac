@@ -3136,6 +3136,34 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(rs);
     }
 
+
+    /* G83: MIDI transformations */
+    {
+        wb_session *ms = wb_session_create();
+        wb_track *mtr = wb_session_add_track(ms, "mid", 0);
+        CHECK(mtr != NULL, "G83: track created");
+        if (mtr) {
+            wb_session_add_note(mtr, 0, 0.25*WB_SAMPLE_RATE, 64, 100);
+            wb_session_add_note(mtr, 0.5*WB_SAMPLE_RATE, 0.25*WB_SAMPLE_RATE, 60, 100);
+            wb_session_add_note(mtr, 0.75*WB_SAMPLE_RATE, 0.25*WB_SAMPLE_RATE, 72, 100);
+            int cnt = (int)mtr->clips[0].note_count;
+            CHECK(cnt == 3, "G83: three notes seeded");
+            int touched = wb_session_transform_notes(ms, 0, 0, 3);   /* strum */
+            CHECK(touched == 3 &&
+                  fabs(mtr->clips[0].notes[2].start -
+                       (0.75*WB_SAMPLE_RATE + 2*0.015*WB_SAMPLE_RATE)) < 441,
+                  "G83: strum offsets successive notes by ~15ms");
+            touched = wb_session_transform_notes(ms, 0, 0, 2);       /* arp up */
+            CHECK(touched == 3 &&
+                  mtr->clips[0].notes[0].pitch == 60 &&
+                  mtr->clips[0].notes[2].pitch == 72,
+                  "G83: arpeggiate sorts by pitch and spreads evenly");
+            touched = wb_session_transform_notes(ms, 0, 0, 0);       /* humanize */
+            CHECK(touched == 3, "G83: humanize touches all notes");
+        }
+        wb_session_destroy(ms);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

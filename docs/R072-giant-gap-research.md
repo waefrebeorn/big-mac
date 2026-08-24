@@ -82,7 +82,7 @@ every gap below is a break in one of those seven loops.
       cycle; test_sends.]
 [G31] P1 — FX chain rack UI per track: add/remove/reorder inserts with param
       panels (inserts array exists; no visible chain editor).
-[G32] P1 — Real-time LUFS/true-peak meter on master (Youlean class; delivery
+[G32] P1 — Real-time LUFS/true-peak meter on master (Youlean class; delivery  **WIRED R073: wb_lufs on live master path, wb_engine_get_master_lufs, mixer LUFS/TP readouts
       normalize exists offline but no live meter).
 [G33] P2 — Track freeze/bounce-in-place for CPU (Ardour/Logic freeze; user
       directive list already flags FREEZE button — still open).
@@ -109,7 +109,7 @@ every gap below is a break in one of those seven loops.
 [G45] P3 — GIF/social aspect-ratio export presets (9:16, 1:1 crops).
 
 ## G. INTEROP / RECOVER loop
-[G46] P1 — SRT import/export buttons (captions roundtrip; audit-confirmed).
+[G46] P1 — SRT import/export buttons (captions roundtrip; audit-confirmed).  **WIRED R073: .srt in scan/browser, SRT IN/OUT buttons, write->parse roundtrip test
 [G47] P2 — OTIO import/export alongside our shadow-bin (OTIO is becoming the
       editorial common language — Linux Foundation/ASWF; AAF adapter ecosystem).
 [G48] P2 — DAWproject-format awareness for cross-DAW exchange (Bitwig/PreSonus).

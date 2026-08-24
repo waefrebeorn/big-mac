@@ -64,7 +64,7 @@ every gap below is a break in one of those seven loops.
 [G24] P1 — Keyframe graph editor for FX params: bezier handles, easing presets,  **WIRED R073: param-track key accessors + node bind API + FUSION keyframe curve editor (add/drag/delete keys)**
       value/speed graph (AE graph editor; kdenlive users beg for this; engine has
       param tracks but no curve UI beyond the R047 line overlay).
-[G25] P2 — Automation modes read/write/touch/latch (Pro Tools 4 modes; we have
+[G25] P2 — Automation modes read/write/touch/latch (Pro Tools 4 modes; we have  **WIRED R073: lane mode field, stage yields on write pass, right-click A cycles modes, TOUCH/LATCH write semantics**
       recorder-arm only).
 [G26] P2 — Time-stretch/pitch-shift clips to tempo/key (Elastic Audio/Flex Time;
       zero stretch support today).

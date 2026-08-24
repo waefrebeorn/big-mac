@@ -517,6 +517,9 @@ int  wb_session_slip_video_clip(wb_session *s, int track, int clip, double delta
 int  wb_session_roll_video_clip(wb_session *s, int track, int clip, double delta);
 /* G17 Slide: move clip in time; adjacent neighbors absorb the gap/overlap. */
 int  wb_session_slide_video_clip(wb_session *s, int track, int clip, double delta);
+/* G31: FX rack model ops — set/clear a slot's unit id; swap two slots. */
+int  wb_session_set_insert(wb_session *s, int track, int slot, const char *unit_id);
+int  wb_session_move_insert(wb_session *s, int track, int from, int to);
 
 /* R048: transcript text-editing — delete the word range [w0, w1) from the
  * transcript AND ripple-cut that time span out of the track's video clips

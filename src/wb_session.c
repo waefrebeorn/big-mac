@@ -280,6 +280,36 @@ void wb_session_set_active_lane(wb_session *s, int track, int lane) {
     s->tracks[track].active_lane = lane;
 }
 
+/* G31: FX chain rack model ops. set_insert writes `unit_id` into slot
+ * (slot 0 = instrument; FX live in 1..N). id "" or NULL clears the slot.
+ * Returns 0, or -1 on bad args. The engine rebuilds instances from these
+ * ids on wb_engine_set_session. */
+int wb_session_set_insert(wb_session *s, int track, int slot, const char *unit_id) {
+    if (!s || track < 0 || (uint32_t)track >= s->track_count) return -1;
+    if (slot < 0 || slot >= WB_MAX_INSERT_SLOTS) return -1;
+    wb_plugin_slot *ps = &s->tracks[track].inserts[slot];
+    if (unit_id && unit_id[0]) {
+        memset(ps->id, 0, sizeof(ps->id));
+        snprintf(ps->id, sizeof(ps->id), "%s", unit_id);
+    } else {
+        memset(ps->id, 0, sizeof(ps->id));
+    }
+    return 0;
+}
+
+/* G31: move an insert from slot `from` to slot `to` (drag-reorder). The
+ * vacated source slot is cleared. Returns 0, or -1 on bad args. */
+int wb_session_move_insert(wb_session *s, int track, int from, int to) {
+    if (!s || track < 0 || (uint32_t)track >= s->track_count) return -1;
+    if (from < 0 || from >= WB_MAX_INSERT_SLOTS) return -1;
+    if (to   < 0 || to   >= WB_MAX_INSERT_SLOTS) return -1;
+    if (from == to) return 0;
+    wb_plugin_slot tmp = s->tracks[track].inserts[to];
+    s->tracks[track].inserts[to]   = s->tracks[track].inserts[from];
+    s->tracks[track].inserts[from] = tmp;   /* swap: preserves overwritten FX */
+    return 0;
+}
+
 /* R031/R033: comping — promote the time-region [t0,t1] (samples) of a
  * take-lane clip onto lane 0 (the comp/main lane). For audio clips the
  * overlapping sub-range is copied and the source trimmed to the outside

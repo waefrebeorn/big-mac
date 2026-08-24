@@ -2872,6 +2872,35 @@ static void test_scale_chord_step(void) {
         unlink(p);
     }
 
+    /* G31: FX rack model ops — set, clear, reorder */
+    {
+        wb_session *fs = wb_session_create();
+        wb_track *ftr = wb_session_add_track(fs, "rack", 0);
+        CHECK(ftr != NULL, "G31: rack track created");
+        if (ftr) {
+            CHECK(wb_session_set_insert(fs, 0, 1, "eq") == 0,
+                  "G31: set slot 1 = eq");
+            CHECK(wb_session_set_insert(fs, 0, 2, "chorus") == 0,
+                  "G31: set slot 2 = chorus");
+            CHECK(strcmp(ftr->inserts[1].id, "eq") == 0 &&
+                  strcmp(ftr->inserts[2].id, "chorus") == 0,
+                  "G31: slots read back");
+            CHECK(wb_session_move_insert(fs, 0, 1, 2) == 0 &&
+                  strcmp(ftr->inserts[2].id, "eq") == 0 &&
+                  strcmp(ftr->inserts[1].id, "chorus") == 0,
+                  "G31: move_insert swaps slots (no FX lost)");
+            CHECK(wb_session_set_insert(fs, 0, 2, NULL) == 0 &&
+                  ftr->inserts[2].id[0] == 0,
+                  "G31: clear removes the unit id");
+            CHECK(wb_session_set_insert(fs, 0, -1, "eq") == -1 &&
+                  wb_session_set_insert(fs, 0, WB_MAX_INSERT_SLOTS, "eq") == -1,
+                  "G31: out-of-range slots rejected");
+            CHECK(wb_session_move_insert(fs, 0, 0, 5) == 0,
+                  "G31: instrument slot can be reordered too");
+        }
+        wb_session_destroy(fs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

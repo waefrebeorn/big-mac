@@ -192,6 +192,7 @@ typedef struct app {
     int step_vel[WB_MAX_TRACKS][16];   /* G87: per-step velocity 0..127 */
     int step_prob[WB_MAX_TRACKS][16];  /* G88: per-step probability 0..100 */
     int step_sel;            /* G87: step selected for velocity edit (-1=none) */
+    int fx_add_cycle;        /* G31: +FX palette cycle position */
     int vel_drag_step;       /* G87: vertical drag active on this step (-1=none) */
     int last_lp_row;         /* last Mk2 grid row lit (for release dim) */
     int last_lp_col;
@@ -1183,30 +1184,35 @@ static void draw_mixer(app *a) {
         /* track name under fader */
         wb_ui_draw_text(a->ren, x+2, fy_top-16, tr->name, 1, C_TEXT);
 
-        /* insert-chain readout; G75: each row is a clickable sidechain
-         * routing button — click cycles key source none -> track0 -> ...
-         * -> none. Region id: 50000 + ti*8 + slot. */
+        /* G31 FX rack: each insert row shows unit id + sidechain source;
+         * left-click = cycle sidechain (G75), right-click = remove the FX.
+         * A "+FX" button cycles a unit into the first empty slot. */
         if (ti == a->selected_track) {
             int iy = fy_bot + 80;   /* below the SEND A/B rows (G30) */
             int any = 0;
             for (int s = 0; s < WB_MAX_INSERT_SLOTS && s < 8; s++) {
                 const char *id = tr->inserts[s].id;
                 if (!id || !id[0]) continue;
-                char chain[48];
+                char chain[40];
                 const char *src = "--";
                 if (tr->sidechain[s] >= 0 &&
                     tr->sidechain[s] < (int)a->session->track_count)
                     src = a->session->tracks[tr->sidechain[s]].name;
                 snprintf(chain, sizeof(chain), "%d:%s<-%s", s, id, src);
                 ui_button(a->ren, 50000 + ti*8 + s, x+2, iy,
-                          sw-4 > 10 ? sw-4 : 10, 12, chain,
+                          sw-18 > 10 ? sw-18 : 10, 12, chain,
                           tr->sidechain[s] >= 0);
+                ui_button(a->ren, 60000 + ti*8 + s, x+sw-14, iy, 12, 12,
+                          "X", 0);   /* G31: remove FX */
                 iy += 14;
                 any = 1;
-                if (iy > WIN_H - 16) break;
+                if (iy > WIN_H - 28) break;
             }
             if (!any)
                 wb_ui_draw_text(a->ren, x+2, iy, "  (no inserts)", 1, C_TEXT_DIM);
+            /* +FX: add the next unit from the rack palette to an empty slot */
+            ui_button(a->ren, 61000 + ti*8, x+2, iy+2, sw-4 > 10 ? sw-4 : 10,
+                      12, "+FX", 0);
         }
     }
 
@@ -3419,6 +3425,50 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                                     }
                                     tr->send_target[si] = nxt;
                                 }
+                            }
+                        }
+                    } else if (id >= 60000 && id < 60100) {  /* G31: remove FX */
+                        int ti = (id - 60000) / 8;
+                        int s  = (id - 60000) % 8;
+                        if (ti < (int)a->session->track_count &&
+                            s > 0 /* never clear the instrument slot */) {
+                            wb_track *tr = &a->session->tracks[ti];
+                            if (tr->inserts[s].id[0]) {
+                                char nm[16];
+                                snprintf(nm, sizeof(nm), "%s", tr->inserts[s].id);
+                                wb_session_set_insert(a->session, ti, s, NULL);
+                                wb_engine_set_session(a->engine, a->session);
+                                snprintf(a->last_status, sizeof(a->last_status),
+                                         "FX REMOVED %d:%.12s", s, nm);
+                            }
+                        }
+                    } else if (id >= 61000 && id < 61100) {  /* G31: add FX */
+                        int ti = (id - 61000) / 8;
+                        if (ti < (int)a->session->track_count &&
+                            ti == a->selected_track) {
+                            static const char *palette[] =
+                                { "eq", "chorus", "delay", "reverb",
+                                  "saturation", "gate" };
+                            const int NP = (int)(sizeof(palette)/sizeof(palette[0]));
+                            wb_track *tr = &a->session->tracks[ti];
+                            int slot = -1;
+                            for (int s2 = 1; s2 < WB_MAX_INSERT_SLOTS; s2++)
+                                if (!tr->inserts[s2].id[0]) { slot = s2; break; }
+                            if (slot > 0) {
+                                /* cycle: pick palette entry after any existing
+                                 * same-palette unit so repeated +FX varies */
+                                int pick = a->fx_add_cycle++ % NP;
+                                wb_session_set_insert(a->session, ti, slot,
+                                                      palette[pick]);
+                                wb_engine_set_session(a->engine, a->session);
+                                snprintf(a->last_status,
+                                         sizeof(a->last_status),
+                                         "FX ADDED %d:%.12s", slot,
+                                         palette[pick]);
+                            } else {
+                                snprintf(a->last_status,
+                                         sizeof(a->last_status),
+                                         "FX RACK FULL");
                             }
                         }
                     } else if (id >= 50000 && id < 50100) {  /* G75: sidechain routing */

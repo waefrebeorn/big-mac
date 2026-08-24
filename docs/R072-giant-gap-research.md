@@ -200,7 +200,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
 [G84] P3 — Articulation management hiding raw keyswitches (Cubase Expression
       Maps / Logic Articulation Sets).
 [G85] P3 — Ghost notes from other clips while editing (FL ghost channels).  **WIRED R073: other tracks steps as dim dots in the STEP grid**
-[G86] P3 — Multi-CC lanes: pitch/mod/aftertouch editors beyond velocity
+[G86] P3 — Multi-CC lanes: pitch/mod/aftertouch editors beyond velocity  **WIRED R073: per-note mod/atouch fields, backward-compatible save/load, LANE editor cycle**
       (FL graph editor Note/Velocity/Pitch/Mod X/Y).
 [G87] P1 — Per-step velocity (FL per-step Velocity/Pitch/Shift) — refines  **WIRED R073: per-step velocity — shift-drag edit, commit uses step_vel, playback fires with it**
       the STEP checklist item.

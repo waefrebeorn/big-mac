@@ -27,7 +27,7 @@ every gap below is a break in one of those seven loops.
       mic/instrument to arrangement (all DAWs core).
 [G06] P2 — MIDI hardware recording: capture controller notes into clips,  **WIRED (verified R073): hardware notes flow midi_cb -> daw_note -> caplog; CAPTURE quantizes into clips (G93 machinery)**
       then quantize (Avid MIDI guide workflow).
-[G07] P3 — Screen/camera capture ingest.
+[G07] P3 — Screen/camera capture ingest.  **WIRED R073: wb_capture_frame ingest into media bin, hardware backends behind env opt-in, 3 gate checks**
 
 ## B. ORGANIZE loop
 [G08] P0 WIRED(undo/redo UI buttons + auto-checkpoints) — Undo/redo UI + history panel (Premiere History panel; trimming

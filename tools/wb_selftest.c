@@ -3862,6 +3862,36 @@ static void test_scale_chord_step(void) {
         }
     }
 
+
+    /* R073 hop 4: tonality limit — 9kHz tone is NOT shifted by +12st */
+    {
+        uint32_t nf = 2 * WB_SAMPLE_RATE;
+        wb_sample *in = malloc((size_t)nf * 2 * sizeof(wb_sample));
+        if (in) {
+            for (uint32_t i = 0; i < nf; i++) {
+                wb_sample v = (wb_sample)(0.5 *
+                    sin(2*M_PI*9000.0*i/WB_SAMPLE_RATE));
+                in[i*2] = v; in[i*2+1] = v;
+            }
+            wb_sample *op = NULL;
+            uint32_t np = wb_timestretch(in, nf, 2, 1.0, 12.0, &op);
+            CHECK(np > WB_SAMPLE_RATE, "R073: tonality test produced audio");
+            if (op && np > WB_SAMPLE_RATE) {
+                int zc = 0;
+                uint32_t start = np/2, end = start + WB_SAMPLE_RATE;
+                for (uint32_t i = start+1; i < end && i < np; i++)
+                    if ((op[(i-1)*2] < 0) != (op[i*2] < 0)) zc++;
+                /* unshifted 9kHz => ~18000 crossings/sec; a full +12st would
+                 * be ~36000 */
+                CHECK(zc > 14000 && zc < 22000,
+                      "R073: tonality limit keeps 9kHz near its place");
+                printf("         R073 tonality zc=%d (want ~18000, "
+                       "shifted would be ~36000)\n", zc);
+            }
+            free(op); free(in);
+        }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

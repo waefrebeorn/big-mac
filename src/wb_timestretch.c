@@ -29,6 +29,21 @@ static float *mono_of(const wb_sample *in, uint32_t n, uint32_t chn) {
     return m;
 }
 
+/* R073 hop 4: one-pole crossover split for the tonality limit. */
+static void band_split(const float *in, uint32_t n, double corner_hz,
+                       uint32_t sr, float *low, float *high) {
+    /* butterworth-ish 2nd order via cascaded one-poles at half the corner */
+    double rc = 1.0 / (2.0 * M_PI * corner_hz);
+    double a = rc / (rc + 1.0 / sr);            /* one-pole LP coeff */
+    float l1 = 0, l2 = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        l1 += (float)(a * ((double)in[i] - l1));
+        l2 += (float)(a * ((double)l1 - l2));
+        low[i]  = l2;
+        high[i] = in[i] - l2;
+    }
+}
+
 /* WSOLA core: stretch mono input by `rate` into a grown buffer.
  * Returns output length, or 0 on error. *outp must be freed. */
 static uint32_t wsola(const float *in, uint32_t nin, double rate,
@@ -155,13 +170,38 @@ uint32_t wb_timestretch_tr(const wb_sample *in, uint32_t frames,
 
     /* R073 hop 3: simultaneous pitch+time — one WSOLA pass with a per-sample
      * read step of 2^(st/12). Time ratio comes from rate, pitch from the
-     * step; no chained stretch->resample so artifacts don't compound. */
+     * step; no chained stretch->resample so artifacts don't compound.
+     * R073 hop 4: tonality limit — above TONALITY_HZ the shift fades out
+     * (cymbals/breath keep their natural character), via a 2-band split:
+     * only the low band is pitched; the high band rides a pitch-free pass. */
     double resamp = pow(2.0, semitones / 12.0);
     float *stretched = NULL;
-    uint32_t ns = wsola(mono, frames, rate, resamp,
-                        trans, ntrans, &stretched);
-    free(mono);
-    if (!ns) return 0;
+    uint32_t ns;
+    if (fabs(semitones) >= 0.001) {
+        enum { TONALITY_HZ = 5000 };
+        float *low = malloc((size_t)frames * sizeof(float));
+        float *high = malloc((size_t)frames * sizeof(float));
+        if (!low || !high) { free(low); free(high); free(mono); return 0; }
+        band_split(mono, frames, TONALITY_HZ, WB_SAMPLE_RATE, low, high);
+        float *slow = NULL, *shigh = NULL;
+        uint32_t n1 = wsola(low, frames, rate, resamp,
+                            trans, ntrans, &slow);
+        uint32_t n2 = wsola(high, frames, rate, 1.0,
+                            trans, ntrans, &shigh);
+        free(low); free(high);
+        free(mono);
+        if (!n1 || !n2) { free(slow); free(shigh); return 0; }
+        ns = n1 < n2 ? n1 : n2;
+        stretched = malloc((size_t)ns * sizeof(float));
+        if (!stretched) { free(slow); free(shigh); return 0; }
+        for (uint32_t i = 0; i < ns; i++)
+            stretched[i] = slow[i] + shigh[i];
+        free(slow); free(shigh);
+    } else {
+        ns = wsola(mono, frames, rate, 1.0, trans, ntrans, &stretched);
+        free(mono);
+        if (!ns) return 0;
+    }
 
     /* output is dual-mono at native rate */
     wb_sample *out = calloc((size_t)ns * 2, sizeof(wb_sample));

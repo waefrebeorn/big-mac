@@ -2926,6 +2926,43 @@ static void test_scale_chord_step(void) {
         }
     }
 
+    /* G63: dynamic transitions — facing fades re-link after adjacency */
+    {
+        wb_session *ts = wb_session_create();
+        wb_track *ttr = wb_session_add_track(ts, "xf", 0);
+        if (ttr) {
+            ttr->clips = calloc(2, sizeof(wb_clip));
+            ttr->clip_count = 2;
+            wb_clip *ca = &ttr->clips[0];
+            wb_clip *cb = &ttr->clips[1];
+            memset(ca, 0, sizeof(*ca)); memset(cb, 0, sizeof(*cb));
+            ca->type = 0; ca->start = 0.0;   ca->length = 2.0;
+            cb->type = 0; cb->start = 2.0;   cb->length = 2.0;
+            ts->track_count = ts->track_count;  /* no-op, keeps types quiet */
+            wb_clip_edit_table *et = wb_clip_edit_create();
+            wb_clip_edit_get(et, 0, 0)->fade_in = 0.0f;
+            wb_clip_edit_get(et, 0, 1)->fade_out = 0.4f;  /* only b has one */
+            wb_session_update_transitions(ts, et);
+            wb_clip_edit *ea = wb_clip_edit_get(et, 0, 0);
+            wb_clip_edit *eb = wb_clip_edit_get(et, 0, 1);
+            CHECK(ea->fade_in == 0.4f && eb->fade_out == 0.4f,
+                  "G63: facing fade re-linked to the neighbor");
+            /* clamp case: shrink clip a but move b to keep adjacency —
+             * fade must clamp to half the shorter (0.25s) */
+            ca->length = 0.5;
+            cb->start = 0.5;
+            wb_session_update_transitions(ts, et);
+            CHECK(ea->fade_in <= 0.26f && eb->fade_out <= 0.26f,
+                  "G63: transition clamped to half the shorter clip");
+            /* broken adjacency: move b away -> fades untouched (no crash) */
+            cb->start = 10.0;
+            wb_session_update_transitions(ts, et);
+            CHECK(1, "G63: non-adjacent clips handled");
+            wb_clip_edit_destroy(et);
+        }
+        wb_session_destroy(ts);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

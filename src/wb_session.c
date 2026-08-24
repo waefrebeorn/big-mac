@@ -1120,6 +1120,46 @@ int wb_session_move_clip(wb_session *s, int track, int clip,
     return 0;
 }
 
+/* G63: dynamic transitions — re-pair crossfades after any clip move/trim.
+ * For every pair of adjacent clips (a ends where b starts, within tol):
+ *   - if either has a facing fade, equalize both to the max so the join
+ *     crossfades symmetrically (dynamic re-linking);
+ *   - clamp fades to half the shorter clip's length.
+ * Fades on non-adjacent edges are left alone (plain fades). Uses the
+ * engine's clip-edit side-table; pass wb_engine_clip_edit(e). */
+void wb_session_update_transitions(wb_session *s, wb_clip_edit_table *et) {
+    if (!s || !et) return;
+    const double tol = 1e-3;   /* adjacency tolerance in clip units */
+    for (int t = 0; t < (int)s->track_count; t++) {
+        wb_track *tr = &s->tracks[t];
+        for (uint32_t i = 0; i + 1 < tr->clip_count; i++) {
+            wb_clip *a = &tr->clips[i];
+            int best = -1; double bestd = tol;
+            for (uint32_t j = i + 1; j < tr->clip_count; j++) {
+                double d = tr->clips[j].start - (a->start + a->length);
+                if (d > -tol && d < bestd) { bestd = d; best = (int)j; }
+                if (d >= tol) break;
+            }
+            if (best < 0) continue;
+            wb_clip *b = &tr->clips[best];
+            double alen = a->length > 0 ? a->length : 1.0;
+            double blen = b->length > 0 ? b->length : 1.0;
+            double minlen = alen < blen ? alen : blen;
+            wb_clip_edit *ea = wb_clip_edit_get(et, t, (int)i);
+            wb_clip_edit *eb = wb_clip_edit_get(et, t, best);
+            if (!ea || !eb) continue;
+            /* dynamic re-link: whichever facing fade exists is shared */
+            double fi = ea->fade_in  > 0 ? (double)ea->fade_in  : 0.0;
+            double fo = eb->fade_out > 0 ? (double)eb->fade_out : 0.0;
+            double xf = fi > fo ? fi : fo;
+            if (xf <= 0) continue;              /* no transition requested */
+            if (xf > minlen * 0.5) xf = minlen * 0.5;
+            ea->fade_in  = (float)xf;
+            eb->fade_out = (float)xf;
+        }
+    }
+}
+
 static int trim_common(wb_session *s, int track, int clip, wb_clip **out) {
     if (!s || track < 0 || track >= (int)s->track_count) return -1;
     wb_track *tr = &s->tracks[track];

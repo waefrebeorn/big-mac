@@ -61,7 +61,7 @@ every gap below is a break in one of those seven loops.
 ## D. REFINE loop
 [G23] P1 — Visible fade handles on clip edges + curve handle + adjacent
       crossfade drag (engine HAS crossfades; NO handles — Ableton fade-controls doc).  **WIRED (verified R073): grips + fade lines + curve glyph already drawn, drag + right-click curve cycle live, crossfade overlap tested**
-[G24] P1 — Keyframe graph editor for FX params: bezier handles, easing presets,
+[G24] P1 — Keyframe graph editor for FX params: bezier handles, easing presets,  **WIRED R073: param-track key accessors + node bind API + FUSION keyframe curve editor (add/drag/delete keys)**
       value/speed graph (AE graph editor; kdenlive users beg for this; engine has
       param tracks but no curve UI beyond the R047 line overlay).
 [G25] P2 — Automation modes read/write/touch/latch (Pro Tools 4 modes; we have

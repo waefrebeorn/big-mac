@@ -400,6 +400,12 @@ float wb_session_normalize(wb_session *s, int track, int clip,
                            float target);
 /* R073 hop 31: loudness-normalize a clip to a BS.1770 integrated LUFS
  * target with a true-peak guard. Returns gain in dB, or -999 on error. */
+/* R073 hop 48: render a child session and commit it as an audio clip in the
+ * parent (Vegas-style "flatten nested sequence"). */
+int wb_session_bounce_sequence(struct wb_engine *e, struct wb_session *parent,
+                               int track, double dest,
+                               struct wb_session *child);
+
 float wb_session_normalize_loudness(wb_session *s, int track, int clip,
                                     double target_lufs);
 /* R073 hop 33: 4x-oversampled inter-sample true peak of a clip. */

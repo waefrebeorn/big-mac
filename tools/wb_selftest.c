@@ -4513,7 +4513,52 @@ static void test_scale_chord_step(void) {
     }
 
 
-    printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
+
+    /* R073 hop 48: nested sequence bounce-in-place */
+    {
+        wb_session *parent = wb_session_create();
+        wb_session *child = wb_session_create();
+        CHECK(parent && child, "R073: nest sessions created");
+        wb_track *pt = wb_session_add_track(parent, "nest",
+                                            WB_TRACK_KIND_AUDIO);
+        child->length = WB_SAMPLE_RATE;   /* 1s */
+        wb_track *ct = wb_session_add_track(child, "inner", 0);
+        CHECK(pt && ct, "R073: nest tracks created");
+        /* child has a known note (instrument path renders offline) */
+        wb_session_add_note(ct, 0, 0.9 * WB_SAMPLE_RATE, 69, 100);
+        {   /* probe: direct child render */
+            wb_sample *pb = NULL; uint32_t pf = 0;
+            int prc = wb_engine_render_session(NULL, child, &pb, &pf);
+            float ppk = 0;
+            if (prc == 0 && pb) {
+                for (uint32_t i = 0; i < pf; i++)
+                    if (fabsf(pb[i]) > ppk) ppk = fabsf(pb[i]);
+                free(pb);
+            }
+            printf("         R073 probe: prc=%d frames=%u pk=%.4f\n",
+                   prc, (unsigned)pf, ppk);
+        }
+        int rc = wb_session_bounce_sequence(NULL, parent, 0,
+                                            2.0 * WB_SAMPLE_RATE, child);
+        CHECK(rc == 0, "R073: bounce succeeded");
+        if (rc == 0) {
+            CHECK(parent->tracks[0].clip_count == 1,
+                  "R073: bounced clip landed in parent");
+            wb_clip *bc = &parent->tracks[0].clips[0];
+            CHECK(bc->start == 2.0 * WB_SAMPLE_RATE,
+                  "R073: bounce lands at requested position");
+            float pk = 0;
+            for (uint32_t i = 0; i < bc->audio_frames; i++)
+                if (fabsf(bc->audio_data[i]) > pk)
+                    pk = fabsf(bc->audio_data[i]);
+            printf("         R073 bounce pk=%.4f\n", pk);
+            CHECK(pk > 0.1f, "R073: bounced audio carries content");
+        }
+        wb_session_destroy(parent);
+        wb_session_destroy(child);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
 }
 
 int main(void) {

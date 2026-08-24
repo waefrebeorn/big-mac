@@ -2744,3 +2744,23 @@ float wb_session_true_peak(const wb_session *s, int track, int clip) {
     return tpk;
 }
 
+
+/* ---- R073 hop 48: nested sequence bounce ----------------------------------- */
+/* Render a child session through the engine and commit it as a new audio
+ * clip in the parent at `dest` on `track` (Vegas "flatten nested"). The
+ * child plays from its 0 through its full length. Returns 0 or -1. */
+int wb_session_bounce_sequence(wb_engine *e, wb_session *parent,
+                               int track, double dest,
+                               wb_session *child) {
+    if (!parent || !child) return -1;   /* e unused: render_session makes its own */
+    if (track < 0 || track >= (int)parent->track_count) return -1;
+    wb_sample *buf = NULL;
+    uint32_t frames = 0;
+    if (wb_engine_render_session(e, child, &buf, &frames) != 0 || !buf)
+        return -1;
+    int rc = wb_session_add_audio_clip(&parent->tracks[track], dest,
+                                       (double)frames,   /* samples */
+                                       buf, frames, 2);
+    free(buf);
+    return rc == 0 ? 0 : -1;
+}

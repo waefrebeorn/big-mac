@@ -32,7 +32,7 @@ static float *mono_of(const wb_sample *in, uint32_t n, uint32_t chn) {
 /* WSOLA core: stretch mono input by `rate` into a grown buffer.
  * Returns output length, or 0 on error. *outp must be freed. */
 static uint32_t wsola(const float *in, uint32_t nin, double rate,
-                      const uint32_t *trans, uint32_t ntrans,
+                      double pitch, const uint32_t *trans, uint32_t ntrans,
                       float **outp) {
     /* R073-G26b: transient guard — a candidate window straddling a transient
      * would double or skip it; such candidates are skipped by the search. */
@@ -81,8 +81,14 @@ static uint32_t wsola(const float *in, uint32_t nin, double rate,
             if (q < 0 || q + TS_FRAME >= (long)nin) continue;
             float e = 0;
             if (!ntrans && have_anchor) {
-                for (uint32_t k = 0; k < TS_HOP; k++)
-                    e += in[q + k] * anchor[k];
+                for (uint32_t k = 0; k < TS_HOP; k++) {
+                    double cp = (double)q + (double)k * pitch;
+                    uint32_t ci = (uint32_t)cp;
+                    if (ci + 1 >= (long)nin) { e = -1e30f; break; }
+                    float f2 = (float)(cp - (double)ci);
+                    float cv = in[ci]*(1.0f-f2) + in[ci+1]*f2;
+                    e += cv * anchor[k];
+                }
             } else if (have_anchor) {
                 int straddles = 0;
                 for (uint32_t t = 0; t < ntrans; t++)
@@ -101,22 +107,31 @@ static uint32_t wsola(const float *in, uint32_t nin, double rate,
         }
         uint32_t p = (uint32_t)((long)src_pos + best_d);
         if (p + TS_FRAME >= nin) break;
-        /* overlap-add with linear crossfade over the first TS_HOP samples */
+        /* overlap-add with linear crossfade over the first TS_HOP samples.
+         * R073 hop 3: simultaneous pitch — frame samples are read at step
+         * `pitch`, so pitch shifts in the SAME pass as time (no chained
+         * stretch+resample, no compounding artifacts). */
         for (uint32_t k = 0; k < TS_FRAME; k++) {
             float w_in  = k < TS_HOP && out_pos + k > 0
                           ? (float)k / TS_HOP : 1.0f;
             float w_old = 1.0f - w_in;
-            if (out_pos + k < max_out)
-                out[out_pos + k] =
-                    out[out_pos + k] * w_old + in[p + k] * w_in;
+            double sp = (double)p + (double)k * pitch;
+            uint32_t s0 = (uint32_t)sp;
+            if (s0 + 1 >= nin || out_pos + k >= max_out) break;
+            float f = (float)(sp - (double)s0);
+            float v = in[s0] * (1.0f - f) + in[s0 + 1] * f;
+            out[out_pos + k] = out[out_pos + k] * w_old + v * w_in;
         }
         /* save the ideal next-overlap segment from the INPUT for the next
          * search (this is what makes WSOLA 'waveform similarity' work) */
-        uint32_t ap = p + TS_HOP;
-        if (ap + TS_HOP < nin) {
-            memcpy(anchor, in + ap, TS_HOP * sizeof(float));
-            have_anchor = 1;
+        for (uint32_t k = 0; k < TS_HOP; k++) {
+            double ap2 = (double)p + (double)(TS_HOP + k) * pitch;
+            uint32_t ai = (uint32_t)ap2;
+            anchor[k] = ai + 1 < nin
+                ? in[ai] * (1.0f - (float)(ap2 - ai)) + in[ai+1] * (float)(ap2 - ai)
+                : 0.0f;
         }
+        have_anchor = 1;
         out_pos += TS_HOP;
         src_pos += read_hop;
     }
@@ -138,41 +153,26 @@ uint32_t wb_timestretch_tr(const wb_sample *in, uint32_t frames,
     float *mono = mono_of(in, frames, chn);
     if (!mono) return 0;
 
-    /* combined factor: pitch-up also shortens unless we pre-stretch.
-     * total_time_ratio = rate; resample_factor = 2^(st/12).
-     * stretch by rate × resample, then resample by 1/resample. */
+    /* R073 hop 3: simultaneous pitch+time — one WSOLA pass with a per-sample
+     * read step of 2^(st/12). Time ratio comes from rate, pitch from the
+     * step; no chained stretch->resample so artifacts don't compound. */
     double resamp = pow(2.0, semitones / 12.0);
     float *stretched = NULL;
-    uint32_t ns = 0;
-    if (fabs(semitones) < 0.001) {
-        ns = wsola(mono, frames, rate * resamp, trans, ntrans, &stretched);;
-        free(mono);
-        if (!ns) return 0;
-        resamp = 1.0;
-    } else {
-        /* after resample-by-resamp the length divides by resamp, so pre-
-         * stretch by 1/resamp relative to the target rate to land on it */
-        ns = wsola(mono, frames, rate / resamp, NULL, 0, &stretched);
-        free(mono);
-        if (!ns) return 0;
-    }
+    uint32_t ns = wsola(mono, frames, rate, resamp,
+                        trans, ntrans, &stretched);
+    free(mono);
+    if (!ns) return 0;
 
-    /* naive linear-interpolation resampler for the pitch component */
-    uint32_t n_out = (uint32_t)((double)ns / resamp);
-    wb_sample *out = calloc((size_t)n_out * 2, sizeof(wb_sample));
+    /* output is dual-mono at native rate */
+    wb_sample *out = calloc((size_t)ns * 2, sizeof(wb_sample));
     if (!out) { free(stretched); return 0; }
-    for (uint32_t i = 0; i < n_out; i++) {
-        double sp = (double)i * resamp;
-        uint32_t i0 = (uint32_t)sp;
-        uint32_t i1 = i0 + 1 < ns ? i0 + 1 : i0;
-        float f = (float)(sp - i0);
-        float v = stretched[i0] * (1 - f) + stretched[i1] * f;
-        out[i*2] = v;           /* dual-mono output (input was downmixed) */
-        out[i*2+1] = v;
+    for (uint32_t i = 0; i < ns; i++) {
+        out[i*2] = stretched[i];
+        out[i*2+1] = stretched[i];
     }
     free(stretched);
     *outp = out;
-    return n_out;
+    return ns;
 }
 
 /* Compat: stretch without explicit transients (detector-free callers). */

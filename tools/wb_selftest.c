@@ -3835,6 +3835,33 @@ static void test_scale_chord_step(void) {
         }
     }
 
+
+    /* R073 hop 3: single-pass pitch accuracy — +12st on 220Hz -> 440Hz */
+    {
+        uint32_t nf = 4 * WB_SAMPLE_RATE;
+        wb_sample *in = malloc((size_t)nf * 2 * sizeof(wb_sample));
+        if (in) {
+            for (uint32_t i = 0; i < nf; i++) {
+                wb_sample v = (wb_sample)(0.5 *
+                    sin(2*M_PI*220.0*i/WB_SAMPLE_RATE));
+                in[i*2] = v; in[i*2+1] = v;
+            }
+            wb_sample *op = NULL;
+            uint32_t np = wb_timestretch(in, nf, 2, 1.0, 12.0, &op);
+            CHECK(np > 0, "R073: +12st single-pass produced audio");
+            if (op && np > WB_SAMPLE_RATE) {
+                int zc = 0;
+                uint32_t start = np/2, end = start + WB_SAMPLE_RATE;
+                for (uint32_t i = start+1; i < end && i < np; i++)
+                    if ((op[(i-1)*2] < 0) != (op[i*2] < 0)) zc++;
+                CHECK(zc > 836 && zc < 924,
+                      "R073: +12st holds 440Hz within 5%%");
+                printf("         R073 pitch zc=%d (want ~880)\n", zc);
+            }
+            free(op); free(in);
+        }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

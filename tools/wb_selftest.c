@@ -4202,6 +4202,33 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(qs);
     }
 
+
+    /* R073 hop 21: meter estimation — accent every 4th beat => 4/4 */
+    {
+        wb_session *qs = wb_session_create();
+        wb_track *qt = wb_session_add_track(qs, "drums4",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: meter track created");
+        uint32_t qnf = 8 * WB_SAMPLE_RATE;
+        wb_sample *qb = calloc((size_t)qnf, sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: meter buffer allocated");
+        /* 120 BPM: beat every 0.5s; kick (strong) on beat 0 of each bar */
+        for (int b = 0; b < 15; b++) {
+            float amp = (b % 4 == 0) ? 0.9f : 0.25f;
+            uint32_t pos =
+                (uint32_t)((0.05f + b * 0.5f) * WB_SAMPLE_RATE);
+            for (uint32_t j = 0; j < 100 && pos + j < qnf; j++)
+                qb[pos + j] = (wb_sample)(amp * (1 - j / 100.0f));
+        }
+        CHECK(wb_session_add_audio_clip(qt, 0, 8.0, qb, qnf, 1) == 0,
+              "R073: meter clip created");
+        free(qb);
+        int m = wb_session_estimate_meter(qs, 0, 0, 120.0);
+        CHECK(m == 4, "R073: accented pattern reads as 4/4");
+        printf("         R073 meter=%d beats/bar (want 4)\n", m);
+        wb_session_destroy(qs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

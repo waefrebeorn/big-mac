@@ -379,6 +379,9 @@ double wb_session_estimate_bpm(const wb_session *s, int track, int clip);
  * -1 on error. */
 double wb_session_beat_phase(const wb_session *s, int track, int clip,
                              double bpm);
+/* R073 hop 21: estimate the meter in beats per bar (2/3/4/6), 0 if unsure. */
+int wb_session_estimate_meter(const wb_session *s, int track, int clip,
+                              double bpm);
 /* G32: live K-weighted readings from the master path. lufs_st = short-term
  * LUFS (smoothed, 0.0 = silence/unset), true_peak = linear true peak
  * (0..1+, slow-release hold). Either pointer may be NULL. */

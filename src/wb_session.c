@@ -2456,3 +2456,56 @@ double wb_session_beat_phase(const wb_session *s, int track, int clip,
     double per_sec = 60.0 / bpm;
     return fmod(sec, per_sec);
 }
+
+/* ---- R073 hop 21: meter (beats per bar) ------------------------------------ */
+/* Estimate the bar length in BEATS by comparing onset energy summed on grids
+ * of 2/3/4/6 beats. Returns 0 if unclear. */
+int wb_session_estimate_meter(const wb_session *s, int track, int clip,
+                              double bpm) {
+    if (!s || bpm < 10.0) return 0;
+    const wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return 0;
+    const wb_clip *cl = &tr->clips[clip];
+    if (!cl->audio_data || cl->audio_frames < WB_SAMPLE_RATE) return 0;
+    uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+
+    const uint32_t HOP = 512;
+    uint32_t nframes = cl->audio_frames / HOP;
+    if (nframes < 64) return 0;
+    float *flux = calloc(nframes, sizeof(float));
+    if (!flux) return 0;
+    for (uint32_t f = 0; f < nframes; f++) {
+        float d = 0;
+        const wb_sample *base = cl->audio_data + f * HOP * ch;
+        for (uint32_t i = 1; i < HOP; i++) {
+            float dv = fabsf(base[i * ch]) - fabsf(base[(i-1) * ch]);
+            if (dv > 0) d += dv;
+        }
+        flux[f] = d;
+    }
+    double fps = WB_SAMPLE_RATE / (double)HOP;
+    uint32_t beat_frames = (uint32_t)(60.0 * fps / bpm + 0.5);
+    if (beat_frames < 2) { free(flux); return 0; }
+
+    /* score each candidate meter: sum flux on every k-th beat grid */
+    static const int meters[4] = { 2, 3, 4, 6 };
+    double best = -1e30; int best_m = 0;
+    for (int mi = 0; mi < 4; mi++) {
+        int m = meters[mi];
+        uint32_t bar = beat_frames * (uint32_t)m;
+        if (bar >= nframes / 2) continue;
+        /* R073: try every sub-beat phase — the accent pattern rarely starts
+         * exactly at frame 0 */
+        double best_phase_score = -1e30;
+        for (uint32_t ph = 0; ph < beat_frames && ph < nframes; ph++) {
+            double score = 0;
+            int pts = 0;
+            for (uint32_t f = ph; f < nframes; f += bar) { score += flux[f]; pts++; }
+            if (pts > 0) score /= pts;
+            if (score > best_phase_score) best_phase_score = score;
+        }
+        if (best_phase_score > best) { best = best_phase_score; best_m = m; }
+    }
+    free(flux);
+    return best_m;
+}

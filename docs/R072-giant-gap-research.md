@@ -56,7 +56,7 @@ every gap below is a break in one of those seven loops.
       (FCP multicam workflow; pain point #1 in r/editors threads).
 [G21] P2 — Auto audio/video sync of separate recordings by waveform
       ("syncing separate audio is a nightmare" — top pain point).
-[G22] P3 — Magnetic-timelime-style rippling default OR swap-clips drag.
+[G22] P3 — Magnetic-timelime-style rippling default OR swap-clips drag.  **WIRED R073: wb_session_swap_clips + ALT+drop swap in arrangement**
 
 ## D. REFINE loop
 [G23] P1 — Visible fade handles on clip edges + curve handle + adjacent

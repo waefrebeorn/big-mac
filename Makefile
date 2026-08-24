@@ -7,8 +7,8 @@
 
 CC       := clang
 CXX      := clang++
-CFLAGS   := -std=c11 -O2 -Wall -Wextra -g -D_THREAD_SAFE
-CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -g -D_THREAD_SAFE
+CFLAGS   := -std=c11 -O2 -Wall -Wextra -g -D_THREAD_SAFE -MMD -MP
+CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -g -D_THREAD_SAFE -MMD -MP
 INC      := -Iinclude -Iinclude/wbus -Ithird_party/SDL2-2.32.10/include \
            -Ithird_party/openfx/include \
            -Ithird_party/vst3sdk \
@@ -371,3 +371,6 @@ build/wb_test_clip_edit: build/tools/test_clip_edit.o build/src/wb_clip_edit.o
 
 test_clip_edit: build/wb_test_clip_edit
 	./build/wb_test_clip_edit
+
+# G25 fix: header dependency tracking (stale-object nondeterminism)
+-include $(wildcard build/*/*.d) $(wildcard build/*.d)

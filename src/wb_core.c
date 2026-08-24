@@ -1042,6 +1042,9 @@ static void stage_automation(wb_engine *e, uint32_t n) {
     for (uint32_t l = 0; l < s->automation_count; l++) {
         wb_automation_lane *al = s->automation[l];
         if (!al->point_count) continue;
+        /* G25: while a lane is in an active write pass, the fader owns the
+         * parameter — playback must not fight the user's hand. */
+        if (al->mode != 0 && al->writing) continue;
         double val = wb_automation_value_at(al, pos, -1.0);
         if (val < 0.0) continue; /* no sample fell in any segment */
         if (al->target < 0) {

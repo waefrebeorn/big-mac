@@ -3577,6 +3577,21 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                 SDL_Rect armbox = { x+2, fy_bot+44, 16, 14 };
                 if (b.y >= armbox.y && b.y <= armbox.y+armbox.h &&
                     b.x >= armbox.x && b.x <= armbox.x+armbox.w) {
+                    /* G25: RIGHT-click cycles the automation mode */
+                    if (b.button == SDL_BUTTON_RIGHT) {
+                        wb_automation_lane *mlane = NULL;
+                        for (uint32_t l = 0; l < a->session->automation_count; l++)
+                            if (a->session->automation[l]->target == ti &&
+                                !strcmp(a->session->automation[l]->param, "volume"))
+                            { mlane = a->session->automation[l]; break; }
+                        if (!mlane) mlane = wb_session_add_automation(a->session, "volume", ti);
+                        static const char *modes[] = { "READ", "WRITE", "TOUCH", "LATCH" };
+                        mlane->mode = (mlane->mode + 1) % 4;
+                        snprintf(a->last_status, sizeof(a->last_status),
+                                 "AUTO MODE T%d: %s", ti, modes[mlane->mode]);
+                        printf("automode: track %d -> %s\n", ti, modes[mlane->mode]);
+                        return;
+                    }
                     a->arm[ti] = a->arm[ti] ? 0 : 1;
                     if (a->arm[ti]) {
                         /* create/ensure the track's volume lane + recorder */
@@ -4448,8 +4463,25 @@ static void handle_motion(app *a, SDL_MouseMotionEvent m) {
         float vol = (db <= -60.0f) ? 0.0f : (float)powf(10.0f, db/20.0f);
         a->session->tracks[ti].volume = vol;
         wb_engine_set_track_volume(a->engine, ti, vol);
-        /* if armed, write an automation point at the playhead */
+        /* G25: write points per automation mode. WRITE always writes while
+         * armed; TOUCH/LATCH write only during an active write pass. */
+        wb_automation_lane *wlane = NULL;
+        for (uint32_t l = 0; l < a->session->automation_count; l++)
+            if (a->session->automation[l]->target == ti &&
+                !strcmp(a->session->automation[l]->param, "volume"))
+            { wlane = a->session->automation[l]; break; }
+        int mode = wlane ? wlane->mode : 0;
+        int do_write = 0;
         if (a->arm[ti] && a->fader_rec[ti]) {
+            if (mode == 1) do_write = 1;                       /* WRITE */
+            else if ((mode == 2 || mode == 3) && wlane->writing) do_write = 1;
+            else if (mode == 0) do_write = 1;                  /* legacy arm = write */
+            if ((mode == 2 || mode == 3) && !wlane->writing) {
+                wlane->writing = 1;                            /* touch begins pass */
+                do_write = 1;
+            }
+        }
+        if (do_write) {
             double pos = (double)a->t.song_pos / WB_SAMPLE_RATE;
             wb_automation_recorder_capture(a->fader_rec[ti], pos, vol);
         }
@@ -5221,7 +5253,21 @@ int main(int argc, char **argv) {
                 }
                 if (dp) SDL_free(dp);
             }
-            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; a->cgi_dragging = 0; a->handle_drag = -1; a->vel_drag_step = -1; a->dragging_fader = -1; a->kf_drag = -1; }
+            else if (ev.type==SDL_MOUSEBUTTONUP) {
+                /* G25: TOUCH mode ends its write pass on finger-off */
+                if (a->dragging_fader >= 0 && a->session &&
+                    a->dragging_fader < (int)a->session->track_count) {
+                    int rti = a->dragging_fader;
+                    for (uint32_t l = 0; l < a->session->automation_count; l++) {
+                        wb_automation_lane *rl = a->session->automation[l];
+                        if (rl->target == rti &&
+                            !strcmp(rl->param, "volume") &&
+                            rl->mode == 2)
+                            rl->writing = 0;   /* LATCH intentionally persists */
+                    }
+                }
+                a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; a->cgi_dragging = 0; a->handle_drag = -1; a->vel_drag_step = -1; a->dragging_fader = -1; a->kf_drag = -1;
+            }
         }
         render(a);
         perf_tick(a);

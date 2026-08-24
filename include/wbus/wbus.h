@@ -143,6 +143,12 @@ typedef struct wb_automation_lane {
     int     target;              /* -1 = master, else track index */
     uint32_t point_count;
     wb_automation_point *points;
+    /* G25: automation modes. 0=READ (lane drives param), 1=WRITE (fader owns
+     * param while armed), 2=TOUCH (write only while touched), 3=LATCH (write
+     * from first touch until stopped). While writing, stage_automation does
+     * not override the live fader value. */
+    int     mode;
+    int     writing;             /* set by UI during an active write pass */
 } wb_automation_lane;
 
 /* ---- arrangement markers (song sections / cues) ----------------------- */

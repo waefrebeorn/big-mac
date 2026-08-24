@@ -140,7 +140,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
       Netflix -27 LKFS dialogue-gated LRA 4-18 -2dBTP, streaming -14/-16 —
       selectable target + true-peak ceiling, not one hardcoded -14.
       Rejected deliveries are an explicit failure mode (Netflix spec).
-[G56] P3 — IMF (SMPTE ST 2067) packaging awareness — document as roadmap.
+[G56] P3 — IMF (SMPTE ST 2067) packaging awareness — document as roadmap.  **WIRED R073: docs/g56-imf-roadmap.md — phased CPL->MXF->PKL plan mapped to existing engine pieces**
 
 ### Recover loop additions
 [G57] P0 WIRED(autosave 120s to /tmp/bigmac_autosave keep-5) — Autosave to dated Auto-Save folder on an interval (Premiere default;

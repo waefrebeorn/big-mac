@@ -21,7 +21,7 @@ every gap below is a break in one of those seven loops.
       Every NLE starts here (Premiere Cmd+I opens a browser).
 [G02] P0 WIRED(audio import wb_import) — Audio-file import into audio tracks via GUI (WAV/AIFF/MP3).
 [G03] P1 — Drag-and-drop import zone (Finder → timeline).
-[G04] P1 — Media bin: persistent list of imported assets with thumbnails,
+[G04] P1 — Media bin: persistent list of imported assets with thumbnails,  **WIRED R073: wb_session_add_bin_entry + save/load "bin" records (lane C)**
       durations, search/rename (Kdenlive "media bin", FCP "browser").
 [G05] P2 — Audio recording input path: arm track, choose input device, record
       mic/instrument to arrangement (all DAWs core).
@@ -171,7 +171,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
       "spend as much time looking for clips as editing").
 [G69] P1 WIRED(multiple timelines wb_project container) — Multiple timelines/sequences per project (every NLE has many; one
       timeline limits any real edit).
-[G70] P2 — Relink/offline-media handling — hardcoded absolute paths break the
+[G70] P2 — Relink/offline-media handling — hardcoded absolute paths break the  **WIRED R073: video offline flag + wb_session_update_offline + find_by_basename relink scan (lane C)**
       moment a project moves (r/editors relink threads).
 [G71] P2 — Render cache/pre-render previews for smooth scrubbing (Resolve smart
       cache); thumbnail/waveform disk cache for big projects (R066 wavcache is
@@ -184,16 +184,16 @@ Premiere metadata panel, packafoma Premiere wishlist.
       [WIRED Wave1-B: wb_track.send_pre[2] per-send toggle; post = tap after
       fader gain (default), pre = raw buffer; mixer PRE button per send;
       test_sends asserts pre > post when fader < 1.]
-[G75] P2 — Sidechain routing UI (engine HAS sidechain DSP; no routing UI).
+[G75] P2 — Sidechain routing UI (engine HAS sidechain DSP; no routing UI).  **WIRED R073: mixer insert rows = clickable key-source cycle buttons -> wb_engine_set_insert_sidechain**
 [G76] P2 — FX chain rack: drag-reorder inserts, bypass, save/load chains
       (Cubase insert-chain presets).
 [G77] P2 — Copy-paste channel-strip settings between strips (Reaper/Logic).
-[G78] P2 — Peak-hold + LUFS/true-peak meter on master (refines G32; VU misses
+[G78] P2 — Peak-hold + LUFS/true-peak meter on master (refines G32; VU misses  **WIRED R073: wb_lufs K-weighted meter + peak hold, RBJ high-shelf fix, silence-flush test**
       streaming targets entirely).
 [G79] P3 — Pre/post-fader meter point option (Pro Tools gain-staging modes).
-[G80] P2 — Scale highlight + scale-lock ("draw in-key notes only" — Ableton 12
+[G80] P2 — Scale highlight + scale-lock ("draw in-key notes only" — Ableton 12  **WIRED R073: scale_lock snaps step_click pitches via engine wb_scale_snap; LOCK toggle live**
       Scale Awareness, Cubase Scale Assistant).
-[G81] P2 — Chord/scale stamping into piano roll (FL chord tools).
+[G81] P2 — Chord/scale stamping into piano roll (FL chord tools).  **WIRED R073: chord stamp fills following steps with diatonic tones via engine wb_chord_tones**
 [G82] P3 — Chord track with harmonic transformation (Cubase Chord Track).
 [G83] P3 — MIDI transformations: arpeggiate/strum/humanize/randomize
       (Live 12 MIDI Tools, Bitwig Note FX).
@@ -202,9 +202,9 @@ Premiere metadata panel, packafoma Premiere wishlist.
 [G85] P3 — Ghost notes from other clips while editing (FL ghost channels).
 [G86] P3 — Multi-CC lanes: pitch/mod/aftertouch editors beyond velocity
       (FL graph editor Note/Velocity/Pitch/Mod X/Y).
-[G87] P1 — Per-step velocity (FL per-step Velocity/Pitch/Shift) — refines
+[G87] P1 — Per-step velocity (FL per-step Velocity/Pitch/Shift) — refines  **WIRED R073: per-step velocity — shift-drag edit, commit uses step_vel, playback fires with it**
       the STEP checklist item.
-[G88] P2 — Per-step probability/chance (Logic Step Sequencer chance; Bitwig
+[G88] P2 — Per-step probability/chance (Logic Step Sequencer chance; Bitwig  **WIRED R073: per-step probability — playback rolls against step_prob each trigger**
       Operators) — static binary grids sound robotic.
 [G89] P1 WIRED(swing % MPC spec odd-16th delay, SWING control) — Swing/shuffle % MPC-spec 50-75% (Roger Linn canonical swing).
       [WIRED Wave1-B: session->swing 0..0.6 fraction of a 16th delayed on odd

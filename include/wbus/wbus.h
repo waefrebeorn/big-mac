@@ -414,6 +414,21 @@ uint64_t wb_engine_xruns(wb_engine *e);
 int wb_engine_vst3_faults(wb_engine *e);
 /* G79: toggle meter tap point session-wide. */
 void wb_session_set_meter_point(wb_session *s, int post_fader);
+/* G05/G06: audio/MIDI input recording. A lock-free input ring captures
+ * incoming samples (fed by the app's audio-input device or by tests);
+ * commit writes the captured span into a new audio clip at `dest`. */
+typedef struct wb_input_ring wb_input_ring;
+wb_input_ring *wb_inputring_create(uint32_t cap_frames);
+void           wb_inputring_destroy(wb_input_ring *r);
+uint32_t       wb_inputring_write(wb_input_ring *r, const wb_sample *data,
+                                  uint32_t frames);   /* interleaved stereo */
+uint32_t       wb_inputring_read(wb_input_ring *r, wb_sample *out,
+                                 uint32_t frames);
+uint32_t       wb_inputring_count(const wb_input_ring *r);
+/* Commit the last `frames` captured samples as a new audio clip at `dest`. */
+int            wb_inputring_commit_clip(wb_input_ring *r, struct wb_session *s,
+                                        int track, double dest,
+                                        uint32_t frames);
 
 /* Begin/end a non-RT edit (session structure change). render() try-locks
  * this; if it's held at block time, render counts an Xrun and returns

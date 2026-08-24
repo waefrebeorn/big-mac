@@ -3387,6 +3387,42 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(ms);
     }
 
+
+    /* G05: audio input capture ring -> clip commit */
+    {
+        wb_input_ring *ring = wb_inputring_create(WB_SAMPLE_RATE);
+        CHECK(ring != NULL, "G05: input ring created");
+        if (ring) {
+            /* feed 1s of a 440 Hz "microphone" */
+            uint32_t nf = WB_SAMPLE_RATE;
+            wb_sample *inbuf = malloc((size_t)nf * 2 * sizeof(wb_sample));
+            for (uint32_t i = 0; i < nf; i++) {
+                wb_sample v = (wb_sample)(0.4 * sin(2*M_PI*440.0*i/WB_SAMPLE_RATE));
+                inbuf[i*2] = v; inbuf[i*2+1] = v;
+            }
+            CHECK(wb_inputring_write(ring, inbuf, nf) == nf,
+                  "G05: ring accepts captured frames");
+            CHECK(wb_inputring_count(ring) == nf, "G05: count matches");
+
+            wb_session *is = wb_session_create();
+            wb_session_add_track(is, "rec", 1);   /* kind 1 = audio track */
+            int rc = wb_inputring_commit_clip(ring, is, 0, 0, nf);
+            CHECK(rc == 0, "G05: commit writes an audio clip");
+            wb_track *rt = &is->tracks[0];
+            CHECK(rt->clip_count == 1 &&
+                  rt->clips[0].audio_frames == nf,
+                  "G05: committed clip has the captured frames");
+            float peak = 0;
+            for (uint32_t i = 0; i < rt->clips[0].audio_frames; i++)
+                if (fabsf(rt->clips[0].audio_data[i]) > peak)
+                    peak = fabsf(rt->clips[0].audio_data[i]);
+            CHECK(peak > 0.3f, "G05: captured audio content intact");
+            free(inbuf);
+            wb_inputring_destroy(ring);
+            wb_session_destroy(is);
+        }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

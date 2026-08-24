@@ -366,6 +366,39 @@ int main(void) {
         wb_param_track_free(sc);
     }
 
+    /* R073 hop 41: chroma key (green screen removal) */
+    {
+        wb_node *src = wb_node_source_color(0.0f, 1.0f, 0.0f, 1.0f, 32, 32);
+        wb_node *key = wb_node_effect(3, 0.15f);   /* op 3 = chroma key */
+        key->inputs[0] = src;
+        wb_frame *f = wb_node_pull(key, 0.0, 0, 0, 32, 32);
+        CHECK(f != NULL, "chroma: frame pulled");
+        if (f) {
+            int keyed = 0, kept = 0;
+            for (int i = 0; i < 32*32; i++) {
+                if (f->px[i].a < 0.01f) keyed++;
+                else kept++;
+            }
+            CHECK(keyed == 32*32,
+                  "chroma: pure green fully keyed out");
+            (void)kept;
+            wb_frame_free(f);
+        }
+        /* foreground pixel survives: red source under the same key */
+        wb_node *src2 = wb_node_source_color(1.0f, 0.2f, 0.1f, 1.0f, 32, 32);
+        wb_node *key2 = wb_node_effect(3, 0.15f);
+        key2->inputs[0] = src2;
+        wb_frame *f2 = wb_node_pull(key2, 0.0, 0, 0, 32, 32);
+        CHECK(f2 != NULL, "chroma: fg frame pulled");
+        if (f2) {
+            CHECK(f2->px[5*f2->w+5].a > 0.99f,
+                  "chroma: skin-tone foreground keeps full alpha");
+            wb_frame_free(f2);
+        }
+        wb_node_destroy(key); wb_node_destroy(src);
+        wb_node_destroy(key2); wb_node_destroy(src2);
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

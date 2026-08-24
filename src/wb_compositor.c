@@ -243,6 +243,18 @@ static wb_frame *eff_pull(wb_node *self, double t,
             else if (e->op == 2) { /* invert alpha matte */
                 p->a = 1.0f - p->a;
             }
+            else if (e->op == 3) {
+                /* R073 hop 41: chroma key — green-screen removal.
+                 * keyed when green dominates red+blue beyond tolerance;
+                 * edge softening via partial alpha in the tolerance band. */
+                float tol = wb_node_param_value(self, "key_tol", t);
+                if (tol <= 0.0f) tol = gain;      /* static fallback */
+                if (tol <= 0.0f) tol = 0.15f;
+                float gdom = p->g - 0.5f * (p->r + p->b);
+                if (gdom >= tol)       p->a = 0.0f;
+                else if (gdom > tol*0.5f)
+                    p->a *= 1.0f - (gdom - tol*0.5f) / (tol*0.5f);
+            }
         }
     return in;
 }

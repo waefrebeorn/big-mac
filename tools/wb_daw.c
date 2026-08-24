@@ -1792,6 +1792,7 @@ static void draw_action_bar(app *a) {
         ui_button(a->ren, BTN_ACT1, bx+bw+6,  by, bw, bh, "COMMIT", 0);
         ui_button(a->ren, BTN_ACT2, bx+2*(bw+6), by, bw, bh, "CAPTURE", 0); /* G93 */
         ui_button(a->ren, BTN_ACT3, bx+3*(bw+6), by, bw, bh, "FILL", 0);    /* G91: shift=4th alt=rand */
+        ui_button(a->ren, 62000, bx+4*(bw+6), by, bw, bh, "RETRIG", 0);     /* G92 */
     } else if (tab == 3) {  /* SESSION */
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "STOP ALL", 0);
         ui_button(a->ren, BTN_ACT1, bx+bw+6,   by, bw, bh,
@@ -3096,6 +3097,38 @@ static void handle_action(app *a, int act) {
                 snprintf(a->last_status, sizeof a->last_status,
                          "STEP FILL (track %d)", ti);
             }
+        } else if (act == 4) {  /* G92: retrig — repeat the selected step's
+                                   note every step until the next filled step
+                                   or pattern end, halving velocity each echo,
+                                   accenting (restoring full vel) every 4th */
+            int ti = a->selected_track;
+            int s0 = a->step_sel;
+            if (ti >= 0 && s0 >= 0 && a->step_pitch[ti][s0] >= 0) {
+                int pitch = a->step_pitch[ti][s0];
+                int vel0  = a->step_vel[ti][s0];
+                /* find the run end: next already-filled step or pattern end */
+                int end = 16;
+                for (int s = s0 + 1; s < 16; s++)
+                    if (a->step_pitch[ti][s] >= 0) { end = s; break; }
+                int v = vel0;
+                for (int s = s0 + 1; s < end; s++) {
+                    a->step_pitch[ti][s] = pitch;
+                    if ((s - s0) % 4 == 0)
+                        v = vel0;                        /* accent: back to full */
+                    else
+                        v = v * 60 / 100;                /* decay to 60% */
+                    if (v < 8) v = 8;
+                    a->step_vel[ti][s] = v;
+                    a->step_prob[ti][s] = 100;
+                }
+                snprintf(a->last_status, sizeof a->last_status,
+                         "RETRIG %d steps from %d", end - s0 - 1, s0);
+                printf("step: retrig track %d from step %d to %d\n",
+                       ti, s0, end);
+            } else {
+                snprintf(a->last_status, sizeof a->last_status,
+                         "RETRIG: click a step first");
+            }
         }
     } else {  /* video tabs 4..7 */
         if (act == 0) {  /* IMPORT demo */
@@ -3358,6 +3391,8 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                 }
                 case BTN_ACT0: case BTN_ACT1: case BTN_ACT2: case BTN_ACT3:
                     handle_action(a, id - BTN_ACT0); break;
+                case 62000:   /* G92: retrig on the selected step (STEP tab) */
+                    handle_action(a, 4); break;
                 case BTN_WS4+100: {  /* CAPTIONS tab: CHAP — chapters from markers */
                     if (a->session && a->session->marker_count >= 2) {
                         char buf[4096];

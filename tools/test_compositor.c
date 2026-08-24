@@ -1123,6 +1123,30 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 73: white balance — warm shift raises R, lowers B */
+    {
+        wb_node *src = wb_node_source_color(0.5f, 0.5f, 0.5f, 1.0f, 32, 32);
+        wb_node *wb = wb_node_effect(9, 0.0f);
+        wb_param_track *tt = wb_param_track_create();
+        wb_param_track_set(tt, 0.0, 0.3f, WB_KF_HOLD);   /* warm +0.3 */
+        wb_node_add_param(wb, "temp", tt);
+        wb->inputs[0] = src;
+        wb_frame *f = wb ? wb_node_pull(wb, 0.0, 0, 0, 32, 32) : NULL;
+        CHECK(f != NULL, "wb: pulled");
+        if (f) {
+            wb_px p = f->px[100];
+            CHECK(p.r > 0.6f && p.b < 0.4f && p.g > 0.45f,
+                  "wb: warm shift raises R and lowers B");
+            printf("         wb: (%.2f, %.2f, %.2f)\n", p.r, p.g, p.b);
+            wb_frame_free(f);
+        }
+        if (wb) wb_node_destroy(wb);
+        if (src) wb_node_destroy(src);
+        wb_param_track_free(tt);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

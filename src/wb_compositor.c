@@ -333,6 +333,17 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 p->g = lum + (p->g - lum)*sat;
                 p->b = lum + (p->b - lum)*sat;
             }
+            else if (e->op == 9) {
+                /* R073 hop 73: white balance — temp shifts R vs B
+                 * (positive = warmer), tint shifts G. Both keyframable.
+                 * Implemented as RGB gain per the grading practice that
+                 * temp/tint are effectively channel-gain moves. */
+                float temp = wb_node_param_value(self, "temp", t);
+                float tint = wb_node_param_value(self, "tint", t);
+                p->r *= 1.0f + temp;
+                p->b *= 1.0f - temp;
+                p->g *= 1.0f + tint;
+            }
             else if (e->op == 7) {
                 /* R073 hop 47b: glow — threshold bright pixels, blur them,
                  * screen-add back. Simplified: per-pixel soft-knee bloom on

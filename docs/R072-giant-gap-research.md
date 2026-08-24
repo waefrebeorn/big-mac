@@ -89,7 +89,7 @@ every gap below is a break in one of those seven loops.
 [G34] P2 — Plugin sandboxing / crash isolation (Bitwig crash protection; a bad  **WIRED R073: VST3 output sanitization + quarantine on NaN/Inf/process failure, fault counter exposed**
       VST3 kills our whole process today).
 [G35] P2 — MIDI learn: map hardware knobs to any param (universal expectation).  **WIRED R073: Ctrl+L learn arm + target cycle, CC dispatch to master/track vol, tempo, insert param**
-[G36] P3 — Score/notation view (Cubase 14 Dorico-engine score editor trend).
+[G36] P3 — Score/notation view (Cubase 14 Dorico-engine score editor trend).  **WIRED R073: staff-position/note-name helpers + SCORE tab (treble staff, ledger lines, note names), 6 gate checks**
 [G37] P3 — Surround/spatial monitoring paths (5.1/Atmos trend; stereo-only today).  **WIRED R073: per-track spatial placement (constant-power fold + surround dip), monitor toggle, 6 gate checks**
 
 ## F. DELIVER loop

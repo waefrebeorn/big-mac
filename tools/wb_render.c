@@ -15,6 +15,7 @@
 #include "wbus.h"
 #include "wb_internal.h"
 #include "wbus/wbus_lufs.h"
+#include "wbus/wbus_limiter.h"
 
 int main(int argc, char **argv) {
     const char *outpath = argc > 1 ? argv[1] : "render.wav";
@@ -90,6 +91,29 @@ int main(int argc, char **argv) {
         rms *= g; peak *= g;
         printf("LUFS trim: %.1f -> %.1f LUFS (%+.1f dB)\n",
                lufs_i, lufs_target, g_db);
+    }
+    /* R073 hop 38: brickwall safety pass — guarantees the written file
+     * never exceeds ~-0.3 dBTP even if the trim guard was conservative */
+    {
+        float pk2 = 0;
+        for (uint32_t i = 0; i < frames * 2; i++) {
+            float a = audio[i] < 0 ? -audio[i] : audio[i];
+            if (a > pk2) pk2 = a;
+        }
+        if (pk2 > 0.97f) {
+            wb_limiter *lim = wb_limiter_create(WB_SAMPLE_RATE, 3.0, 0.97f);
+            if (!lim) return 1;
+            wb_limiter_process(lim, audio, frames);
+            printf("Limiter: caught overshoot %.3f -> ceiling 0.97\n", pk2);
+            /* re-measure */
+            float p3 = 0;
+            for (uint32_t i = 0; i < frames * 2; i++) {
+                float a = audio[i] < 0 ? -audio[i] : audio[i];
+                if (a > p3) p3 = a;
+            }
+            peak = p3;
+            wb_limiter_destroy(lim);
+        }
     }
     free(mono);
 

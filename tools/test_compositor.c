@@ -819,6 +819,32 @@ int main(void) {
         wb_node_destroy(txt);
     }
 
+
+    /* R073 hop 64: reversed wipe direction */
+    {
+        wb_node *red = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 32, 32);
+        wb_node *blue = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 32, 32);
+        wb_node *wipe = wb_node_transition(2, 2.0);
+        wb_transition_add(wipe, red);
+        wb_transition_add(wipe, blue);
+        wb_transition_dir(wipe, 1);              /* R->L */
+        wb_frame *fm = wb_node_pull(wipe, 1.0, 0, 0, 32, 32);
+        CHECK(fm != NULL, "wipe64: midpoint pulled");
+        if (fm) {
+            /* reversed: right half is B (blue), left half A (red) */
+            int rb = fm->px[16*32+28].b > 0.8f && fm->px[16*32+28].r < 0.2f;
+            int la = fm->px[16*32+4].r > 0.8f && fm->px[16*32+4].b < 0.2f;
+            CHECK(rb && la,
+                  "wipe64: reversed boundary sweeps R->L");
+            printf("         wipe64: rev left-red=%d right-B=%d\n",
+                   la, rb);
+            wb_frame_free(fm);
+        }
+        wb_node_destroy(wipe);
+        wb_node_destroy(red); wb_node_destroy(blue);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);

@@ -172,6 +172,8 @@ void wb_node_source_text_anim(wb_node *text_node, int mode, double dur);
  * Attach inputs with wb_transition_add(A then B). */
 wb_node *wb_node_transition(int op, double duration_secs);
 void      wb_transition_add(wb_node *trans, wb_node *child);
+/* R073 hop 64: wipe direction — 0 forward, 1 reversed. */
+void      wb_transition_dir(wb_node *trans, int dir);
 
 /* EFFECT: applies a simple op over its single input.
  * op: 0 = identity(bypass), 1 = brightness*gain (gain is keyframable

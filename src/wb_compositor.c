@@ -1048,7 +1048,8 @@ wb_node *wb_node_source_text(const char *text, int scale,
 }
 
 /* ---- R073 hop 49: TRANSITION (crossfade / dip-to-black) --------------------- */
-typedef struct { int op; double dur; } trans_t;
+typedef struct { int op; double dur; int dir; } trans_t;
+/* dir: 0 = L->R / T->B (forward), 1 = reversed */
 static wb_frame *trans_pull(wb_node *self, double t,
                             int rx, int ry, int rw, int rh, int phase) {
     trans_t *tr = self->user;
@@ -1088,12 +1089,14 @@ static wb_frame *trans_pull(wb_node *self, double t,
             out->px[i].b = pa.b*kA + pb.b*kB;
             out->px[i].a = pa.a*kA + pb.a*kB;
         } else if (tr->op == 2) {
-            /* R073 hop 50: linear wipe — vertical boundary sweeps L->R */
+            /* R073 hop 50/64: linear wipe — boundary sweeps per direction */
             float edge = mB * (float)a->w;
-            if (px_i < edge) { out->px[i] = pb; }
-            else             { out->px[i] = pa; }
+            int in_b = tr->dir == 0 ? (px_i < edge)
+                                    : (px_i >= a->w - edge);
+            if (in_b) { out->px[i] = pb; }
+            else      { out->px[i] = pa; }
         } else if (tr->op == 3) {
-            /* R073 hop 50: iris — circle reveals B from center outward */
+            /* iris: circle reveals B from center outward */
             float cx2 = a->w * 0.5f, cy2 = a->h * 0.5f;
             float dx = px_i - cx2, dy = py_i - cy2;
             float dist = sqrtf(dx*dx + dy*dy);
@@ -1153,4 +1156,13 @@ void wb_node_source_text_anim(wb_node *n, int mode, double dur) {
     }
     s->anim_mode = mode;
     s->anim_dur = dur > 0.01 ? dur : 0.01;
+}
+
+/* R073 hop 64: set wipe direction (0 = forward L->R/T->B, 1 = reversed). */
+void wb_transition_dir(wb_node *trans, int dir) {
+    if (!trans) return;
+    {
+        trans_t *tr = (trans_t*)trans->user;
+        if (tr) tr->dir = dir ? 1 : 0;
+    }
 }

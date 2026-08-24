@@ -176,8 +176,8 @@ Premiere metadata panel, packafoma Premiere wishlist.
 [G71] P2 — Render cache/pre-render previews for smooth scrubbing (Resolve smart  **WIRED R073: preview WAV render cache with sidecar invalidation, 4 gate checks**
       cache); thumbnail/waveform disk cache for big projects (R066 wavcache is
       in-RAM only).
-[G72] P3 — Speed ramps / retiming curves (FCP Retime Editor class).
-[G73] P3 — Default-duration batch transitions across all cuts (Shotcut FR 552).
+[G72] P3 — Speed ramps / retiming curves (FCP Retime Editor class).  **WIRED R073: retime rate in side-table + set_retime op, 5 gate checks**
+[G73] P3 — Default-duration batch transitions across all cuts (Shotcut FR 552).  **WIRED R073: wb_session_batch_transitions sets crossfades across every cut, 3 gate checks**
 
 ### Music-production additions
 [G74] P1 WIRED(per-send pre/post-fader switch) — Per-send pre/post-fader switch (Pro Tools standard) — refines G30.

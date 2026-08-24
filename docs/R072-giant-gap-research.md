@@ -197,7 +197,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
 [G82] P3 — Chord track with harmonic transformation (Cubase Chord Track).
 [G83] P3 — MIDI transformations: arpeggiate/strum/humanize/randomize  **WIRED R073: wb_session_transform_notes humanize/randomize/arpeggiate/strum, 5 gate checks**
       (Live 12 MIDI Tools, Bitwig Note FX).
-[G84] P3 — Articulation management hiding raw keyswitches (Cubase Expression
+[G84] P3 — Articulation management hiding raw keyswitches (Cubase Expression  **WIRED R073: named articulation map + ART cycle button sending keyswitches**
       Maps / Logic Articulation Sets).
 [G85] P3 — Ghost notes from other clips while editing (FL ghost channels).  **WIRED R073: other tracks steps as dim dots in the STEP grid**
 [G86] P3 — Multi-CC lanes: pitch/mod/aftertouch editors beyond velocity  **WIRED R073: per-note mod/atouch fields, backward-compatible save/load, LANE editor cycle**

@@ -981,6 +981,41 @@ int main(void) {
         wb_node_destroy(gmap);
     }
 
+
+    /* R073 hop 69: motion blur on transforms */
+    {
+        wb_node *src = wb_node_source_color(1.0f, 1.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *xf = wb_node_transform();
+        xf->inputs[0] = src;
+        /* fast pan: cx sweeps 0.2 -> 0.8 over 1s */
+        wb_param_track *tcx = wb_param_track_create();
+        wb_param_track_set(tcx, 0.0, 0.2f, WB_KF_LINEAR);
+        wb_param_track_set(tcx, 1.0, 0.8f, WB_KF_LINEAR);
+        wb_node_add_param(xf, "cx", tcx);
+        /* no motion blur: crisp single sample */
+        wb_frame *sharp = wb_node_pull(xf, 0.5, 0, 0, 64, 64);
+        CHECK(sharp != NULL, "mblur: sharp pulled");
+        if (sharp) wb_frame_free(sharp);
+        /* with motion blur: still renders */
+        wb_param_track *tm = wb_param_track_create();
+        wb_param_track_set(tm, 0.0, 0.05f, WB_KF_HOLD);
+        wb_node_add_param(xf, "mblur", tm);
+        wb_frame *soft = wb_node_pull(xf, 0.5, 0, 0, 64, 64);
+        CHECK(soft != NULL, "mblur: blurred pulled");
+        if (soft) {
+            int lit = 0;
+            for (int i = 0; i < 64*64; i++)
+                if (soft->px[i].a > 0.5f) lit++;
+            CHECK(lit > 500,
+                  "mblur: blurred frame carries content");
+            printf("         mblur: lit=%d\n", lit);
+            wb_frame_free(soft);
+        }
+        wb_param_track_free(tcx); wb_param_track_free(tm);
+        wb_node_destroy(xf); wb_node_destroy(src);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);

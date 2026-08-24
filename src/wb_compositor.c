@@ -392,44 +392,84 @@ wb_node *wb_node_effect(int op, float gain) {
 /* ---- TRANSFORM (affine scale/pan/rotate, keyframable) ------------------ */
 typedef struct { float scale, cx, cy, rot; } tf_t;
 
-static wb_frame *tf_pull(wb_node *self, double t,
-                         int rx, int ry, int rw, int rh, int phase) {
-    tf_t *tf = self->user;
-    if (self->n_inputs < 1) return NULL;
-    if (phase == 0) { wb_node_pull_request(self->inputs[0], t, rx, ry, rw, rh); return NULL; }
-    /* G11: keyframed params animate the transform */
+/* R073 hop 69: one transform evaluation into `out` at sub-time ts */
+static void tf_eval(wb_node *self, tf_t *tf, double ts,
+                    wb_frame *in, wb_frame *out,
+                    float wsum) {
     float scale = tf->scale, cx = tf->cx, cy = tf->cy, rot = tf->rot;
     float k;
-    k = wb_node_param_value(self, "scale", t); if (k != 0.0f) scale = k;
-    k = wb_node_param_value(self, "cx",    t); if (k != 0.0f) cx = k;
-    k = wb_node_param_value(self, "cy",    t); if (k != 0.0f) cy = k;
-    k = wb_node_param_value(self, "rot",   t); if (k != 0.0f) rot = k;
-
-    wb_frame *in = wb_node_pull(self->inputs[0], t, rx, ry, rw, rh);
-    if (!in) return NULL;
-    wb_frame *out = wb_frame_alloc(in->w, in->h);
-    if (!out) { wb_frame_free(in); return NULL; }
-    out->roi_x = rx; out->roi_y = ry; out->roi_w = rw; out->roi_h = rh;
-
-    /* pivot in pixel space (normalized cx,cy over the frame) */
+    k = wb_node_param_value(self, "scale", ts); if (k != 0.0f) scale = k;
+    k = wb_node_param_value(self, "cx",    ts); if (k != 0.0f) cx = k;
+    k = wb_node_param_value(self, "cy",    ts); if (k != 0.0f) cy = k;
+    k = wb_node_param_value(self, "rot",   ts); if (k != 0.0f) rot = k;
     float px = cx * in->w, py = cy * in->h;
     float c = cosf(rot), s = sinf(rot);
     float sc = (scale > 1e-3f) ? scale : 1e-3f;
     for (int y = 0; y < in->h; y++) {
         for (int x = 0; x < in->w; x++) {
-            /* translate to pivot, un-rotate, un-scale, translate back */
             float dx = (float)x - px, dy = (float)y - py;
             float sx = (dx * c + dy * s) / sc + px;
             float sy = (-dx * s + dy * c) / sc + py;
             int ix = (int)floorf(sx), iy = (int)floorf(sy);
             wb_px *dst = &out->px[y * in->w + x];
             if (ix >= 0 && ix < in->w && iy >= 0 && iy < in->h) {
-                *dst = in->px[iy * in->w + ix];   /* nearest-neighbor sample */
-            } else {
-                dst->r = dst->g = dst->b = 0.0f; dst->a = 0.0f;  /* outside = transparent */
+                wb_px v = in->px[iy * in->w + ix];
+                if (wsum <= 0.0f) {          /* assign mode */
+                    *dst = v;
+                } else {                     /* accumulate mode */
+                    dst->r += v.r * wsum; dst->g += v.g * wsum;
+                    dst->b += v.b * wsum; dst->a += v.a * wsum;
+                }
+            } else if (wsum <= 0.0f) {
+                dst->r = dst->g = dst->b = dst->a = 0.0f;
             }
         }
     }
+}
+
+static wb_frame *tf_pull(wb_node *self, double t,
+                         int rx, int ry, int rw, int rh, int phase) {
+    tf_t *tf = self->user;
+    if (self->n_inputs < 1) return NULL;
+    if (phase == 0) { wb_node_pull_request(self->inputs[0], t, rx, ry, rw, rh); return NULL; }
+
+    /* R073 hop 69: motion blur — mblur > 0 averages NSUB transform
+     * evaluations across [t - mblur/2, t + mblur/2] seconds. */
+    float mblur = wb_node_param_value(self, "mblur", t);
+    const int NSUB = 4;
+    if (mblur > 1e-3f && self->n_inputs >= 1) {
+        wb_frame *acc = NULL, *inref = NULL;
+        float wsum = 1.0f / NSUB;
+        for (int s2 = 0; s2 < NSUB; s2++) {
+            double ts = t - mblur * 0.5 +
+                        mblur * ((double)s2 + 0.5) / NSUB;
+            wb_frame *in = wb_node_pull(self->inputs[0], ts,
+                                        rx, ry, rw, rh);
+            if (!in) continue;
+            if (!acc) {
+                acc = wb_frame_alloc(in->w, in->h);
+                if (!acc) { wb_frame_free(in); return NULL; }
+                acc->roi_x = rx; acc->roi_y = ry;
+                acc->roi_w = rw; acc->roi_h = rh;
+                memset(acc->px, 0,
+                       in->w * in->h * sizeof(wb_px));
+            } else if (in != inref) {
+                /* frames differ per pull: blend by index */
+            }
+            tf_eval(self, tf, ts, in, acc, wsum);
+            if (!inref) inref = in;
+            else if (in != inref) wb_frame_free(in);
+        }
+        if (inref) wb_frame_free(inref);
+        return acc;
+    }
+
+    wb_frame *in = wb_node_pull(self->inputs[0], t, rx, ry, rw, rh);
+    if (!in) return NULL;
+    wb_frame *out = wb_frame_alloc(in->w, in->h);
+    if (!out) { wb_frame_free(in); return NULL; }
+    out->roi_x = rx; out->roi_y = ry; out->roi_w = rw; out->roi_h = rh;
+    tf_eval(self, tf, t, in, out, 0.0f);   /* 0 = plain assignment */
     wb_frame_free(in);
     return out;
 }

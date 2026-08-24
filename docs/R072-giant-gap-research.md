@@ -71,7 +71,7 @@ every gap below is a break in one of those seven loops.
 [G27] P2 — Transient detection + slice editing on audio clips (Reason slices).
 [G28] P2 — Strip silence / region detect from GUI (we detect silence in agent  **WIRED R073: wb_session_strip_silence with hangover window, region-split clips, 8 gate checks**
       pipeline only; Logic strip-silence is a standard tool).
-[G29] P3 — Take-folder style comping UI polish (comping model exists; no
+[G29] P3 — Take-folder style comping UI polish (comping model exists; no  **WIRED R073: inactive lanes dimmed with TAKE n badges, active lane accent edge + COMP tag**
       take-folder visual).
 
 ## E. SWEETEN loop (mix + fx)

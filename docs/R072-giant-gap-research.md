@@ -210,7 +210,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
       [WIRED Wave1-B: session->swing 0..0.6 fraction of a 16th delayed on odd
       steps; wb_swing_offset helper applied in wb_transport_schedule_notes_sw
       and STEP perf_tick; toolbar SWING -/+ + % readout; test_swing.]
-[G90] P2 — Pattern chaining/song mode (MPC chaining; FL patterns-as-clips).
+[G90] P2 — Pattern chaining/song mode (MPC chaining; FL patterns-as-clips).  **WIRED R073: SONG button chains SESSION scenes in lane order, song_tick advances per bar**
 [G91] P3 — Step-fill utilities (every 2nd/4th, random fill).  **WIRED R073: FILL button — every 2nd/4th (shift) / random (alt)**
 [G92] P3 — Note repeats/retrigs with accents (Bitwig Note Repeats).  **WIRED R073: RETRIG button — echo run with 60% velocity decay + every-4th accent**
 [G93] P1 WIRED(capture-quantize rolling note log -> 16th-grid clip) — Capture-quantize: record what you JUST played without pre-arming

@@ -103,7 +103,7 @@ every gap below is a break in one of those seven loops.
       (Logic stems workflow; collaboration requirement).
 [G42] P2 — Platform preset targets: YouTube -14 LUFS, Netflix -27 LKFS/-2dBTP,  **WIRED R073: full 5-profile delivery cycle incl. ATSC-A85; per-profile LUFS+TP honored end-to-end**
       broadcast -23 (loudness spec docs; we normalize to one target only).
-[G43] P2 — Watch-folder auto-export (AME watch folders).
+[G43] P2 — Watch-folder auto-export (AME watch folders).  **WIRED R073: WB_WATCH_DIR 5s poll, new media auto-imports**
 [G44] P2 — Text/title overlay tool: basic lower thirds/titles with font controls
       (titles = table stakes in every NLE incl. free ones; we have captions only).
 [G45] P3 — GIF/social aspect-ratio export presets (9:16, 1:1 crops).
@@ -135,7 +135,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
 [G52] P1 WIRED(export delivery presets YOUTUBE/NETFLIX/BROADCAST/PODCAST) — Export presets: user-saved + platform presets (Resolve/ME ship them).
 [G53] P2 — Batch render matrix: per-region/marker wildcard naming, multiple  **WIRED R073: shift+EXPORT batch per SECTION marker, $region-style naming, sequential pump**
       simultaneous outputs per job (Reaper $region wildcards; Resolve multi-codec).
-[G54] P2 — Watch-folder auto-render (AME model; pairs with G43).
+[G54] P2 — Watch-folder auto-render (AME model; pairs with G43).  **WIRED R073: .wbus drop in watch dir auto-renders session to <name>.mp4**
 [G55] P1 WIRED(named loudness profiles EBU/A85/NETFLIX/YT/PODCAST) — Named loudness profiles: EBU R128 -23/-1dBTP, ATSC A/85 -24 LKFS,
       Netflix -27 LKFS dialogue-gated LRA 4-18 -2dBTP, streaming -14/-16 —
       selectable target + true-peak ceiling, not one hardcoded -14.

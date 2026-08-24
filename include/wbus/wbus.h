@@ -503,6 +503,9 @@ int  wb_session_export_chain(const wb_session *s, int track,
 int  wb_session_import_chain(wb_session *s, int track, const char *chain);
 /* G77: copy channel-strip settings (volume/pan/insert chain) between tracks. */
 int  wb_session_copy_strip(wb_session *s, int src_track, int dst_track);
+/* G72: set a clip's retiming rate via its edit side-table entry. */
+double wb_session_set_retime(struct wb_clip_edit_table *et, int track,
+                             int clip, double rate);
 /* G28: strip silence — split an audio clip into its loud regions
  * (thresh linear 0..1, min_sec minimum region length). Returns region count;
  * 0 = all silent (clip removed), -1 error. */

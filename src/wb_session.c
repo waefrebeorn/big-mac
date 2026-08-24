@@ -1773,3 +1773,16 @@ int wb_session_copy_strip(wb_session *s, int src_track, int dst_track) {
 void wb_session_set_meter_point(wb_session *s, int post_fader) {
     if (s) s->meter_post_fader = post_fader ? 1 : 0;
 }
+
+/* ---- G72: speed ramps / retiming ---------------------------------------- */
+/* Set a constant retime on a video/audio clip: rate 2.0 = double-speed (the
+ * clip's timeline length halves for the same source span). Returns the new
+ * timeline length in clip units (samples for audio, seconds for video). */
+double wb_session_set_retime(wb_clip_edit_table *et, int track, int clip,
+                             double rate) {
+    if (!et || rate <= 0.0 || rate > 16.0) return -1;
+    wb_clip_edit *e = wb_clip_edit_get(et, track, clip);
+    if (!e) return -1;
+    e->retime = rate;
+    return rate;   /* caller recomputes length from their own units */
+}

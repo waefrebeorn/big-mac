@@ -3423,6 +3423,24 @@ static void test_scale_chord_step(void) {
         }
     }
 
+
+    /* G72: retiming */
+    {
+        wb_clip_edit_table *rt = wb_clip_edit_create();
+        CHECK(rt != NULL, "G72: edit table created");
+        if (rt) {
+            wb_clip_edit *e = wb_clip_edit_get(rt, 0, 0);
+            CHECK(e && e->retime == 1.0, "G72: default retime is 1.0");
+            double rc = wb_session_set_retime(rt, 0, 0, 2.0);
+            CHECK(rc == 2.0, "G72: double-speed set");
+            e = wb_clip_edit_get(rt, 0, 0);   /* re-read through the table */
+            CHECK(e->retime == 2.0, "G72: rate persists in the side-table");
+            CHECK(wb_session_set_retime(rt, 0, 0, -1) == -1,
+                  "G72: invalid rate rejected");
+            wb_clip_edit_destroy(rt);
+        }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

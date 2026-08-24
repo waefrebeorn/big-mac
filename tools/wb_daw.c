@@ -199,6 +199,11 @@ typedef struct app {
     double kf_drag_t0;           /* key time at drag start */
     int vel_drag_step;       /* G87: vertical drag active on this step (-1=none) */
     int  prefs_visible;      /* G51: preferences overlay toggle */
+    /* G44: title tool */
+    char title_text[128];
+    double title_in, title_out;   /* seconds */
+    int  title_pos;               /* 0 lower-third, 1 centered */
+    int  title_entry;             /* 1 = capture keys into title_text */
     /* G35: MIDI learn — CC number -> target. target: 0=master vol,
      * 1=selected track vol, 2=tempo, 3=insert slot 1 param 0 (selected tr). */
     int   midi_learn_armed;  /* 1 = next CC received binds */
@@ -1843,6 +1848,11 @@ static void draw_action_bar(app *a) {
             ui_button(a->ren, 9101, sx, by, bw/2-3, bh, "SRT OUT",
                       a->vid_captions_ready);
             ui_button(a->ren, 9102, sx+(bw/2+3), by, bw/2-3, bh, "SRT IN", 0);
+            /* G44: title tool — TSET arms text entry, TBURN bakes it */
+            ui_button(a->ren, 9103, sx+2*(bw/2+6), by, bw/2-3, bh,
+                      a->title_entry ? "TEXT..." : "TITLE", a->title_entry);
+            ui_button(a->ren, 9104, sx+2*(bw/2+6)+bw/2+3, by, bw/2-3, bh,
+                      "TBURN", 0);
         }
         if (tab == 7) { /* EXPORT: codec choice + perf passthrough */
             ui_button(a->ren, BTN_ACT3, bx+3*(bw+6), by, bw, bh,
@@ -3716,6 +3726,36 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                 case 9102:    /* G46: SRT IN — open browser (routes .srt files) */
                     a->browser_open = 1;
                     break;
+                case 9103: {  /* G44: TITLE — arm text entry; in/out = loop brace */
+                    a->title_entry = !a->title_entry;
+                    if (a->title_entry) {
+                        a->title_text[0] = 0;
+                        a->title_in = a->t.song_pos / (double)WB_SAMPLE_RATE;
+                        a->title_out = a->title_in + 4.0;
+                        snprintf(a->last_status, sizeof(a->last_status),
+                                 "TITLE: type text, ENTER commits");
+                    }
+                    break;
+                }
+                case 9104: {  /* G44: TBURN — bake the title into the video */
+                    if (!a->vid_has_clip || !a->title_text[0]) {
+                        snprintf(a->last_status, sizeof(a->last_status),
+                                 "TBURN: set a title first (TITLE)");
+                        break;
+                    }
+                    char outp[600];
+                    snprintf(outp, sizeof(outp), "%.450s_titled.mp4",
+                             a->vid_source[0] ? a->vid_source
+                                              : "/tmp/bigmac_export.mp4");
+                    int rc = wb_captions_burn_title(
+                        a->vid_source, outp, a->title_text,
+                        a->title_in, a->title_out, a->title_pos, 0);
+                    snprintf(a->last_status, sizeof(a->last_status),
+                             rc == 0 ? "TITLE BURNED: %.40s" : "TITLE BURN FAILED",
+                             outp);
+                    printf("title: burn rc=%d -> %s\n", rc, outp);
+                    break;
+                }
                 case BTN_OVERVIEW:   /* R040: begin scroll-drag on the overview strip */
                     a->ov_drag = 1;
                     ov_scroll_to(a, b.x);
@@ -4546,6 +4586,25 @@ static void handle_key(app *a, SDL_Keycode k) {
     int ctrl = (mod & KMOD_CTRL) != 0;
     /* G09: rename capture — printable keys append to the track name,
      * ENTER commits (disarms), ESC disarms. */
+    /* G44: title text capture */
+    if (a->title_entry && a->rename_armed == 0) {
+        if (k == SDLK_RETURN || k == SDLK_KP_ENTER) {
+            a->title_entry = 0;
+            snprintf(a->last_status, sizeof(a->last_status),
+                     "TITLE SET: %.40s", a->title_text);
+            printf("title: '%s' in=%.1fs out=%.1fs\n",
+                   a->title_text, a->title_in, a->title_out);
+            return;
+        }
+        if (k == SDLK_ESCAPE) { a->title_entry = 0; return; }
+        size_t tl = strlen(a->title_text);
+        if (k == SDLK_BACKSPACE) { if (tl) a->title_text[--tl] = 0; return; }
+        if (!ctrl && k >= SDLK_SPACE && k <= SDLK_z && tl < sizeof(a->title_text)-1) {
+            a->title_text[tl++] = (char)k;
+            a->title_text[tl] = 0;
+            return;
+        }
+    }
     if (a->rename_armed && a->session &&
         a->rename_track < (int)a->session->track_count) {
         wb_track *tr = &a->session->tracks[a->rename_track];

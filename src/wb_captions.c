@@ -427,3 +427,30 @@ int wb_video_captions_burn(const char *input_path, const char *output_path,
     (void)ffmpeg_path;
     return wb_captions_burn(input_path, srt_path, output_path);
 }
+
+/* ---- G44: title overlay via drawtext ----------------------------------- */
+int wb_captions_burn_title(const char *input_path, const char *output_path,
+                           const char *text, double start_sec, double end_sec,
+                           int pos, int fontsize) {
+    if (!input_path || !output_path || !text || !text[0]) return -1;
+    if (fontsize <= 0) fontsize = 36;
+    /* escape characters that break the drawtext filter string */
+    char esc[512];
+    size_t ei = 0;
+    for (const char *s = text; *s && ei + 8 < sizeof(esc); s++) {
+        if (*s == '\'' || *s == '\\' || *s == ':' || *s == '%') esc[ei++] = '\\';
+        esc[ei++] = *s;
+    }
+    esc[ei] = 0;
+    const char *yexpr = pos == 1 ? "(h-text_h)/2" : "h-th-60";
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" -y -i \"%s\" -vf "
+             "\"drawtext=text='%s':fontsize=%d:fontcolor=white:"
+             "borderw=2:bordercolor=black:x=(w-text_w)/2:y=%s:"
+             "enable='between(t,%.2f,%.2f)'\" "
+             "-c:a copy -c:v libx264 -preset fast -crf 23 \"%s\" > /dev/null 2>&1",
+             FFmpeg_BIN, input_path, esc, fontsize, yexpr,
+             start_sec, end_sec, output_path);
+    return run_cmd(cmd, "title burn");
+}

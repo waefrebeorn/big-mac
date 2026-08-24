@@ -63,6 +63,13 @@ typedef struct wb_ass_line {
  * Returns the number of lines parsed, or -1 on error. */
 int wb_ass_extract_dialogue(const char *ass_path, wb_ass_line *out, int max);
 
+/* G44: burn a text title (lower third or centered) into a video via ffmpeg
+ * drawtext, visible from start_sec to end_sec. pos: 0 = lower third,
+ * 1 = centered. fontsize in points (0 = default 36). Returns 0 on success. */
+int wb_captions_burn_title(const char *input_path, const char *output_path,
+                           const char *text, double start_sec, double end_sec,
+                           int pos, int fontsize);
+
 /* Burn an .ass file (with full styling) into a video via ffmpeg. */
 int wb_captions_burn_ass(const char *input_path, const char *ass_path,
                           const char *output_path);

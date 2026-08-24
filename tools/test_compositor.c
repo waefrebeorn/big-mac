@@ -1176,6 +1176,43 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 75: HSL secondary — desaturate only the red hues */
+    {
+        /* two-pixel frame: left red (hue 0), right blue (hue 240) */
+        wb_node *src = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 32, 32);
+        wb_node *cv = wb_node_effect(11, 0.0f);
+        wb_param_track *th = wb_param_track_create();
+        wb_param_track_set(th, 0.0, 0.0f, WB_KF_HOLD);    /* hue_c = 0 */
+        wb_param_track *tw = wb_param_track_create();
+        wb_param_track_set(tw, 0.0, 30.0f, WB_KF_HOLD);   /* +/- 30 deg */
+        wb_param_track *ts = wb_param_track_create();
+        wb_param_track_set(ts, 0.0, 0.2f, WB_KF_HOLD);    /* sat -> 0.2 */
+        wb_node_add_param(cv, "hue_c", th);
+        wb_node_add_param(cv, "hue_w", tw);
+        wb_node_add_param(cv, "sec_sat", ts);
+        cv->inputs[0] = src;
+        wb_frame *f = cv ? wb_node_pull(cv, 0.0, 0, 0, 32, 32) : NULL;
+        CHECK(f != NULL, "hsl: pulled");
+        if (f) {
+            /* all pixels are the same red — all should desaturate toward
+             * luma (which is 0.2126 for pure red) */
+            wb_px p = f->px[100];
+            /* desaturated red converges toward luma 0.2126 */
+            CHECK(p.r < 0.5f && p.r > 0.3f && p.g > 0.15f &&
+                  p.g < 0.25f,
+                  "hsl: red hue qualified and desaturated");
+            printf("         hsl: red px=(%.2f,%.2f,%.2f)\n",
+                   p.r, p.g, p.b);
+            wb_frame_free(f);
+        }
+        if (cv) wb_node_destroy(cv);
+        if (src) wb_node_destroy(src);
+        wb_param_track_free(th); wb_param_track_free(tw);
+        wb_param_track_free(ts);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

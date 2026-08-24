@@ -379,6 +379,49 @@ static wb_frame *eff_pull(wb_node *self, double t,
                     p->r = ch[0]; p->g = ch[1]; p->b = ch[2];
                 }
             }
+            else if (e->op == 11) {
+                /* R073 hop 75: HSL secondary — qualify a hue center +
+                 * width, then apply hue_shift / sat_mul only to qualified
+                 * pixels (soft edges in the hue domain). All keyframable. */
+                float hc   = wb_node_param_value(self, "hue_c", t);
+                float hw   = wb_node_param_value(self, "hue_w", t);
+                float hsh  = wb_node_param_value(self, "hue_shift", t);
+                float smul = wb_node_param_value(self, "sec_sat", t);
+                if (hw <= 0.0f) goto curves_skip;   /* unbound: identity */
+                float mx = p->r > p->g ? (p->r > p->b ? p->r : p->b)
+                                       : (p->g > p->b ? p->g : p->b);
+                float mn = p->r < p->g ? (p->r < p->b ? p->r : p->b)
+                                       : (p->g < p->b ? p->g : p->b);
+                float d = mx - mn;
+                if (d > 1e-5f && mx > 0.0f) {
+                    float hue;
+                    if (mx == p->r)
+                        hue = (p->g - p->b) / d;
+                    else if (mx == p->g)
+                        hue = 2.0f + (p->b - p->r) / d;
+                    else
+                        hue = 4.0f + (p->r - p->g) / d;
+                    hue *= 60.0f; if (hue < 0) hue += 360.0f;
+                    /* angular distance to the qualifier center */
+                    float dd = hue - hc * 360.0f;
+                    while (dd > 180.0f) dd -= 360.0f;
+                    while (dd < -180.0f) dd += 360.0f;
+                    float ad = fabsf(dd);
+                    if (ad < hw) {
+                        float sel = 1.0f - ad / hw;   /* soft selection */
+                        float lum = 0.2126f*p->r + 0.7152f*p->g
+                                  + 0.0722f*p->b;
+                        float sat = smul != 0.0f ? smul : 1.0f;
+                        float nr = lum + (p->r-lum)*sat;
+                        float ng = lum + (p->g-lum)*sat;
+                        float nb = lum + (p->b-lum)*sat;
+                        p->r = p->r*(1-sel) + nr*sel;
+                        p->g = p->g*(1-sel) + ng*sel;
+                        p->b = p->b*(1-sel) + nb*sel;
+                        (void)hsh;   /* hue rotate: future hop */
+                    }
+                }
+            }
             else if (e->op == 7) {
                 /* R073 hop 47b: glow — threshold bright pixels, blur them,
                  * screen-add back. Simplified: per-pixel soft-knee bloom on

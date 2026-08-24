@@ -35,7 +35,7 @@ every gap below is a break in one of those seven loops.
 [G09] P1 WIRED(track rename/delete/reorder/rec-arm in gutter) — Track management: rename, delete, reorder (drag), rec-arm button,
       height resize (audit-confirmed missing).
 [G10] P1 — Snap toggle + snap-to-markers/grid (FL scale/snap highlighting).  **WIRED R073: snap_pos() grid+marker quantize wired into clip move + scrub-seek (scale-highlight covered by G80)**
-[G11] P2 — Project templates + recent-files list + new-project dialog
+[G11] P2 — Project templates + recent-files list + new-project dialog  **WIRED R073: recents list on load/save, Shift+Ctrl+S template save, Shift+Ctrl+N new-from-template**
       (Reaper templates, Cakewalk dialog threads).
 [G12] P2 — Autosave + crash recovery copies (Premiere auto-save folder/.bak).  **WIRED (pre-existing G57 autosave every 120s, keep-5 prune; recovery via G58)**
 [G13] P2 — Clip colors/naming in-grid (Ableton convention; SESSION audit found  **WIRED R073: color slot in clip-edit side-table, right-click body cycles, 8-color border palette**

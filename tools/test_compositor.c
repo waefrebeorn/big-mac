@@ -611,6 +611,47 @@ int main(void) {
         wb_node_destroy(glow); wb_node_destroy(src);
     }
 
+
+    /* R073 hop 49: transitions */
+    {
+        wb_node *red = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 32, 32);
+        wb_node *blue = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 32, 32);
+        wb_node *xf = wb_node_transition(0, 2.0);   /* 2s crossfade */
+        wb_transition_add(xf, red);
+        wb_transition_add(xf, blue);
+        wb_frame *f0 = wb_node_pull(xf, 0.0, 0, 0, 32, 32);
+        wb_frame *f1 = wb_node_pull(xf, 1.0, 0, 0, 32, 32);
+        wb_frame *f2 = wb_node_pull(xf, 2.0, 0, 0, 32, 32);
+        CHECK(f0 && f1 && f2, "trans: all phases pulled");
+        if (f0 && f1 && f2) {
+            CHECK(f0->px[100].b < 0.1f,
+                  "xfade: t=0 shows source A (red)");
+            CHECK(f0->px[100].r > 0.9f, "xfade: A is red at start");
+            CHECK(f2->px[100].b > 0.9f,
+                  "xfade: t=2 shows source B (blue)");
+            /* midpoint: roughly equal mix */
+            CHECK(f1->px[100].r > 0.3f && f1->px[100].r < 0.7f &&
+                  f1->px[100].b > 0.3f && f1->px[100].b < 0.7f,
+                  "xfade: midpoint blends both");
+            wb_frame_free(f0); wb_frame_free(f1); wb_frame_free(f2);
+        }
+        wb_node_destroy(xf);
+
+        /* dip-to-black: midpoint should be near black */
+        wb_node *dip = wb_node_transition(1, 2.0);
+        wb_transition_add(dip, red);
+        wb_transition_add(dip, blue);
+        wb_frame *dm = wb_node_pull(dip, 1.0, 0, 0, 32, 32);
+        CHECK(dm != NULL, "dip: midpoint pulled");
+        if (dm) {
+            CHECK(dm->px[100].r < 0.15f && dm->px[100].b < 0.15f,
+                  "dip: midpoint is near black");
+            wb_frame_free(dm);
+        }
+        wb_node_destroy(dip);
+        wb_node_destroy(red); wb_node_destroy(blue);
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

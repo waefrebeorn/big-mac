@@ -988,3 +988,65 @@ wb_node *wb_node_source_text(const char *text, int scale,
     n->pull = src_text_pull;
     return n;
 }
+
+/* ---- R073 hop 49: TRANSITION (crossfade / dip-to-black) --------------------- */
+typedef struct { int op; double dur; } trans_t;
+static wb_frame *trans_pull(wb_node *self, double t,
+                            int rx, int ry, int rw, int rh, int phase) {
+    trans_t *tr = self->user;
+    if (self->n_inputs < 2) return NULL;
+    if (phase == 0) {
+        wb_node_pull_request(self->inputs[0], t, rx, ry, rw, rh);
+        wb_node_pull_request(self->inputs[1], t, rx, ry, rw, rh);
+        return NULL;
+    }
+    wb_frame *a = wb_node_pull(self->inputs[0], t, rx, ry, rw, rh);
+    wb_frame *b = wb_node_pull(self->inputs[1], t, rx, ry, rw, rh);
+    if (!a) return b;
+    if (!b) return a;
+    /* mix factor 0..1 across the transition window; before = A, after = B */
+    double u = tr->dur > 0 ? t / tr->dur : 1.0;
+    if (u < 0) u = 0; if (u > 1) u = 1;
+    float mB = (float)u;
+
+    wb_frame *out = wb_frame_alloc(a->w, a->h);
+    if (!out) return NULL;
+    out->roi_x = rx; out->roi_y = ry; out->roi_w = rw; out->roi_h = rh;
+    for (int i = 0; i < a->w * a->h; i++) {
+        wb_px pa = a->px[i], pb = b->px[i];
+        if (tr->op == 0) {
+            /* crossfade: linear blend A -> B */
+            out->px[i].r = pa.r*(1-mB) + pb.r*mB;
+            out->px[i].g = pa.g*(1-mB) + pb.g*mB;
+            out->px[i].b = pa.b*(1-mB) + pb.b*mB;
+            out->px[i].a = pa.a*(1-mB) + pb.a*mB;
+        } else {
+            /* dip-to-black: fade A to black in first half, B up in second */
+            float kA = mB < 0.5f ? (1.0f - mB*2.0f) : 0.0f;
+            float kB = mB >= 0.5f ? (mB - 0.5f)*2.0f : 0.0f;
+            out->px[i].r = pa.r*kA + pb.r*kB;
+            out->px[i].g = pa.g*kA + pb.g*kB;
+            out->px[i].b = pa.b*kA + pb.b*kB;
+            out->px[i].a = pa.a*kA + pb.a*kB;
+        }
+    }
+    wb_frame_free(a); wb_frame_free(b);
+    return out;
+}
+wb_node *wb_node_transition(int op, double duration_secs) {
+    wb_node *n = wb_node_create(WB_NODE_EFFECT, "transition");
+    if (!n) return NULL;
+    trans_t *tr = calloc(1, sizeof(*tr));
+    tr->op = op; tr->dur = duration_secs > 0.01 ? duration_secs : 0.01;
+    n->user = tr;
+    n->pull = trans_pull;
+    n->n_inputs = 0;                 /* filled by wb_transition_add (max 2) */
+    n->inputs = calloc(2, sizeof(wb_node*));
+    return n;
+}
+/* attach inputs (same convention as composite) */
+void wb_transition_add(wb_node *trans, wb_node *child);
+void wb_transition_add(wb_node *trans, wb_node *child) {
+    if (!trans || !child || trans->n_inputs >= 2) return;
+    trans->inputs[trans->n_inputs++] = child;   /* slots pre-allocated */
+}

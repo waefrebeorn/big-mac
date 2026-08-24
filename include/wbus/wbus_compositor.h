@@ -165,6 +165,12 @@ wb_node *wb_node_source_text(const char *text, int scale,
                              float r, float g, float b, float a,
                              int w, int h);
 
+/* R073 hop 49: transitions — op 0 = crossfade, op 1 = dip-to-black.
+ * Two inputs (A, B); mixes across `duration_secs` starting at t=0.
+ * Attach inputs with wb_transition_add(A then B). */
+wb_node *wb_node_transition(int op, double duration_secs);
+void      wb_transition_add(wb_node *trans, wb_node *child);
+
 /* EFFECT: applies a simple op over its single input.
  * op: 0 = identity(bypass), 1 = brightness*gain (gain is keyframable
  *      via param "gain"), 2 = invert-alpha matte */

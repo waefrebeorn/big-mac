@@ -554,6 +554,28 @@ int main(void) {
         wb_node_destroy(key2); wb_node_destroy(src2);
     }
 
+
+    /* R073 hop 46: text drop shadow */
+    {
+        wb_node *txt = wb_node_source_text("W", 4,
+                                           1.0f, 1.0f, 1.0f, 1.0f, 96, 48);
+        CHECK(txt != NULL, "shadow: node created");
+        wb_frame *f = txt ? wb_node_pull(txt, 0.0, 0, 0, 96, 48) : NULL;
+        CHECK(f != NULL, "shadow: frame pulled");
+        if (f) {
+            /* count dark-but-opaque pixels: only the shadow produces them */
+            int shadow_px = 0;
+            for (int i = 0; i < 96*48; i++)
+                if (f->px[i].a > 0.3f && f->px[i].r < 0.35f)
+                    shadow_px++;
+            CHECK(shadow_px > 20,
+                  "shadow: drop shadow renders behind the glyphs");
+            printf("         shadow px=%d\n", shadow_px);
+            wb_frame_free(f);
+        }
+        wb_node_destroy(txt);
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

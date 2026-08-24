@@ -925,6 +925,11 @@ static wb_frame *src_text_pull(wb_node *self, double t,
     float cxn = wb_node_param_value(self, "cx", t);
     if (cxn <= 0.0f) cxn = (float)d->x / d->w;
     int x0 = (int)(cxn * d->w);
+    /* R073 hop 46: drop shadow first (offset by half a glyph), then the
+     * main text on top — classic title readability treatment */
+    wb_ui_text_to_rgba(d->text, d->scale,
+                       0.0f, 0.0f, 0.0f, 0.6f,
+                       f->px, d->w, d->h, x0 + d->scale, d->y + d->scale);
     wb_ui_text_to_rgba(d->text, d->scale, d->r, d->g, d->b, d->a,
                        f->px, d->w, d->h, x0, d->y);
     f->roi_x = rx; f->roi_y = ry; f->roi_w = rw; f->roi_h = rh;

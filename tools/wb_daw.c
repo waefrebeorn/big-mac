@@ -285,12 +285,13 @@ typedef struct app {
 
 /* G52: EXPORT-tab delivery preset cycle (names map to wb_delivery profiles;
  * "BROADCAST" is the friendly alias for the EBU-R128 profile). */
-static const char *g_delivery_cycle[] = { "YOUTUBE", "NETFLIX", "BROADCAST", "PODCAST" };
+static const char *g_delivery_cycle[] = { "YOUTUBE", "NETFLIX", "BROADCAST", "A85", "PODCAST" };
 #define G_DELIVERY_N ((int)(sizeof g_delivery_cycle / sizeof g_delivery_cycle[0]))
 static const wb_delivery_profile *daw_delivery_profile(int idx) {
     if (idx < 0 || idx >= G_DELIVERY_N) idx = 0;
     const char *nm = g_delivery_cycle[idx];
     if (!strcmp(nm, "BROADCAST")) nm = "EBU-R128";
+    if (!strcmp(nm, "A85")) nm = "ATSC-A85";
     return wb_delivery_profile_by_name(nm);
 }
 

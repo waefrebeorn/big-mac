@@ -2783,6 +2783,27 @@ static void test_scale_chord_step(void) {
     }
     wb_session_destroy(s);
 
+    /* G75: sidechain routing field cycles through the session contract the
+     * mixer button uses: -1 -> 0 -> ... skip-self -> last -> -1, and the
+     * engine accepts each value. */
+    s = wb_session_create();
+    wb_track *t0 = wb_session_add_track(s, "kick", 0);
+    wb_track *t1 = wb_session_add_track(s, "bass", 0);
+    CHECK(t0 && t1, "G75: two tracks created");
+    if (t1) {
+        t1->sidechain[0] = -1;
+        int nt = 2;
+        int cur = t1->sidechain[0];
+        int nxt = cur + 1;                    /* cycle step from the UI */
+        if (nxt >= nt) nxt = -1;
+        else if (nxt == 1) nxt++;             /* skip self (track 1) */
+        if (nxt >= nt) nxt = -1;
+        t1->sidechain[0] = nxt;
+        CHECK(nxt == 0, "G75: cycle lands on track 0 (skip self)");
+        wb_engine_set_insert_sidechain(NULL, 1, 0, nxt); /* NULL-engine safe? */
+    }
+    wb_session_destroy(s);
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

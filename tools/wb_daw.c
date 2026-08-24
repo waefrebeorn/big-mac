@@ -1183,20 +1183,27 @@ static void draw_mixer(app *a) {
         /* track name under fader */
         wb_ui_draw_text(a->ren, x+2, fy_top-16, tr->name, 1, C_TEXT);
 
-        /* insert-chain readout (shows FX routing for this track) */
+        /* insert-chain readout; G75: each row is a clickable sidechain
+         * routing button — click cycles key source none -> track0 -> ...
+         * -> none. Region id: 50000 + ti*8 + slot. */
         if (ti == a->selected_track) {
             int iy = fy_bot + 80;   /* below the SEND A/B rows (G30) */
             int any = 0;
-            for (int s = 0; s < WB_MAX_INSERT_SLOTS; s++) {
+            for (int s = 0; s < WB_MAX_INSERT_SLOTS && s < 8; s++) {
                 const char *id = tr->inserts[s].id;
                 if (!id || !id[0]) continue;
-                char chain[64];
-                snprintf(chain, sizeof(chain), "  %d:%s%s", s,
-                         id, tr->sidechain[s] >= 0 ? "<-" : "");
-                wb_ui_draw_text(a->ren, x+2, iy, chain, 1, C_TEXT_DIM);
-                iy += 12;
+                char chain[48];
+                const char *src = "--";
+                if (tr->sidechain[s] >= 0 &&
+                    tr->sidechain[s] < (int)a->session->track_count)
+                    src = a->session->tracks[tr->sidechain[s]].name;
+                snprintf(chain, sizeof(chain), "%d:%s<-%s", s, id, src);
+                ui_button(a->ren, 50000 + ti*8 + s, x+2, iy,
+                          sw-4 > 10 ? sw-4 : 10, 12, chain,
+                          tr->sidechain[s] >= 0);
+                iy += 14;
                 any = 1;
-                if (iy > WIN_H - 12) break;
+                if (iy > WIN_H - 16) break;
             }
             if (!any)
                 wb_ui_draw_text(a->ren, x+2, iy, "  (no inserts)", 1, C_TEXT_DIM);
@@ -3329,6 +3336,26 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                                     tr->send_target[si] = nxt;
                                 }
                             }
+                        }
+                    } else if (id >= 50000 && id < 50100) {  /* G75: sidechain routing */
+                        int ti = (id - 50000) / 8;
+                        int s  = (id - 50000) % 8;
+                        if (ti < (int)a->session->track_count &&
+                            s < WB_MAX_INSERT_SLOTS) {
+                            wb_track *tr = &a->session->tracks[ti];
+                            /* cycle: -1 -> 0 -> 1 -> ... -> last -> -1.
+                             * Skip self-routing (a track can't key itself). */
+                            int nt = (int)a->session->track_count;
+                            int nxt = tr->sidechain[s] + 1;
+                            if (nxt >= nt) nxt = -1;
+                            else if (nxt == ti) nxt++;
+                            if (nxt >= nt) nxt = -1;
+                            tr->sidechain[s] = nxt;
+                            wb_engine_set_insert_sidechain(a->engine, ti, s, nxt);
+                            snprintf(a->last_status, sizeof a->last_status,
+                                     "SC %d:%s <- %s", s, tr->inserts[s].id,
+                                     nxt >= 0 ? a->session->tracks[nxt].name
+                                              : "off");
                         }
                     }
                     break;

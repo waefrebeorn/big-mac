@@ -77,3 +77,36 @@ int wb_cgi_band_pulse(wb_anim *a, int obj,
     wb_fft_destroy(plan);
     return wrote;
 }
+
+/* ---- R073 hop 62: one-call visualizer builder ------------------------------ */
+/* Builds a 3-sphere scene (bass/mid/high) and bakes each object's band
+ * response as keys. Returns 0 or -1. Meshes owned by the anim's caller? No:
+ * this helper keeps them alive in static storage tied to the anim via
+ * caller responsibility — see PITFALL: anim stores mesh pointers, so the
+ * meshes are intentionally leaked into `*meshes_out` for the caller to free
+ * after wb_anim_free. */
+int wb_cgi_visualizer_build(wb_anim *a,
+                            const wb_sample *audio, uint32_t frames,
+                            uint32_t chn, double dur_secs,
+                            float base, float amount,
+                            wb_mesh **meshes_out /*[3]*/) {
+    if (!a || !audio || !meshes_out || dur_secs <= 0) return -1;
+    struct band { float lo, hi; uint8_t r,g,b; } bd[3] = {
+        { 40.0f, 250.0f, 255, 80, 60 },    /* bass  */
+        { 250.0f, 2000.0f, 80, 255, 120 }, /* mid   */
+        { 2000.0f, 9000.0f, 90, 160, 255 } /* high  */
+    };
+    for (int i = 0; i < 3; i++) {
+        wb_mesh *m = wb_mesh_sphere(5 + i, 8, 12,
+                                    bd[i].r, bd[i].g, bd[i].b);
+        if (!m) return -1;
+        int obj = wb_anim_add_object(a, m, bd[i].r, bd[i].g, bd[i].b);
+        int wrote = wb_cgi_band_pulse(a, obj, audio, frames, chn,
+                                      dur_secs,
+                                      bd[i].lo, bd[i].hi,
+                                      base, amount);
+        if (wrote < 0) { wb_mesh_free(m); return -1; }
+        meshes_out[i] = m;   /* caller frees after wb_anim_free */
+    }
+    return 0;
+}

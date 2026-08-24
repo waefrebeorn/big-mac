@@ -4709,6 +4709,50 @@ static void test_scale_chord_step(void) {
         wb_anim_free(an);
     }
 
+
+    /* R073 hop 62: one-call visualizer build */
+    {
+        wb_anim *an = wb_anim_create(64, 64);
+        CHECK(an != NULL, "R073: viz anim created");
+        if (an) {
+            uint32_t qnf = WB_SAMPLE_RATE * 2;
+            wb_sample *qb = malloc((size_t)qnf * sizeof(wb_sample));
+            CHECK(qb != NULL, "R073: viz buffer allocated");
+            for (uint32_t i = 0; i < qnf; i++) {
+                double f = (i < qnf/2) ? 100.0 : 4000.0;
+                qb[i] = (wb_sample)(0.5 *
+                    sin(2*M_PI*f*i/WB_SAMPLE_RATE));
+            }
+            wb_mesh *meshes[3] = {0,0,0};
+            int rc = wb_cgi_visualizer_build(an, qb, qnf, 1, 2.0,
+                                             1.0f, 0.8f, meshes);
+            free(qb);
+            CHECK(rc == 0, "R073: visualizer built");
+            CHECK(wb_anim_object_count(an) == 3,
+                  "R073: 3 band objects in the scene");
+            /* render a frame through the CGI source node to prove the
+             * whole chain works */
+            wb_node *srcn = wb_node_source_anim(an, 64, 64);
+            wb_frame *fr = srcn ? wb_node_pull(srcn, 0.5, 0, 0, 64, 64)
+                                : NULL;
+            CHECK(fr != NULL, "R073: viz frame rendered via node");
+            if (fr) {
+                float lit = 0;
+                for (int i = 0; i < 64*64; i++)
+                    lit += fr->px[i].r + fr->px[i].g + fr->px[i].b;
+                CHECK(lit > 100.0f,
+                      "R073: visualizer frame carries content");
+                printf("         R073 viz brightness=%.1f\n", lit);
+                wb_frame_free(fr);
+            }
+            if (srcn) wb_node_destroy(srcn);
+            for (int i = 0; i < 3; i++)
+                if (meshes[i]) wb_mesh_free(meshes[i]);
+        }
+        wb_anim_free(an);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
 }

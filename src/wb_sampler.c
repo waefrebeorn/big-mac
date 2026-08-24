@@ -76,10 +76,23 @@ void wb_sampler_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n) {
                 if (s->loop) idx -= (double)s->sample_count;
                 else { vv->active = 0; continue; }
             }
+            /* R073 hop 23: Catmull-Rom — linear interp dulls pitched-up
+             * samples; CR keeps treble. Pure arithmetic: RT-safe. */
+            uint32_t cnt = s->sample_count;
             uint32_t i0 = (uint32_t)idx;
-            uint32_t i1 = i0 + 1 < s->sample_count ? i0 + 1 : i0;
-            float frac = (float)(idx - i0);
-            float samp = s->samples[i0] * (1.0f - frac) + s->samples[i1] * frac;
+            if (!s->loop && i0 + 2 >= cnt) {
+                vv->active = 0; continue;
+            }
+            uint32_t im1 = i0 > 0 ? i0 - 1 : cnt - 1;      /* loop wrap */
+            uint32_t i1 = i0 + 1 < cnt ? i0 + 1 : 0;
+            uint32_t i2 = i0 + 2 < cnt ? i0 + 2 : i0 + 2 - cnt;
+            float fr = (float)(idx - i0);
+            float y0 = s->samples[im1], y1 = s->samples[i0],
+                  y2 = s->samples[i1], y3 = s->samples[i2];
+            float samp = 0.5f * ((2.0f * y1)
+                        + (-y0 + y2) * fr
+                        + (2.0f*y0 - 5.0f*y1 + 4.0f*y2 - y3) * fr*fr
+                        + (-y0 + 3.0f*y1 - 3.0f*y2 + y3) * fr*fr*fr);
             mix += samp * vv->vel;
             vv->pos += vv->rate;
         }

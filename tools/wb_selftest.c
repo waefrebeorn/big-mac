@@ -3598,6 +3598,7 @@ static void test_scale_chord_step(void) {
             int rc = wb_session_sync_offset(ss, 0, 0, 1, 0, &off);
             CHECK(rc == 0, "G21: sync offset computed");
             if (rc == 0) {
+                printf("         G21 got off=%.4f\n", off);
                 CHECK(fabs(off - 0.25) < 0.05,
                       "G21: recovered the true 0.25s misalignment");
             }

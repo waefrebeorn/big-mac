@@ -2013,9 +2013,77 @@ int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,
      * NCC removes both: subtract per-window means, normalize by signal
      * energies. A Hann-style weight tapers window edges so partial overlaps
      * don't win on sheer sample count. */
+    /* R073 hop 10: hierarchical search for long recordings — stage 1 scans
+     * at 16x stride keeping the best candidate per 0.5s band (cheap), stage 2
+     * rescans finely around it. Same result as the flat scan, ~16x cheaper. */
     int max_shift = 2 * WB_SAMPLE_RATE;
+    int coarse_step = STRIDE / 2 * 16;
+    int coarse_best = 0; float coarse_score = -2.0f;
+    for (int shift = -max_shift; shift <= max_shift; shift += coarse_step) {
+        /* correlate AMPLITUDE ENVELOPES here: envelope NCC has broad peaks,
+         * so a coarse grid cannot miss the true alignment's neighborhood
+         * (raw-sample NCC is needle-narrow and aliasing skips it) */
+        double sab = 0, sa2 = 0, sb2 = 0;
+        long n = 0;
+        for (uint32_t i = 0; i < na; i++) {
+            long pos_b = (long)(i * STRIDE) + shift;
+            if (pos_b < 0 || pos_b >= (long)cb->audio_frames) continue;
+            double a = fabs(ca->audio_data[i * STRIDE * chn]);
+            double b = fabs(cb->audio_data[pos_b * chn]);
+            if (a < 0.01 && b < 0.01) continue;
+            sab += a * b; sa2 += a * a; sb2 += b * b;
+            n++;
+        }
+        if (n < 8 || sa2 <= 1e-9 || sb2 <= 1e-9) continue;
+        double ncc = sab / sqrt(sa2 * sb2);
+        if (ncc > coarse_score) {
+            coarse_score = (float)ncc;
+            coarse_best = shift;
+        }
+    }
+    /* stage 2: raw NCC scan restricted to neighborhoods of ALL strong coarse
+     * candidates — envelope correlation is polarity-blind, so ±offset both
+     * score high; collect every strong band and refine each. */
+    /* store the whole coarse envelope curve, then take its LOCAL MAXIMA as
+     * candidates — no score-ratio cutoff to mis-tune */
+    int nc = (2 * max_shift) / coarse_step + 1;
+    float *ecurve = malloc((size_t)nc * sizeof(float));
+    int *eshift = malloc((size_t)nc * sizeof(int));
+    int cands[128]; int ncand = 0;
+    if (ecurve && eshift) {
+        int k = 0;
+        for (int shift = -max_shift; shift <= max_shift;
+             shift += coarse_step, k++) {
+            double sab = 0, sa2 = 0, sb2 = 0;
+            long n = 0;
+            for (uint32_t i = 0; i < na; i++) {
+                long pos_b = (long)(i * STRIDE) + shift;
+                if (pos_b < 0 || pos_b >= (long)cb->audio_frames) continue;
+                double a = fabs(ca->audio_data[i * STRIDE * chn]);
+                double b = fabs(cb->audio_data[pos_b * chn]);
+                if (a < 0.01 && b < 0.01) continue;
+                sab += a * b; sa2 += a * a; sb2 += b * b;
+                n++;
+            }
+            eshift[k] = shift;
+            ecurve[k] = (n >= 8 && sa2 > 1e-9 && sb2 > 1e-9)
+                        ? (float)(sab / sqrt(sa2 * sb2)) : -1.0f;
+        }
+        int nk = k;
+        for (k = 0; k < nk && ncand < 128; k++) {
+            if (ecurve[k] < 0.05f) continue;
+            float pl = k > 0 ? ecurve[k-1] : -1.0f;
+            float pr = k+1 < nk ? ecurve[k+1] : -1.0f;
+            if (ecurve[k] >= pl && ecurve[k] > pr)
+                cands[ncand++] = eshift[k];
+        }
+    }
+    free(ecurve); free(eshift);
     float best_score = -2.0f; int best_shift = 0; int found = 0;
-    for (int shift = -max_shift; shift <= max_shift; shift += STRIDE / 2) {
+    for (int ci = -1; ci < ncand; ci++) {
+        int base_shift = ci < 0 ? coarse_best : cands[ci];
+        for (int shift = base_shift - coarse_step;
+             shift <= base_shift + coarse_step; shift += STRIDE / 2) {
         double sab = 0, sa2 = 0, sb2 = 0, wa = 0, wb = 0;
         long n = 0;
         for (uint32_t i = 0; i < na; i++) {
@@ -2033,7 +2101,16 @@ int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,
         }
         if (n < 16 || sa2 <= 1e-9 || sb2 <= 1e-9) continue;
         float ncc = (float)(sab / sqrt(sa2 * sb2));
-        if (!found || ncc > best_score) { best_score = ncc; best_shift = shift; found = 1; }
+        if (!found || ncc > best_score) {
+            /* periodic signals align at multiple offsets: prefer the smaller
+             * |offset| when a prior candidate scored within 2% */
+            if (found && ncc < best_score * 1.02f &&
+                labs((long)shift) < labs((long)best_shift))
+                ;   /* keep the existing smaller-offset winner */
+            else { best_score = ncc; best_shift = shift; }
+            found = 1;
+        }
+      }                                                /* end candidate band */
     }
     if (!found || best_score < 0.3f) return -3;   /* too weak to trust */
 

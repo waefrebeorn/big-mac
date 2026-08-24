@@ -2707,6 +2707,21 @@ static void session_click(app *a, int x, int y) {
     }
 }
 
+/* G10: snap a timeline sample position to the beat grid or the nearest
+ * marker (whichever is closer) when snap is on. Grid = quarter note at the
+ * session BPM; markers always win if within half a beat. */
+static double snap_pos(app *a, double pos) {
+    if (!a->snap_on || !a->session || a->session->bpm <= 0) return pos;
+    double beat = 60.0 / a->session->bpm * WB_SAMPLE_RATE;
+    double grid = floor(pos / beat + 0.5) * beat;      /* nearest beat */
+    /* nearest marker within half a beat wins */
+    for (uint32_t i = 0; i < a->session->marker_count; i++) {
+        double mp = a->session->markers[i].pos;   /* already samples */
+        if (fabs(mp - pos) < beat * 0.5) return mp;
+    }
+    return grid;
+}
+
 /* ---- R036: commit the STEP pattern into the track's arrangement clip -- */
 static void step_commit_to_clip(app *a) {
     int ti = a->selected_track; if (ti < 0 || !a->session) return;
@@ -3534,8 +3549,8 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
             a->cgi_last_y = b.y;
             return;
         }
-        /* seek playhead to click position (scrub-on-click) */
-        double pos = x_to_sample(a, b.x);
+        /* seek playhead to click position (scrub-on-click; G10: snapped) */
+        double pos = snap_pos(a, x_to_sample(a, b.x));
         wb_engine_seek(a->engine, pos);
         a->clip_drag_origin = pos;
         /* piano-roll: left-click on an existing note starts a VELOCITY drag
@@ -3709,7 +3724,7 @@ static void handle_motion(app *a, SDL_MouseMotionEvent m) {
                      same media kind. Uses wb_session_move_clip so the model
                      op is testable headless; the side-table entry travels
                      via wb_clip_edit_move. */
-            double newstart = a->hd_clip_start0 + dsmp;
+            double newstart = snap_pos(a, a->hd_clip_start0 + dsmp);  /* G10 */
             if (newstart < 0) newstart = 0;
             int nti = y_to_track(a, m.y);
             if (nti >= 0 && nti < (int)a->session->track_count

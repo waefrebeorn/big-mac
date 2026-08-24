@@ -993,6 +993,17 @@ static wb_frame *src_text_pull(wb_node *self, double t,
     char buf[128];
     const char *draw_text = d->text;
     float slide_off = 0.0f;
+    float alpha_mul = 1.0f;
+    /* R073 hop 59: alpha-based presets — fade-out (3) and full-cycle
+     * fade-in/out (4). u = progress through anim_dur. */
+    if ((d->anim_mode == 3 || d->anim_mode == 4) && d->anim_dur > 0) {
+        double u = t / d->anim_dur;
+        if (u < 0) u = 0; if (u > 1) u = 1;
+        if (d->anim_mode == 3)      alpha_mul = 1.0f - (float)u;
+        else                        alpha_mul = u < 0.5f
+                                  ? (float)(u * 2.0)
+                                  : (float)((1.0 - u) * 2.0);
+    }
     if (d->anim_mode == 1 && d->anim_dur > 0) {
         /* R073 hop 58: typewriter — reveal chars proportionally to t */
         double u = t / d->anim_dur;
@@ -1008,12 +1019,13 @@ static wb_frame *src_text_pull(wb_node *self, double t,
         if (u > 1) u = 1;
         slide_off = -(1.0 - u) * (float)d->w * 0.5f;
     }
+    float fa = d->a * alpha_mul;
     wb_ui_text_to_rgba(draw_text, d->scale,
-                       0.0f, 0.0f, 0.0f, 0.6f,
+                       0.0f, 0.0f, 0.0f, 0.6f * alpha_mul,
                        f->px, d->w, d->h,
                        x0 + d->scale + (int)slide_off,
                        d->y + d->scale);
-    wb_ui_text_to_rgba(draw_text, d->scale, d->r, d->g, d->b, d->a,
+    wb_ui_text_to_rgba(draw_text, d->scale, d->r, d->g, d->b, fa,
                        f->px, d->w, d->h, x0 + (int)slide_off, d->y);
     f->roi_x = rx; f->roi_y = ry; f->roi_w = rw; f->roi_h = rh;
     return f;

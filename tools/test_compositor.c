@@ -772,6 +772,31 @@ int main(void) {
         wb_node_destroy(txt);
     }
 
+
+    /* R073 hop 59: fade-out preset — text gone by end of duration */
+    {
+        wb_node *txt = wb_node_source_text("FADE", 3,
+                                           1.0f, 1.0f, 1.0f, 1.0f, 96, 32);
+        CHECK(txt != NULL, "fadeout: node created");
+        wb_node_source_text_anim(txt, 3, 2.0);   /* fade out over 2s */
+        wb_frame *early = wb_node_pull(txt, 0.1, 0, 0, 96, 32);
+        wb_frame *late  = wb_node_pull(txt, 1.9, 0, 0, 96, 32);
+        CHECK(early && late, "fadeout: frames pulled");
+        if (early && late) {
+            int lit_e = 0, lit_l = 0;
+            for (int i = 0; i < 96*32; i++) {
+                if (early->px[i].a > 0.4f) lit_e++;
+                if (late->px[i].a > 0.4f) lit_l++;
+            }
+            CHECK(lit_e > 100 && lit_l < 20,
+                  "fadeout: text visible early, gone late");
+            printf("         fadeout: early=%d late=%d\n", lit_e, lit_l);
+            wb_frame_free(early); wb_frame_free(late);
+        }
+        wb_node_destroy(txt);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

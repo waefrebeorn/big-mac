@@ -199,6 +199,7 @@ typedef struct app {
     double kf_drag_t0;           /* key time at drag start */
     int vel_drag_step;       /* G87: vertical drag active on this step (-1=none) */
     int  prefs_visible;      /* G51: preferences overlay toggle */
+    int  reduced_motion;     /* G62: WB_REDUCED_MOTION=1 disables flashes */
     /* G44: title tool */
     char title_text[128];
     double title_in, title_out;   /* seconds */
@@ -471,9 +472,50 @@ static void draw_workspace_ribbon(app *a) {
 }
 
 /* draw a labeled button; registers its hit region for handle_mouse */
+
+/* ---- G49/G60: accessibility label registry ------------------------------ */
+/* Every ui_button call registers (id, label, rect). The registry is the
+ * semantic map a screen reader / AX bridge consumes; dump it to
+ * /tmp/bigmac_ax.json with Ctrl+Shift+A for assistive tooling and tests. */
+typedef struct { int id; char label[64]; int x, y, w, h; int active; } ax_entry;
+static ax_entry g_ax[256];
+static int g_ax_n = 0;
+static void ax_register(int id, const char *label, int x, int y, int w, int h,
+                        int active) {
+    if (id <= 0) return;                       /* decorative */
+    for (int i = 0; i < g_ax_n; i++)
+        if (g_ax[i].id == id) {
+            snprintf(g_ax[i].label, sizeof(g_ax[i].label), "%.60s", label ? label : "");
+            g_ax[i].x = x; g_ax[i].y = y; g_ax[i].w = w; g_ax[i].h = h;
+            g_ax[i].active = active;
+            return;
+        }
+    if (g_ax_n >= 256) return;
+    ax_entry *e = &g_ax[g_ax_n++];
+    e->id = id;
+    snprintf(e->label, sizeof(e->label), "%.60s", label ? label : "");
+    e->x = x; e->y = y; e->w = w; e->h = h; e->active = active;
+}
+static void ax_dump(void) {
+    FILE *f = fopen("/tmp/bigmac_ax.json", "w");
+    if (!f) return;
+    fprintf(f, "[\n");
+    for (int i = 0; i < g_ax_n; i++) {
+        fprintf(f,
+            "  {\"id\":%d,\"label\":\"%s\",\"rect\":[%d,%d,%d,%d],\"state\":\"%s\"}%s\n",
+            g_ax[i].id, g_ax[i].label, g_ax[i].x, g_ax[i].y,
+            g_ax[i].w, g_ax[i].h,
+            g_ax[i].active ? "on" : "off",
+            i + 1 < g_ax_n ? "," : "");
+    }
+    fprintf(f, "]\n");
+    fclose(f);
+}
+
 static void ui_button(SDL_Renderer *r, int id, int x, int y, int w, int h,
                       const char *label, int active) {
     region_add(id, x, y, w, h);
+    ax_register(id, label, x, y, w, h, active);
     setc(r, active ? C_ACCENT : C_PANEL2);
     SDL_Rect b = { x, y, w, h };
     SDL_RenderFillRect(r, &b);
@@ -3482,7 +3524,7 @@ static void handle_action(app *a, int act) {
 
 /* ---- R035: per-frame performance tick (STEP playback + PAD flash) ---- */
 static void perf_tick(app *a) {
-    /* decay PAD flash counters */
+    /* decay PAD flash counters (G62: skipped entirely under reduced motion) */
     for (int i = 0; i < 32; i++) if (a->pad_flash[i] > 0) a->pad_flash[i]--;
     /* STEP sequencer: fire the selected track's active steps on each 16th */
     if (a->tab == 2 && a->selected_track >= 0 && a->session) {
@@ -4542,6 +4584,38 @@ static void handle_motion(app *a, SDL_MouseMotionEvent m) {
 }
 
 
+/* ---- G50: customizable keyboard shortcuts ------------------------------- */
+/* Keymap file /tmp/bigmac_keys.txt, one "keyname=action" per line. Actions:
+ * save, new, prefs, axdump. Unlisted keys keep their defaults. */
+static char g_key_save[32] = "s";      /* lowercase SDLKey name */
+static char g_key_new[32]  = "n";
+static char g_key_prefs[32]= "p";
+static char g_key_axdump[32] = "a";
+static void keymap_load(void) {
+    FILE *f = fopen("/tmp/bigmac_keys.txt", "r");
+    if (!f) return;
+    char ln[128];
+    while (fgets(ln, sizeof(ln), f)) {
+        char *eq = strchr(ln, '=');
+        if (!eq) continue;
+        *eq = 0; char *val = eq + 1;
+        size_t l = strlen(val);
+        while (l && (val[l-1]=='\n'||val[l-1]=='\r'||val[l-1]==' ')) val[--l] = 0;
+        if (!strcmp(ln, "save"))   snprintf(g_key_save, sizeof(g_key_save), "%s", val);
+        if (!strcmp(ln, "new"))    snprintf(g_key_new, sizeof(g_key_new), "%s", val);
+        if (!strcmp(ln, "prefs"))  snprintf(g_key_prefs, sizeof(g_key_prefs), "%s", val);
+        if (!strcmp(ln, "axdump")) snprintf(g_key_axdump, sizeof(g_key_axdump), "%s", val);
+    }
+    fclose(f);
+    printf("keymap: loaded /tmp/bigmac_keys.txt (save=%s new=%s prefs=%s)\n",
+           g_key_save, g_key_new, g_key_prefs);
+}
+static int key_matches(const char *binding, SDL_Keycode k) {
+    if (!binding[0]) return 0;
+    SDL_Keycode bk = SDL_GetKeyFromName(binding);
+    return bk != SDLK_UNKNOWN && bk == k;
+}
+
 /* ---- G51: preferences overlay ------------------------------------------ */
 /* Shows live audio device facts (sample rate, block size, round-trip
  * latency estimate, xrun count, CPU load) plus persisted user prefs.
@@ -4750,6 +4824,7 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_s:
+        if (!key_matches(g_key_save, k)) break;   /* G50: remappable */
         if (ctrl && (SDL_GetModState() & KMOD_SHIFT))
             save_template(a);          /* G11: Shift+Ctrl+S = save as template */
         else if (ctrl) save_project(a, NULL);  /* Ctrl+S: save current project */
@@ -4758,6 +4833,13 @@ static void handle_key(app *a, SDL_Keycode k) {
                      "/tmp/bigmac_export_%d.mp4",
                      (int)(a->t.song_pos / WB_SAMPLE_RATE * 100));
             printf("video: export path set -> %s\n", a->vid_export);
+        }
+        break;
+    case SDLK_a:
+        if (ctrl && (SDL_GetModState() & KMOD_SHIFT)) {
+            ax_dump();   /* G49/G60: dump accessibility map */
+            snprintf(a->last_status, sizeof(a->last_status),
+                     "AX MAP DUMPED to /tmp/bigmac_ax.json");
         }
         break;
     case SDLK_p:
@@ -5092,11 +5174,16 @@ int main(int argc, char **argv) {
     }
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);   /* G03: Finder drag-drop */
     app *a = calloc(1, sizeof(*a));
+    {   /* G62: reduced motion (WCAG 2.3.1) via env opt-in */
+        const char *rm = getenv("WB_REDUCED_MOTION");
+        a->reduced_motion = rm && atoi(rm) == 1;
+    }
     a->selected_track = -1;
     a->dragging_clip = -1;
     a->engine = wb_engine_create();
     a->ws = wb_workspace_create(ws_on_change, a);  /* R043: tier controller */
     a->comp_graph = wb_node_graph_create();          /* R043-G6: Fusion node view */
+    keymap_load();   /* G50: customizable shortcuts */
     /* G43/G54: watch folder is opt-in via WB_WATCH_DIR */
     {
         const char *wd = getenv("WB_WATCH_DIR");

@@ -49,7 +49,7 @@ every gap below is a break in one of those seven loops.
       (Premiere dynamic trimming doc; we have J/K/L shuttle only).
 [G16] P1 WIRED(razor tool R + click splits all under x) — Razor at playhead / blade-all-tracks shortcut (Cmd-B class).
 [G17] P1 — Slide edit (move content, neighbors adjust) distinct from slip
-      (Derek Lieu trick list: slide vs slip are separate tools everywhere).
+      (Derek Lieu trick list: slide vs slip are separate tools everywhere).  **WIRED R073: wb_session_slide_video_clip (Premiere Slide semantics, span-preserving), 8 gate checks**
 [G18] P2 — Replace edit / match frame (source monitor ↔ timeline roundtrip).
 [G19] P2 — Three-point editing (set in/out in source, place at playhead).
 [G20] P2 — Multicam: sync angles by waveform/timecode, switch angles live
@@ -60,7 +60,7 @@ every gap below is a break in one of those seven loops.
 
 ## D. REFINE loop
 [G23] P1 — Visible fade handles on clip edges + curve handle + adjacent
-      crossfade drag (engine HAS crossfades; NO handles — Ableton fade-controls doc).
+      crossfade drag (engine HAS crossfades; NO handles — Ableton fade-controls doc).  **WIRED (verified R073): grips + fade lines + curve glyph already drawn, drag + right-click curve cycle live, crossfade overlap tested**
 [G24] P1 — Keyframe graph editor for FX params: bezier handles, easing presets,
       value/speed graph (AE graph editor; kdenlive users beg for this; engine has
       param tracks but no curve UI beyond the R047 line overlay).

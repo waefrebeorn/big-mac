@@ -291,6 +291,44 @@ static wb_frame *eff_pull(wb_node *self, double t,
                     }
                 }
             }
+            else if (e->op == 6) {
+                /* R073 hop 47a: vignette — radial darkening; strength via
+                 * keyframable "vig" param, radius fixed at frame corner */
+                float vig = wb_node_param_value(self, "vig", t);
+                if (vig <= 0.0f) vig = gain;
+                float cx2 = in->w * 0.5f, cy2 = in->h * 0.5f;
+                float maxd = sqrtf(cx2*cx2 + cy2*cy2);
+                for (int y = ry; y < ry + rh; y++)
+                    for (int x = rx; x < rx + rw; x++) {
+                        wb_px *p = &in->px[y*in->w + x];
+                        float dx = x - cx2, dy = y - cy2;
+                        float dnorm = sqrtf(dx*dx + dy*dy) / maxd;
+                        /* darkening starts past 50% radius */
+                        float fall = dnorm < 0.5f ? 0.0f
+                                   : (dnorm - 0.5f) / 0.5f;
+                        float k = 1.0f - vig * fall * fall;
+                        p->r *= k; p->g *= k; p->b *= k;
+                    }
+            }
+            else if (e->op == 7) {
+                /* R073 hop 47b: glow — threshold bright pixels, blur them,
+                 * screen-add back. Simplified: per-pixel soft-knee bloom on
+                 * luminance above the keyframable "glow_thr" param. */
+                float thr = wb_node_param_value(self, "glow_thr", t);
+                if (thr <= 0.0f) thr = 0.7f;
+                for (int y = ry; y < ry + rh; y++)
+                    for (int x = rx; x < rx + rw; x++) {
+                        wb_px *p = &in->px[y*in->w + x];
+                        float lum = 0.2126f*p->r + 0.7152f*p->g
+                                  + 0.0722f*p->b;
+                        if (lum > thr) {
+                            float excess = (lum - thr) / (1.0f - thr);
+                            p->r += excess * (p->r) * 0.5f;
+                            p->g += excess * (p->g) * 0.5f;
+                            p->b += excess * (p->b) * 0.5f;
+                        }
+                    }
+            }
             else if (e->op == 5) {
                 /* R073 hop 45: luma key — dark pixels go transparent
                  * (screen-blend style, ideal over black-bg CGI renders).

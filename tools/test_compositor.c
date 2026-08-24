@@ -576,6 +576,41 @@ int main(void) {
         wb_node_destroy(txt);
     }
 
+
+    /* R073 hop 47: vignette darkens corners, not center; glow lifts brights */
+    {
+        wb_node *src = wb_node_source_color(1.0f, 1.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *vig = wb_node_effect(6, 0.8f);
+        vig->inputs[0] = src;
+        wb_frame *fv = wb_node_pull(vig, 0.0, 0, 0, 64, 64);
+        CHECK(fv != NULL, "vignette: pulled");
+        if (fv) {
+            float center = fv->px[32*64+32].r;
+            float corner = fv->px[2*64+2].r;
+            CHECK(center > 0.9f && corner < 0.6f,
+                  "vignette: corners darker than center");
+            printf("         vignette: center=%.3f corner=%.3f\n",
+                   center, corner);
+            wb_frame_free(fv);
+        }
+        wb_node_destroy(vig); wb_node_destroy(src);
+    }
+    {
+        wb_node *src = wb_node_source_color(1.0f, 1.0f, 1.0f, 1.0f, 32, 32);
+        wb_node *glow = wb_node_effect(7, 0.7f);
+        glow->inputs[0] = src;
+        wb_frame *fg = wb_node_pull(glow, 0.0, 0, 0, 32, 32);
+        CHECK(fg != NULL, "glow: pulled");
+        if (fg) {
+            /* white frame above threshold blooms past 1.0 (clamped later
+             * by the writer) — verify lift happened vs plain 1.0 */
+            CHECK(fg->px[100].r > 1.0f,
+                  "glow: bright pixels bloom beyond unity");
+            wb_frame_free(fg);
+        }
+        wb_node_destroy(glow); wb_node_destroy(src);
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

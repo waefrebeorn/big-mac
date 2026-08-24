@@ -309,6 +309,7 @@ typedef struct app {
     int    song_last_bar;            /* bar count at last advance */
     int  export_range_mode;          /* 0 = WHOLE, 1 = IN..playhead */
     int  export_res_h;               /* 0/1080 native, 480, 720 */
+    int  export_aspect;              /* G45: 0=16:9, 1=9:16 (stories), 2=1:1 (feed) */
     int  delivery_profile_idx;       /* G52: index into g_delivery_cycle */
     /* G09: arrangement-gutter track management */
     int  rename_armed;               /* typing appends to the track name */
@@ -1908,6 +1909,10 @@ static void draw_action_bar(app *a) {
             ui_button(a->ren, 9002, ex+(sw+4),    by, sw, bh, "480p", a->export_res_h==480);
             ui_button(a->ren, 9003, ex+2*(sw+4),  by, sw, bh, "720p", a->export_res_h==720);
             ui_button(a->ren, 9004, ex+3*(sw+4),  by, sw, bh, "1080p", a->export_res_h==0);
+            /* G45: social aspect presets */
+            static const char *asp[] = { "16:9", "9:16", "1:1" };
+            ui_button(a->ren, 9200, ex+5*(sw+4), by, sw/2-2, bh, asp[a->export_aspect],
+                      a->export_aspect != 0);
             if (wb_export_job_running(&a->ejob))
                 ui_button(a->ren, 9005, ex+4*(sw+4), by, sw, bh, "CANCEL", 1);
             /* G52: delivery preset cycle + DELIVER (profile-normalized master) */
@@ -2489,9 +2494,11 @@ static void draw_video_tab_panel(app *a) {
         snprintf(buf, sizeof(buf), "Range: %s",
                  a->export_range_mode ? "IN -> playhead" : "WHOLE");
         wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 14;
-        snprintf(buf, sizeof(buf), "Resolution: %s",
+        snprintf(buf, sizeof(buf), "Resolution: %s%s",
                  a->export_res_h == 480 ? "854x480" :
-                 a->export_res_h == 720 ? "1280x720" : "1920x1080");
+                 a->export_res_h == 720 ? "1280x720" : "1920x1080",
+                 a->export_aspect == 1 ? " 9:16" :
+                 a->export_aspect == 2 ? " 1:1" : "");
         wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 14;
         /* G52: active delivery preset */
         {
@@ -3983,6 +3990,8 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                     } else if (id >= 9000 && id < 9100) {  /* G38/G39/G40 EXPORT settings */
                         switch (id) {
                             case 9001: a->export_range_mode = !a->export_range_mode; break;
+                            case 9200: a->export_aspect =
+                                           (a->export_aspect + 1) % 3; break;  /* G45 */
                             case 9002: a->export_res_h = 480; break;
                             case 9003: a->export_res_h = 720; break;
                             case 9004: a->export_res_h = 0;   break;  /* native 1080 */

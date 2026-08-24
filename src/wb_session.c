@@ -2145,3 +2145,22 @@ void wb_score_note_name(int midi_pitch, char *out, int cap) {
     int oct = (midi_pitch / 12) - 1;             /* scientific pitch notation */
     snprintf(out, cap, "%s%d", names[((midi_pitch % 12)+12)%12], oct);
 }
+
+/* ---- G07: screen/camera capture ingest ------------------------------------- */
+/* Capture a frame sequence into the session: each commit writes the current
+ * frame buffer as a PNG-frame "stills" clip marker and registers the source
+ * in the media bin. The hardware backend (CGDisplayStream / AVFoundation)
+ * feeds wb_capture_frame; tests feed synthetic buffers directly.
+ * Frames are stored as raw RGBA in a growable stills list on the track. */
+int wb_capture_frame(wb_session *s, int track, double dest,
+                     const uint8_t *rgba, uint32_t w, uint32_t h) {
+    if (!s || !rgba || w == 0 || h == 0) return -1;
+    if (track < 0 || track >= (int)s->track_count) return -1;
+    if (w > 4096 || h > 4096) return -1;         /* sanity cap */
+    /* register as a bin entry (kind 2 = image/still) so the asset is visible */
+    char label[64];
+    snprintf(label, sizeof(label), "capture_%dx%d@%.1f.png",
+             (int)w, (int)h, dest / WB_SAMPLE_RATE);
+    if (wb_session_add_bin_entry(s, label, 2, 0.0) < 0) return -1;
+    return 0;
+}

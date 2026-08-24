@@ -540,6 +540,10 @@ void wb_session_spatial_enable(wb_session *s, int on);
 /* G36: score view — diatonic staff position (0 = middle C line) and name. */
 int  wb_score_staff_position(int midi_pitch);
 void wb_score_note_name(int midi_pitch, char *out, int cap);
+/* G07: capture ingest — register one captured RGBA frame at `dest` and add
+ * its source to the media bin. Hardware backends feed this; tests too. */
+int wb_capture_frame(struct wb_session *s, int track, double dest,
+                     const uint8_t *rgba, uint32_t w, uint32_t h);
 /* G21: waveform auto-sync — sign-correlation offset between two audio clips.
  * Positive result means clip_b must move later to align with clip_a. */
 int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,

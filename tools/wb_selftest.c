@@ -3739,6 +3739,23 @@ static void test_scale_chord_step(void) {
         CHECK(strcmp(nm, "A4") == 0, "G36: MIDI 69 named A4 (concert A)");
     }
 
+
+    /* G07: capture ingest — frame registered in the media bin */
+    {
+        wb_session *gs = wb_session_create();
+        wb_session_add_track(gs, "cap", 0);
+        uint8_t px[64];   /* 4x4 RGBA */
+        memset(px, 128, sizeof(px));
+        CHECK(wb_capture_frame(gs, 0, WB_SAMPLE_RATE, px, 4, 4) == 0,
+              "G07: frame captured");
+        CHECK(gs->bin_count == 1 &&
+              strstr(gs->bin_entries[0].path, "capture_") != NULL,
+              "G07: capture registered in the media bin");
+        CHECK(wb_capture_frame(gs, 0, 2*WB_SAMPLE_RATE, px, 5000, 4) == -1,
+              "G07: oversized frame rejected");
+        wb_session_destroy(gs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

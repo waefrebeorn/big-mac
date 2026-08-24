@@ -110,7 +110,7 @@ every gap below is a break in one of those seven loops.
 
 ## G. INTEROP / RECOVER loop
 [G46] P1 — SRT import/export buttons (captions roundtrip; audit-confirmed).  **WIRED R073: .srt in scan/browser, SRT IN/OUT buttons, write->parse roundtrip test
-[G47] P2 — OTIO import/export alongside our shadow-bin (OTIO is becoming the
+[G47] P2 — OTIO import/export alongside our shadow-bin (OTIO is becoming the  **WIRED R073: wb_session_export_otio (Timeline/Track/Clip/Gap JSON, ExternalReference + source_range), 4 gate checks**
       editorial common language — Linux Foundation/ASWF; AAF adapter ecosystem).
 [G48] P2 — DAWproject-format awareness for cross-DAW exchange (Bitwig/PreSonus).
 [G49] P2 — Accessibility: screen-reader labels/names on all controls (OSARA  **WIRED R073: AX label registry on every button + JSON dump (Ctrl+Shift+A); native bridge documented as next step**

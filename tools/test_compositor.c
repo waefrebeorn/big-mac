@@ -1099,6 +1099,30 @@ int main(void) {
         wb_node_destroy(key); wb_node_destroy(src);
     }
 
+
+    /* R073 hop 72: blue-screen keying via key_color=1 */
+    {
+        wb_node *src = wb_node_source_color(0.2f, 0.3f, 0.9f, 1.0f, 32, 32);
+        wb_node *key = wb_node_effect(3, 0.3f);
+        key->inputs[0] = src;
+        wb_param_track *kc = wb_param_track_create();
+        wb_param_track_set(kc, 0.0, 1.0f, WB_KF_HOLD);   /* blue */
+        wb_node_add_param(key, "key_color", kc);
+        wb_frame *f = key ? wb_node_pull(key, 0.0, 0, 0, 32, 32) : NULL;
+        CHECK(f != NULL, "bluekey: pulled");
+        if (f) {
+            wb_px p = f->px[100];
+            /* dom = 0.9 - 0.25 = 0.65 >= tol -> fully keyed out */
+            CHECK(p.a < 0.05f, "bluekey: blue screen fully keyed");
+            printf("         bluekey: a=%.2f\n", p.a);
+            wb_frame_free(f);
+        }
+        if (key) wb_node_destroy(key);
+        if (src) wb_node_destroy(src);
+        wb_param_track_free(kc);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

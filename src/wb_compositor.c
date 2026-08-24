@@ -369,19 +369,32 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 float tol = wb_node_param_value(self, "key_tol", t);
                 if (tol <= 0.0f) tol = gain;      /* static fallback */
                 if (tol <= 0.0f) tol = 0.15f;
-                float gdom = p->g - 0.5f * (p->r + p->b);
-                if (gdom >= tol)       p->a = 0.0f;
-                else if (gdom > tol*0.5f)
-                    p->a *= 1.0f - (gdom - tol*0.5f) / (tol*0.5f);
+                /* R073 hop 72: key_color selects the screen channel:
+                 * 0 = green (default), 1 = blue, 2 = red. */
+                float kc = wb_node_param_value(self, "key_color", t);
+                int kch = kc > 0.5f ? (kc > 1.5f ? 2 : 1) : 0;
+                float dom;
+                if (kch == 1)      dom = p->b - 0.5f * (p->r + p->g);
+                else if (kch == 2) dom = p->r - 0.5f * (p->g + p->b);
+                else               dom = p->g - 0.5f * (p->r + p->b);
+                if (dom >= tol)       p->a = 0.0f;
+                else if (dom > tol*0.5f)
+                    p->a *= 1.0f - (dom - tol*0.5f) / (tol*0.5f);
                 /* R073 hop 71: spill suppression — on kept pixels, clamp
                  * green toward max(r,b) so reflected green light no longer
                  * tints the foreground (classic "green limit"). */
-                if (p->a > 0.0f && p->g > p->r && p->g > p->b) {
-                    float lim = p->r > p->b ? p->r : p->b;
+                float kv2 = p->g, lo1 = p->r, lo2 = p->b;
+                if (kch == 1) { kv2 = p->b; lo1 = p->r; lo2 = p->g; }
+                else if (kch == 2) { kv2 = p->r; lo1 = p->g; lo2 = p->b; }
+                if (p->a > 0.0f && kv2 > lo1 && kv2 > lo2) {
+                    float lim = lo1 > lo2 ? lo1 : lo2;
                     float spill = wb_node_param_value(self,
                                                       "spill", t);
                     if (spill <= 0.0f) spill = 0.5f;   /* default half */
-                    p->g = p->g - (p->g - lim) * spill;
+                    float fixed = kv2 - (kv2 - lim) * spill;
+                    if (kch == 1)      p->b = fixed;
+                    else if (kch == 2) p->r = fixed;
+                    else               p->g = fixed;
                 }
             }
         }

@@ -66,7 +66,7 @@ every gap below is a break in one of those seven loops.
       param tracks but no curve UI beyond the R047 line overlay).
 [G25] P2 — Automation modes read/write/touch/latch (Pro Tools 4 modes; we have  **WIRED R073: lane mode field, stage yields on write pass, right-click A cycles modes, TOUCH/LATCH write semantics**
       recorder-arm only).
-[G26] P2 — Time-stretch/pitch-shift clips to tempo/key (Elastic Audio/Flex Time;
+[G26] P2 — Time-stretch/pitch-shift clips to tempo/key (Elastic Audio/Flex Time;  **WIRED R073: wb_timestretch WSOLA engine + pitch resampler, 6 gate checks (length ratios exact, pitch-only duration preserved)**
       zero stretch support today).
 [G27] P2 — Transient detection + slice editing on audio clips (Reason slices).  **WIRED R073: spectral-flux onset detector with adaptive threshold, gate-verified alignment on synthetic hits**
 [G28] P2 — Strip silence / region detect from GUI (we detect silence in agent  **WIRED R073: wb_session_strip_silence with hangover window, region-split clips, 8 gate checks**

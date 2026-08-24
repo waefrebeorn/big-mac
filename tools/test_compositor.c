@@ -1147,6 +1147,35 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 74: tone curves — lifted blacks, soft highlights */
+    {
+        wb_node *src = wb_node_source_color(0.5f, 0.5f, 0.5f, 1.0f, 32, 32);
+        wb_node *cv = wb_node_effect(10, 0.0f);
+        wb_param_track *tb = wb_param_track_create();
+        wb_param_track_set(tb, 0.0, 0.1f, WB_KF_HOLD);   /* blk lift */
+        wb_param_track *tw = wb_param_track_create();
+        wb_param_track_set(tw, 0.0, 0.9f, WB_KF_HOLD);   /* wht point in */
+        wb_node_add_param(cv, "cur_blk", tb);
+        wb_node_add_param(cv, "cur_wht", tw);
+        cv->inputs[0] = src;
+        wb_frame *f = cv ? wb_node_pull(cv, 0.0, 0, 0, 32, 32) : NULL;
+        CHECK(f != NULL, "curves: pulled");
+        if (f) {
+            wb_px p = f->px[100];
+            /* mid 0.5 with blk=0.1, shd=0.1(default), hig=0.5(default),
+             * wht=0.9: v=0.5 lands at the hig boundary -> ~0.75 out */
+            CHECK(p.r > 0.6f && p.r < 0.9f,
+                  "curves: midtone remapped by lifted blacks");
+            printf("         curves: 0.5 -> %.2f\n", p.r);
+            wb_frame_free(f);
+        }
+        if (cv) wb_node_destroy(cv);
+        if (src) wb_node_destroy(src);
+        wb_param_track_free(tb); wb_param_track_free(tw);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

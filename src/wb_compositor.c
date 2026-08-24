@@ -344,6 +344,41 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 p->b *= 1.0f - temp;
                 p->g *= 1.0f + tint;
             }
+            else if (e->op == 10) {
+                /* R073 hop 74: tone curves — keyframable blk/shd/hig/wht */
+                float blk = wb_node_param_value(self, "cur_blk", t);
+                float shd = wb_node_param_value(self, "cur_shd", t);
+                float hig = wb_node_param_value(self, "cur_hig", t);
+                float wht = wb_node_param_value(self, "cur_wht", t);
+                if (blk != 0.0f || shd != 0.0f || hig != 0.0f ||
+                    wht != 0.0f) {
+                    if (shd < blk) shd = blk;
+                    if (hig < shd) hig = shd;
+                    if (wht <= hig) wht = hig + 0.01f;
+                    float ch[3] = { p->r, p->g, p->b };
+                    for (int ci = 0; ci < 3; ci++) {
+                        float v = ch[ci];
+                        float o;
+                        if (v <= shd) {
+                            float u2 = (v - blk) /
+                                ((shd - blk > 1e-4f) ? shd-blk : 1e-4f);
+                            if (u2 < 0) u2 = 0; if (u2 > 1) u2 = 1;
+                            o = 0.25f * (u2*u2*(3-2*u2));
+                        } else if (v <= hig) {
+                            float u2 = (v - shd) /
+                                ((hig - shd > 1e-4f) ? hig-shd : 1e-4f);
+                            o = 0.25f + 0.5f * (u2*u2*(3-2*u2));
+                        } else {
+                            float u2 = (v - hig) /
+                                ((wht - hig > 1e-4f) ? wht-hig : 1e-4f);
+                            if (u2 < 0) u2 = 0; if (u2 > 1) u2 = 1;
+                            o = 0.75f + 0.25f * (u2*u2*(3-2*u2));
+                        }
+                        ch[ci] = o;
+                    }
+                    p->r = ch[0]; p->g = ch[1]; p->b = ch[2];
+                }
+            }
             else if (e->op == 7) {
                 /* R073 hop 47b: glow — threshold bright pixels, blur them,
                  * screen-add back. Simplified: per-pixel soft-knee bloom on
@@ -408,6 +443,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
                     else               p->g = fixed;
                 }
             }
+        curves_skip:;
         }
     return in;
 }

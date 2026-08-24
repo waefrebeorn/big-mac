@@ -185,7 +185,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
       fader gain (default), pre = raw buffer; mixer PRE button per send;
       test_sends asserts pre > post when fader < 1.]
 [G75] P2 — Sidechain routing UI (engine HAS sidechain DSP; no routing UI).  **WIRED R073: mixer insert rows = clickable key-source cycle buttons -> wb_engine_set_insert_sidechain**
-[G76] P2 — FX chain rack: drag-reorder inserts, bypass, save/load chains
+[G76] P2 — FX chain rack: drag-reorder inserts, bypass, save/load chains  **WIRED R073: wb_session_export_chain/import_chain (position-ordered text, dash clears), 5 gate checks**
       (Cubase insert-chain presets).
 [G77] P2 — Copy-paste channel-strip settings between strips (Reaper/Logic).
 [G78] P2 — Peak-hold + LUFS/true-peak meter on master (refines G32; VU misses  **WIRED R073: wb_lufs K-weighted meter + peak hold, RBJ high-shelf fix, silence-flush test**

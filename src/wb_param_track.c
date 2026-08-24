@@ -99,6 +99,32 @@ int wb_param_track_count(const wb_param_track *tr) {
     return tr ? tr->count : 0;
 }
 
+/* G24: keyframe-graph editor accessors. key_at copies the key nearest in
+ * time (within 1e-6) into *out and returns 0; -1 if no such key. */
+int wb_param_track_key_at(const wb_param_track *tr, double t, wb_keyframe *out) {
+    if (!tr || !out) return -1;
+    for (int i = 0; i < tr->count; i++) {
+        if (fabs(tr->keys[i].t - t) < 1e-6) { *out = tr->keys[i]; return 0; }
+    }
+    return -1;
+}
+/* G24: copy the i-th key (time order). Returns 0 or -1. */
+int wb_param_track_key_index(const wb_param_track *tr, int i, wb_keyframe *out) {
+    if (!tr || !out || i < 0 || i >= tr->count) return -1;
+    *out = tr->keys[i];
+    return 0;
+}
+/* G24: move/retiming an existing key: remove + re-add keeps ordering. */
+void wb_param_track_move_key(wb_param_track *tr, double from_t,
+                             double to_t, float value) {
+    if (!tr) return;
+    wb_keyframe k;
+    if (wb_param_track_key_at(tr, from_t, &k) != 0) return;
+    int interp = k.interp;
+    wb_param_track_remove(tr, from_t);
+    wb_param_track_set(tr, to_t, value, (wb_kf_interp)interp);
+}
+
 void wb_param_track_set_extrapolate(wb_param_track *tr, int on) {
     if (tr) tr->extrapolate = on ? 1 : 0;
 }

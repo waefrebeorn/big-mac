@@ -2901,6 +2901,31 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(fs);
     }
 
+    /* G24: keyframe graph editor model ops */
+    {
+        wb_param_track *kt = wb_param_track_create();
+        CHECK(kt != NULL, "G24: param track created");
+        if (kt) {
+            wb_param_track_set(kt, 0.0, 0.4f, WB_KF_LINEAR);
+            wb_param_track_set(kt, 5.0, 1.2f, WB_KF_LINEAR);
+            CHECK(wb_param_track_count(kt) == 2, "G24: two keys");
+            wb_keyframe k;
+            CHECK(wb_param_track_key_index(kt, 0, &k) == 0 &&
+                  k.t == 0.0 && k.value == 0.4f,
+                  "G24: key_index reads keys in time order");
+            CHECK(wb_param_track_key_at(kt, 5.0, &k) == 0 &&
+                  k.value == 1.2f, "G24: key_at finds exact key");
+            wb_param_track_move_key(kt, 5.0, 3.0, 0.9f);
+            CHECK(wb_param_track_count(kt) == 2,
+                  "G24: move_key keeps count");
+            CHECK(wb_param_track_value_at(kt, 3.0) == 0.9f,
+                  "G24: moved key evaluates at new time");
+            CHECK(wb_param_track_key_at(kt, 5.0, &k) == -1,
+                  "G24: old key position gone after move");
+            wb_param_track_free(kt);
+        }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

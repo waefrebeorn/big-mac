@@ -46,6 +46,11 @@ void wb_param_track_set_tangents(wb_param_track *tr, double t,
 /* Remove the key at time t (if any). */
 void wb_param_track_remove(wb_param_track *tr, double t);
 int  wb_param_track_count(const wb_param_track *tr);
+/* G24: keyframe-graph editor accessors */
+int  wb_param_track_key_at(const wb_param_track *tr, double t, wb_keyframe *out);
+int  wb_param_track_key_index(const wb_param_track *tr, int i, wb_keyframe *out);
+void wb_param_track_move_key(wb_param_track *tr, double from_t,
+                             double to_t, float value);
 
 /* Evaluate the track at time t.
  * Returns the clamped/extrapolated value. With valid-clamp (default),

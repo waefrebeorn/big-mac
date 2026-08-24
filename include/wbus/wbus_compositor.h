@@ -212,6 +212,12 @@ int             wb_node_graph_inputs(const wb_node_graph *g, int i);  /* # input
 int             wb_node_graph_input_of(const wb_node_graph *g, int i, int k); /* node idx feeding input k */
 void            wb_node_graph_pos(const wb_node_graph *g, int i, float *x, float *y);
 float           wb_node_graph_param(const wb_node_graph *g, int i, double t); /* animated param preview */
+/* G24: direct node access for the keyframe graph editor (do not destroy). */
+struct wb_node *wb_node_graph_node_at(const wb_node_graph *g, int i);
+/* G24: bind a param track to a graph node by index (graph does NOT own it —
+ * caller keeps ownership). Returns slot idx or -1. */
+int             wb_node_graph_bind_param(const wb_node_graph *g, int i,
+                                         const char *name, wb_param_track *tr);
 
 
 #ifdef __cplusplus

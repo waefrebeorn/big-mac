@@ -759,3 +759,14 @@ float wb_node_graph_param(const wb_node_graph *g, int i, double t) {
     return wb_node_param_value(g->nodes[i], "gain", t);
 }
 
+/* G24: keyframe-graph editor access */
+struct wb_node *wb_node_graph_node_at(const wb_node_graph *g, int i) {
+    if (!g || i < 0 || i >= g->n_nodes) return NULL;
+    return g->nodes[i];
+}
+int wb_node_graph_bind_param(const wb_node_graph *g, int i,
+                             const char *name, wb_param_track *tr) {
+    if (!g || i < 0 || i >= g->n_nodes) return -1;
+    return wb_node_add_param(g->nodes[i], name, tr);
+}
+

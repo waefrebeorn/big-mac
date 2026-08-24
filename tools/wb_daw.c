@@ -193,6 +193,10 @@ typedef struct app {
     int step_prob[WB_MAX_TRACKS][16];  /* G88: per-step probability 0..100 */
     int step_sel;            /* G87: step selected for velocity edit (-1=none) */
     int fx_add_cycle;        /* G31: +FX palette cycle position */
+    /* G24: keyframe graph editor (Gain node param, FUSION view) */
+    wb_param_track *kf_track;   /* owned here; bound to the graph's Gain node */
+    int kf_drag;                 /* -1 none, else key index being dragged */
+    double kf_drag_t0;           /* key time at drag start */
     int vel_drag_step;       /* G87: vertical drag active on this step (-1=none) */
     int last_lp_row;         /* last Mk2 grid row lit (for release dim) */
     int last_lp_col;
@@ -1277,6 +1281,7 @@ static void draw_mixer(app *a) {
 /* Renders the self-contained comp_graph (Source -> Gain -> Composite) as
  * boxes + wires. The UI never touches node internals — only the opaque
  * accessors — so the compositor stays self-contained. */
+static void draw_kf_editor(app *a);   /* G24: keyframe graph editor */
 static void draw_fusion_graph(app *a) {
     if (!a->comp_graph) return;
     int n = wb_node_graph_count(a->comp_graph);
@@ -1318,6 +1323,93 @@ static void draw_fusion_graph(app *a) {
             wb_ui_draw_text(a->ren, bx+5, by+22, gb, 1, C_FADE);
         }
     }
+    draw_kf_editor(a);
+}
+
+/* ---- G24: keyframe graph editor for the Gain node's param -------------- */
+/* A value/speed strip under the node graph. Click empty space = add key;
+ * drag a key = retime/revalue; right-click a key = remove; keys interpolate
+ * linearly (interp from the track). Region: kf editor canvas 620x120. */
+#define KF_W 620
+#define KF_H 120
+static SDL_Rect kf_rect(app *a) {
+    int ox = GUTTER_W + 16, oy = MAIN_Y + RULER_H + 40;
+    return (SDL_Rect){ ox, oy + 300, KF_W, KF_H };
+}
+/* map editor-local coords <-> param space (t in [0,10]s, v in [0,2]) */
+static void kf_to_screen(app *a, double t, float v, int *sx, int *sy) {
+    SDL_Rect r = kf_rect(a);
+    *sx = r.x + (int)(t / 10.0 * (r.w - 8)) + 4;
+    *sy = r.y + r.h - 6 - (int)(v / 2.0f * (r.h - 12));
+}
+static void screen_to_kf(app *a, int sx, int sy, double *t, float *v) {
+    SDL_Rect r = kf_rect(a);
+    *t = (double)(sx - r.x - 4) / (r.w - 8) * 10.0;
+    if (*t < 0) *t = 0; if (*t > 10) *t = 10;
+    *v = (float)(r.y + r.h - 6 - sy) / (r.h - 12) * 2.0f;
+    if (*v < 0) *v = 0; if (*v > 2) *v = 2;
+}
+static void draw_kf_editor(app *a) {
+    if (!a->kf_track) return;
+    SDL_Rect r = kf_rect(a);
+    setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &r);
+    setc(a->ren, C_TEXT_DIM); SDL_RenderDrawRect(a->ren, &r);
+    wb_ui_draw_text(a->ren, r.x+4, r.y+2, "GAIN KEYFRAMES  L-add  drag-move  R-del", 1, C_TEXT_DIM);
+    /* curve */
+    setc(a->ren, C_FADE);
+    int px = -1, py = -1;
+    for (int i = 0; i <= r.w - 8; i++) {
+        double t = (double)i / (r.w - 8) * 10.0;
+        float v = wb_param_track_value_at(a->kf_track, t);
+        int sx, sy; kf_to_screen(a, t, v, &sx, &sy);
+        if (px >= 0) SDL_RenderDrawLine(a->ren, px, py, sx, sy);
+        px = sx; py = sy;
+    }
+    /* keys */
+    int n = wb_param_track_count(a->kf_track);
+    for (int i = 0; i < n; i++) {
+        wb_keyframe k;
+        if (wb_param_track_key_index(a->kf_track, i, &k) != 0) continue;
+        int sx, sy; kf_to_screen(a, k.t, k.value, &sx, &sy);
+        SDL_Rect kb = { sx-3, sy-3, 7, 7 };
+        setc(a->ren, i == a->kf_drag ? C_ACCENT : C_TEXT);
+        SDL_RenderFillRect(a->ren, &kb);
+    }
+}
+/* returns 1 if the click was inside the kf editor (and handled) */
+static int kf_click(app *a, int x, int y, int button) {
+    if (!a->kf_track) return 0;
+    SDL_Rect r = kf_rect(a);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return 0;
+    double t; float v; screen_to_kf(a, x, y, &t, &v);
+    if (button == SDL_BUTTON_RIGHT) {
+        /* remove nearest key within tolerance */
+        for (int i = 0; i < wb_param_track_count(a->kf_track); i++) {
+            wb_keyframe k;
+            if (wb_param_track_key_index(a->kf_track, i, &k) != 0) continue;
+            int sx, sy; kf_to_screen(a, k.t, k.value, &sx, &sy);
+            if (abs(sx-x) < 6 && abs(sy-y) < 6) {
+                wb_param_track_remove(a->kf_track, k.t);
+                printf("kf: removed key @ %.2fs\n", k.t);
+                return 1;
+            }
+        }
+        return 1;
+    }
+    /* left-click on an existing key starts a drag; else add a new key */
+    for (int i = 0; i < wb_param_track_count(a->kf_track); i++) {
+        wb_keyframe k;
+        if (wb_param_track_key_index(a->kf_track, i, &k) != 0) continue;
+        int sx, sy; kf_to_screen(a, k.t, k.value, &sx, &sy);
+        if (abs(sx-x) < 6 && abs(sy-y) < 6) {
+            a->kf_drag = i;
+            a->kf_drag_t0 = k.t;
+            return 1;
+        }
+    }
+    wb_param_track_set(a->kf_track, t, v, WB_KF_LINEAR);
+    printf("kf: added key @ %.2fs = %.2f\n", t, (double)v);
+    return 1;
 }
 
 /* ---- R043 (G7): 3D-CGI viewport + AGI task surface -------------------- */
@@ -3592,6 +3684,10 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
         if (a->tab == 1) { pad_click(a, b.x, b.y); return; }
         if (a->tab == 2) { step_click(a, b.x, b.y); return; }
         if (a->tab == 3) { session_click(a, b.x, b.y); return; }
+        /* G24: keyframe editor intercepts clicks on the FUSION tier */
+        if (a->tab == 5 && wb_workspace_fusion_active(a->ws) &&
+            kf_click(a, b.x, b.y, b.button))
+            return;
         /* R050: on the 3D-CGI tier a left-drag orbits the scene. */
         if (a->cgi && wb_workspace_cgi_active(a->ws) && a->tab == 5) {
             a->cgi_dragging = 1;
@@ -3711,6 +3807,16 @@ static void handle_wheel(app *a, SDL_MouseWheelEvent w) {
 
 /* Mouse motion: drag a parameter slider when one is armed. */
 static void handle_motion(app *a, SDL_MouseMotionEvent m) {
+    /* G24: keyframe drag — retime/revalue the dragged key */
+    if (a->kf_drag >= 0 && a->kf_track) {
+        wb_keyframe k;
+        if (wb_param_track_key_index(a->kf_track, a->kf_drag, &k) == 0) {
+            double nt; float nv;
+            screen_to_kf(a, m.x, m.y, &nt, &nv);
+            wb_param_track_move_key(a->kf_track, k.t, nt, nv);
+        }
+        return;
+    }
     /* R040: dragging the overview strip scrolls the arrangement view */
     if (a->ov_drag) { ov_scroll_to(a, m.x); return; }
     /* R050: CGI drag-orbit — yaw follows x, pitch follows y */
@@ -4345,6 +4451,14 @@ int main(int argc, char **argv) {
     a->engine = wb_engine_create();
     a->ws = wb_workspace_create(ws_on_change, a);  /* R043: tier controller */
     a->comp_graph = wb_node_graph_create();          /* R043-G6: Fusion node view */
+    /* G24: keyframe track on the Gain node (node 2) for the curve editor */
+    a->kf_track = wb_param_track_create();
+    a->kf_drag = -1;
+    if (a->kf_track && a->comp_graph) {
+        wb_param_track_set(a->kf_track, 0.0, 0.4f, WB_KF_LINEAR);
+        wb_param_track_set(a->kf_track, 5.0, 1.2f, WB_KF_LINEAR);
+        wb_node_graph_bind_param(a->comp_graph, 2, "gain", a->kf_track);
+    }
     a->cgi = wb_cgi_scene_create();                  /* R043-G7: 3D-CGI scene */
     a->agi = wb_agi_create();                        /* R043-G7: AGI task bridge */
     extern app *g_app_for_perf; g_app_for_perf = a;   /* R065 */
@@ -4563,7 +4677,7 @@ int main(int argc, char **argv) {
                 }
                 if (dp) SDL_free(dp);
             }
-            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; a->cgi_dragging = 0; a->handle_drag = -1; a->vel_drag_step = -1; a->dragging_fader = -1; }
+            else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; a->cgi_dragging = 0; a->handle_drag = -1; a->vel_drag_step = -1; a->dragging_fader = -1; a->kf_drag = -1; }
         }
         render(a);
         perf_tick(a);

@@ -198,6 +198,7 @@ typedef struct app {
     int kf_drag;                 /* -1 none, else key index being dragged */
     double kf_drag_t0;           /* key time at drag start */
     int vel_drag_step;       /* G87: vertical drag active on this step (-1=none) */
+    int  prefs_visible;      /* G51: preferences overlay toggle */
     /* G35: MIDI learn — CC number -> target. target: 0=master vol,
      * 1=selected track vol, 2=tempo, 3=insert slot 1 param 0 (selected tr). */
     int   midi_learn_armed;  /* 1 = next CC received binds */
@@ -4500,6 +4501,46 @@ static void handle_motion(app *a, SDL_MouseMotionEvent m) {
     wb_engine_set_insert_param(a->engine, ti, a->param_slot, a->param_drag, v);
 }
 
+
+/* ---- G51: preferences overlay ------------------------------------------ */
+/* Shows live audio device facts (sample rate, block size, round-trip
+ * latency estimate, xrun count, CPU load) plus persisted user prefs.
+ * Toggle: Ctrl+P. */
+static void draw_prefs(app *a) {
+    SDL_Rect p = { WIN_W/2 - 220, 120, 440, 190 };
+    setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &p);
+    setc(a->ren, C_ACCENT); SDL_RenderDrawRect(a->ren, &p);
+    wb_ui_draw_text(a->ren, p.x+10, p.y+8, "PREFERENCES / AUDIO", 1, C_ACCENT);
+    char b[80];
+    double sr = a->t.sample_rate > 0 ? a->t.sample_rate : WB_SAMPLE_RATE;
+    snprintf(b, sizeof(b), "sample rate : %.0f Hz", sr);
+    wb_ui_draw_text(a->ren, p.x+10, p.y+28, b, 1, C_TEXT);
+    snprintf(b, sizeof(b), "block size  : %d frames", WB_MAX_BLOCK);
+    wb_ui_draw_text(a->ren, p.x+10, p.y+42, b, 1, C_TEXT);
+    snprintf(b, sizeof(b), "latency     : ~%.1f ms",
+             (double)WB_MAX_BLOCK / sr * 1000.0);
+    wb_ui_draw_text(a->ren, p.x+10, p.y+56, b, 1, C_TEXT);
+    snprintf(b, sizeof(b), "xruns       : %llu",
+             (unsigned long long)wb_engine_xruns(a->engine));
+    wb_ui_draw_text(a->ren, p.x+10, p.y+70, b, 1,
+                    wb_engine_xruns(a->engine) ? C_MUTE : C_TEXT);
+    snprintf(b, sizeof(b), "cpu load    : %.1f%%",
+             (double)wb_engine_cpu_load(a->engine) * 100.0);
+    wb_ui_draw_text(a->ren, p.x+10, p.y+84, b, 1, C_TEXT);
+    int as_secs = 120;
+    const char *as_env = getenv("WB_AUTOSAVE_SECS");
+    if (as_env) as_secs = atoi(as_env) > 0 ? atoi(as_env) : 120;
+    snprintf(b, sizeof(b), "autosave    : every %ds (WB_AUTOSAVE_SECS)", as_secs);
+    wb_ui_draw_text(a->ren, p.x+10, p.y+104, b, 1, C_TEXT_DIM);
+    const char *wd = getenv("WB_WATCH_DIR");
+    snprintf(b, sizeof(b), "watch dir   : %s", wd && wd[0] ? wd : "(off)");
+    wb_ui_draw_text(a->ren, p.x+10, p.y+118, b, 1, C_TEXT_DIM);
+    wb_ui_draw_text(a->ren, p.x+10, p.y+138,
+                    "Ctrl+P closes. Env: WB_AUTOSAVE_SECS,", 1, C_TEXT_DIM);
+    wb_ui_draw_text(a->ren, p.x+10, p.y+152,
+                    "WB_WATCH_DIR, WB_NO_RECOVER, WB_COMMIT_STEP", 1, C_TEXT_DIM);
+}
+
 static void handle_key(app *a, SDL_Keycode k) {
     Uint32 mod = SDL_GetModState();
     int ctrl = (mod & KMOD_CTRL) != 0;
@@ -4661,6 +4702,10 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_p:
+        if (ctrl) {  /* G51: preferences overlay */
+            a->prefs_visible = !a->prefs_visible;
+            break;
+        }
         /* toggle the VST3 parameter editor for the selected track */
         a->param_view = !a->param_view;
         a->param_drag = -1;
@@ -5272,6 +5317,7 @@ int main(int argc, char **argv) {
         render(a);
         perf_tick(a);
         batch_tick(a);   /* G53: pump the batch render matrix */
+        if (a->prefs_visible) draw_prefs(a);
         watch_poll(a);   /* G43/G54: watch-folder auto-import/auto-render */
         /* G57: autosave — every 120s, to a dated Auto-Save folder (Premiere
          * convention). Only when a project path exists OR the session has

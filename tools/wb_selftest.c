@@ -4168,6 +4168,40 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(qs);
     }
 
+
+    /* R073 hop 19: beat phase — clicks at 0.13s offset, 120 BPM */
+    {
+        wb_session *qs = wb_session_create();
+        wb_track *qt = wb_session_add_track(qs, "ph",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: phase track created");
+        uint32_t qnf = 4 * WB_SAMPLE_RATE;
+        wb_sample *qb = calloc((size_t)qnf, sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: phase buffer allocated");
+        for (int h = 0; h < 8; h++) {
+            uint32_t pos =
+                (uint32_t)((0.13f + h * 0.5f) * WB_SAMPLE_RATE);
+            for (uint32_t j = 0; j < 100 && pos + j < qnf; j++)
+                qb[pos + j] = (wb_sample)(0.8f * (1 - j / 100.0f));
+        }
+        CHECK(wb_session_add_audio_clip(qt, 0, 4.0, qb, qnf, 1) == 0,
+              "R073: phase clip created");
+        free(qb);
+        double ph = wb_session_beat_phase(qs, 0, 0, 120.0);
+        CHECK(ph >= 0.0 && ph < 0.5,
+              "R073: beat phase in [0, period)");
+        if (ph >= 0) {
+            /* true first-onset at 0.13s; grid offset should be ~0.13 mod 0.5
+             * = 0.13 (or within one hop tolerance ~12ms) */
+            double d1 = fabs(ph - 0.13);
+            double d2 = fabs(ph - 0.63);   /* in case of wrap */
+            CHECK(d1 < 0.02 || d2 < 0.02,
+                  "R073: beat phase matches onset placement");
+            printf("         R073 phase=%.3fs (want ~0.130)\n", ph);
+        }
+        wb_session_destroy(qs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

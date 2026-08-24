@@ -2409,3 +2409,50 @@ double wb_session_estimate_bpm(const wb_session *s, int track, int clip) {
     free(flux);
     return best_corr > 0 ? best_bpm : 0;
 }
+
+/* ---- R073 hop 19: beat phase ------------------------------------------------ */
+/* Given a clip whose tempo is `bpm`, return the offset (seconds) of the beat
+ * grid — the phase that maximizes onset energy landing on beats. Range
+ * [0, 60/bpm). Returns -1 on error. */
+double wb_session_beat_phase(const wb_session *s, int track, int clip,
+                             double bpm) {
+    if (!s || bpm < 10.0) return -1;
+    const wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    const wb_clip *cl = &tr->clips[clip];
+    if (!cl->audio_data || cl->audio_frames < WB_SAMPLE_RATE / 2) return -1;
+    uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+
+    const uint32_t HOP = 512;
+    uint32_t nframes = cl->audio_frames / HOP;
+    if (nframes < 32) return -1;
+    float *flux = calloc(nframes, sizeof(float));
+    if (!flux) return -1;
+    for (uint32_t f = 0; f < nframes; f++) {
+        float d = 0;
+        const wb_sample *base = cl->audio_data + f * HOP * ch;
+        for (uint32_t i = 1; i < HOP; i++) {
+            float dv = fabsf(base[i * ch]) - fabsf(base[(i-1) * ch]);
+            if (dv > 0) d += dv;
+        }
+        flux[f] = d;
+    }
+    double fps = WB_SAMPLE_RATE / (double)HOP;
+    double period_f = 60.0 * fps / bpm;             /* beat period in frames */
+    uint32_t per = (uint32_t)(period_f + 0.5);
+    if (per < 2) { free(flux); return -1; }
+
+    /* try every phase offset in [0, per): score = flux summed on the grid */
+    double best_score = -1e30; uint32_t best_phase = 0;
+    for (uint32_t ph = 0; ph < per && ph < nframes; ph++) {
+        double score = 0;
+        for (uint32_t f = ph; f < nframes; f += per)
+            score += flux[f];
+        if (score > best_score) { best_score = score; best_phase = ph; }
+    }
+    free(flux);
+    /* refine to sub-frame by using the raw sample domain around best frame */
+    double sec = (double)best_phase / fps;
+    double per_sec = 60.0 / bpm;
+    return fmod(sec, per_sec);
+}

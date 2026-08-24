@@ -217,7 +217,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
       (Live capture MIDI) — jamming becomes material.
 [G94] P1 WIRED(session-record-to-arrangement wb_launchrec) — Record session-launcher performance INTO the arrangement
       (Ableton §7.5; Bitwig Record-to-Arranger) — closes the launcher loop.
-[G95] P2 — Chance-weighted follow actions incl. Jump/Other/Fill/Legato
+[G95] P2 — Chance-weighted follow actions incl. Jump/Other/Fill/Legato  **WIRED R073: per-scene FA (NEXT/JUMP/OTHER/FILL/LEGATO) + chance %, wired into song_tick**
       (Live 11+ two-action chance model).
 
 ### Agent convergent truths (merged)

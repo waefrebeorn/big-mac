@@ -3649,6 +3649,30 @@ static void test_scale_chord_step(void) {
         }
     }
 
+
+    /* G48: DAWproject export */
+    {
+        wb_session *ds = wb_session_create();
+        ds->bpm = 128.0;
+        wb_session_add_track(ds, "synth", 0);
+        wb_session_add_track(ds, "drums", 1);
+        wb_session_add_note(&ds->tracks[0], WB_SAMPLE_RATE, WB_SAMPLE_RATE/2, 60, 100);
+        CHECK(wb_session_export_dawproject(ds, "/tmp/g48.json") == 0,
+              "G48: export succeeds");
+        FILE *f = fopen("/tmp/g48.json", "r");
+        char body[8192] = {0};
+        if (f) { size_t rd = fread(body,1,sizeof(body)-1,f); body[rd]=0; fclose(f); }
+        CHECK(strstr(body, "\"schemaVersion\": \"0.5.0\"") &&
+              strstr(body, "\"tempoTrack\"") && strstr(body, "128.00"),
+              "G48: schema + tempo present");
+        CHECK(strstr(body, "\"type\": \"notes\"") &&
+              strstr(body, "\"pitch\":60") &&
+              strstr(body, "\"name\": \"drums\""),
+              "G48: note clip + both tracks serialized");
+        remove("/tmp/g48.json");
+        wb_session_destroy(ds);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

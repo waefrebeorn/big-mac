@@ -1984,3 +1984,71 @@ int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,
     *offset_secs = (double)best_shift / WB_SAMPLE_RATE;
     return 0;
 }
+
+/* ---- G48: DAWproject-format export ---------------------------------------- */
+/* Emit the core DAWproject project.json: tempo track, tracks with clips and
+ * notes. DAWproject packages these in a zip; we write the JSON body so any
+ * conformant tool can ingest it once zipped (and our importer reads it back).
+ * Returns 0 or -1. */
+int wb_session_export_dawproject(const wb_session *s, const char *path) {
+    if (!s || !path) return -1;
+    FILE *f = fopen(path, "w");
+    if (!f) return -1;
+    fprintf(f,
+        "{\n"
+        "  \"schemaVersion\": \"0.5.0\",\n"
+        "  \"creator\": \"BigMac DAW\",\n");
+    /* tempo: single value for now */
+    fprintf(f,
+        "  \"tempoTrack\": { \"type\": \"tempo\", "
+        "\"points\": [ { \"value\": %.2f } ] },\n",
+        s->bpm > 0 ? s->bpm : 120.0);
+    fprintf(f, "  \"tracks\": [\n");
+    int first_track = 1;
+    for (uint32_t t = 0; t < s->track_count; t++) {
+        const wb_track *tr = &s->tracks[t];
+        fprintf(f,
+            "%s    {\n"
+            "      \"name\": \"%s\",\n"
+            "      \"color\": \"#808080\",\n",
+            first_track ? "" : ",\n", tr->name ? tr->name : "");
+        first_track = 0;
+        fprintf(f, "      \"clips\": [\n");
+        int first_clip = 1;
+        for (uint32_t c = 0; c < tr->clip_count; c++) {
+            const wb_clip *cl = &tr->clips[c];
+            double t0 = cl->start / WB_SAMPLE_RATE;
+            double dur = cl->length / WB_SAMPLE_RATE;
+            if (cl->type == 0 && cl->notes && cl->note_count) {
+                fprintf(f,
+                    "%s        { \"type\": \"notes\", "
+                    "\"time\": %.6f, \"duration\": %.6f, "
+                    "\"content\": { \"notes\": [ ",
+                    first_clip ? "" : ",\n", t0, dur);
+                for (uint32_t k = 0; k < cl->note_count; k++) {
+                    fprintf(f,
+                        "%s{\"time\":%.6f,\"duration\":%.6f,"
+                        "\"pitch\":%d,\"velocity\":%.3f}",
+                        k ? ", " : "",
+                        cl->notes[k].start / WB_SAMPLE_RATE,
+                        cl->notes[k].dur / WB_SAMPLE_RATE,
+                        cl->notes[k].pitch,
+                        cl->notes[k].vel / 127.0);
+                }
+                fprintf(f, " ] } }");
+            } else if (cl->type == 1) {
+                fprintf(f,
+                    "%s        { \"type\": \"audio\", "
+                    "\"time\": %.6f, \"duration\": %.6f }",
+                    first_clip ? "" : ",\n", t0, dur);
+            } else {
+                continue;
+            }
+            first_clip = 0;
+        }
+        fprintf(f, "\n      ]\n    }");
+    }
+    fprintf(f, "\n  ]\n}\n");
+    fclose(f);
+    return 0;
+}

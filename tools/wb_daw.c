@@ -2615,6 +2615,7 @@ static void midi_cb(wb_midi_event ev, void *userdata) {
 /* ---- project open/save (SOTA .wbus workflow) --------------------------- */
 /* Replace the current session with one loaded from `path`. Returns 0 ok,
  * -1 if the load failed (current session is preserved). */
+static void recent_add(const char *path);   /* G11 fwd decl */
 static int load_project(app *a, const char *path) {
     wb_session *s = wb_session_load(path);
     if (!s) {
@@ -2629,8 +2630,72 @@ static int load_project(app *a, const char *path) {
     a->dragging_clip = -1;
     snprintf(a->project_path, sizeof(a->project_path), "%s", path);
     wb_session_destroy(old);
+    recent_add(path);   /* G11 */
     printf("project: loaded %s (%u tracks)\n", path, s->track_count);
     return 0;
+}
+
+/* ---- G11: recent files + templates -------------------------------------- */
+#define WB_RECENTS_FILE "/tmp/bigmac_recent.wbuslist"
+#define WB_RECENTS_MAX  8
+static void recent_add(const char *path) {
+    if (!path || !path[0]) return;
+    /* load existing list, drop dupes, prepend, cap at N, rewrite */
+    char lines[WB_RECENTS_MAX][512];
+    int n = 0;
+    FILE *fi = fopen(WB_RECENTS_FILE, "r");
+    if (fi) {
+        char ln[512];
+        while (n < WB_RECENTS_MAX && fgets(ln, sizeof(ln), fi)) {
+            size_t l = strlen(ln);
+            while (l && (ln[l-1]=='\n'||ln[l-1]=='\r')) ln[--l] = 0;
+            if (ln[0] && strcmp(ln, path) != 0)
+                snprintf(lines[n++], sizeof(lines[0]), "%s", ln);
+        }
+        fclose(fi);
+    }
+    FILE *fo = fopen(WB_RECENTS_FILE ".tmp", "w");
+    if (!fo) return;
+    fprintf(fo, "%s\n", path);
+    for (int i = 0; i < n; i++) fprintf(fo, "%s\n", lines[i]);
+    fclose(fo);
+    rename(WB_RECENTS_FILE ".tmp", WB_RECENTS_FILE);
+}
+static int recent_list(char out[][512], int max) {
+    FILE *fi = fopen(WB_RECENTS_FILE, "r");
+    if (!fi) return 0;
+    int n = 0;
+    char ln[512];
+    while (n < max && fgets(ln, sizeof(ln), fi)) {
+        size_t l = strlen(ln);
+        while (l && (ln[l-1]=='\n'||ln[l-1]=='\r')) ln[--l] = 0;
+        if (ln[0]) snprintf(out[n++], 512, "%s", ln);
+    }
+    fclose(fi);
+    return n;
+}
+/* G11: save the current session as a template (empty notes/clips, same
+ * track layout + inserts). Templates live in /tmp/bigmac_templates/. */
+static void save_template(app *a) {
+    if (!a->session) return;
+    mkdir("/tmp/bigmac_templates", 0755);
+    char p[512];
+    snprintf(p, sizeof(p), "/tmp/bigmac_templates/tmpl_%lld.wbus",
+             (long long)time(NULL));
+    /* strip content but keep the rack: remove all clips + notes */
+    wb_session *t = a->session;
+    for (uint32_t i = 0; i < t->track_count; i++) {
+        wb_track *tr = &t->tracks[i];
+        for (uint32_t c = 0; c < tr->clip_count; c++) {
+            free(tr->clips[c].notes); tr->clips[c].notes = NULL;
+            tr->clips[c].note_count = 0;
+        }
+    }
+    if (wb_session_save(t, p) == 0) {
+        snprintf(a->last_status, sizeof(a->last_status),
+                 "TEMPLATE SAVED %.44s", p);
+        printf("template: %s\n", p);
+    }
 }
 
 /* Save the current session to `path` (defaults to the current project path). */
@@ -2646,6 +2711,7 @@ static int save_project(app *a, const char *path) {
     }
     if (!a->project_path[0]) snprintf(a->project_path, sizeof(a->project_path), "%s", dst);
     printf("project: saved %s (%u tracks)\n", dst, a->session->track_count);
+    recent_add(dst);   /* G11 */
     /* G59: versioned backup — a timestamped snapshot beside the project
      * (Live Save convention). Keeps the last 10; failures are non-fatal. */
     {
@@ -4469,21 +4535,36 @@ static void handle_key(app *a, SDL_Keycode k) {
             ni++;
             break;
         }
-        if (ctrl) {  /* Ctrl+N: new (empty) project */
-            wb_session *s = wb_session_create();
+        if (ctrl) {  /* Ctrl+N: new (empty) project; Shift+Ctrl+N: from newest template */
+            wb_session *s = NULL;
+            char tmpl[512]; tmpl[0] = 0;
+            if (SDL_GetModState() & KMOD_SHIFT) {
+                FILE *p = popen("ls -t /tmp/bigmac_templates/*.wbus 2>/dev/null | head -1", "r");
+                if (p) {
+                    if (!fgets(tmpl, sizeof(tmpl), p)) tmpl[0] = 0;
+                    pclose(p);
+                    size_t tl = strlen(tmpl);
+                    while (tl && (tmpl[tl-1]=='\n'||tmpl[tl-1]=='\r')) tmpl[--tl] = 0;
+                }
+                if (tmpl[0]) s = wb_session_load(tmpl);
+            }
+            if (!s) s = wb_session_create();
             wb_session *old = a->session;
             a->session = s;
             wb_engine_set_session(a->engine, a->session);
             a->selected_track = -1;
-            a->project_path[0] = 0;
+            snprintf(a->project_path, sizeof(a->project_path), "%s", tmpl);
             wb_session_destroy(old);
-            printf("project: new empty session\n");
+            printf("project: new %s%s\n",
+                   tmpl[0] ? "session from template " : "empty session", tmpl);
         } else {
             wb_engine_set_bpm(a->engine, a->t.bpm + 1.0);
         }
         break;
     case SDLK_s:
-        if (ctrl) save_project(a, NULL);  /* Ctrl+S: save current project */
+        if (ctrl && (SDL_GetModState() & KMOD_SHIFT))
+            save_template(a);          /* G11: Shift+Ctrl+S = save as template */
+        else if (ctrl) save_project(a, NULL);  /* Ctrl+S: save current project */
         else if (a->tab == 7) {  /* EXPORT tab: set output path */
             snprintf(a->vid_export, sizeof(a->vid_export),
                      "/tmp/bigmac_export_%d.mp4",

@@ -2023,7 +2023,34 @@ int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,
         if (!found || ncc > best_score) { best_score = ncc; best_shift = shift; found = 1; }
     }
     if (!found || best_score < 0.3f) return -3;   /* too weak to trust */
-    *offset_secs = (double)best_shift / WB_SAMPLE_RATE;
+
+    /* R073 hop 8: refine the coarse winner with a full-resolution local
+     * search over +/-STRIDE samples — the stride-16 scan quantizes the
+     * offset to ~0.36ms; multicam cuts need better. */
+    int fine_shift = best_shift;
+    {
+        double fine_best = -2.0;
+        for (int sh = best_shift - (int)STRIDE;
+             sh <= best_shift + (int)STRIDE; sh++) {
+            if (sh == best_shift) continue;
+            double sab = 0, sa2 = 0, sb2 = 0;
+            long n = 0;
+            for (uint32_t i = 0; i < na; i += 4) {      /* sparse: cheap */
+                long pos_b = (long)(i * STRIDE) + sh;
+                if (pos_b < 0 || pos_b >= (long)cb->audio_frames) continue;
+                double a = ca->audio_data[i * STRIDE * chn];
+                double b = cb->audio_data[pos_b * chn];
+                if (fabs(a) < 0.01 && fabs(b) < 0.01) continue;
+                sab += a * b; sa2 += a * a; sb2 += b * b;
+                n++;
+            }
+            if (n < 8 || sa2 <= 1e-9 || sb2 <= 1e-9) continue;
+            double ncc = sab / sqrt(sa2 * sb2);
+            if (ncc > fine_best) { fine_best = ncc; fine_shift = sh; }
+        }
+    }
+
+    *offset_secs = (double)fine_shift / WB_SAMPLE_RATE;
     return 0;
 }
 

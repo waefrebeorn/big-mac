@@ -3937,9 +3937,10 @@ static void test_scale_chord_step(void) {
             int rc = wb_session_sync_offset(ss, 0, 0, 1, 0, &off);
             CHECK(rc == 0, "R073: NCC sync computed on degraded pair");
             if (rc == 0)
-                CHECK(fabs(off - 0.25) < 0.05,
-                      "R073: NCC recovers 0.25s despite level drift + DC");
-            printf("         R073 NCC off=%.4f\n", rc == 0 ? off : 0.0);
+                CHECK(fabs(off - 0.25) < 0.005,
+                      "R073: NCC recovers 0.25s to within 5ms");
+            printf("         R073 NCC off=%.5f (want 0.25000)\n",
+                   rc == 0 ? off : 0.0);
         }
         wb_session_destroy(ss);   /* session owns the clip buffers */
     }

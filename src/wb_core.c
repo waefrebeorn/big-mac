@@ -1200,3 +1200,49 @@ int wb_engine_render_track(wb_engine *e, wb_session *s, int track,
     free(saved);
     return rc;
 }
+
+/* ---- G71: render cache --------------------------------------------------- */
+/* Pre-render the whole session to a 16-bit WAV for smooth scrubbing/preview.
+ * Cached file is invalidated when session length or bpm changes. Returns 0 if
+ * a valid cache exists or was built, -1 on error, 1 if cancelled. */
+static const char *g_cache_path = "/tmp/bigmac_cache.wav";
+
+int wb_engine_build_render_cache(wb_session *s,
+                                 void (*cb)(void*,double), void *cbctx,
+                                 int *cancelled) {
+    if (!s || s->length <= 0) return -1;
+    /* validity check: cached file must exist and be newer than nothing else
+     * we can cheaply test — store a sidecar with length+bpm */
+    char meta[512];
+    snprintf(meta, sizeof(meta), "/tmp/bigmac_cache.meta");
+    FILE *mf = fopen(meta, "r");
+    int valid = 0;
+    if (mf) {
+        double cl = 0; double cb = 0;
+        if (fscanf(mf, "%lf %lf", &cl, &cb) == 2 &&
+            fabs(cl - s->length) < 1.0 && fabs(cb - s->bpm) < 0.01)
+            valid = 1;
+        fclose(mf);
+    }
+    if (valid) {
+        FILE *f = fopen(g_cache_path, "rb");
+        if (f) { fclose(f); return 0; }
+    }
+    /* build */
+    wb_sample *buf = NULL; uint32_t frames = 0;
+    volatile int *vcancel = cancelled;
+    int rc = wb_engine_render_session_prog(NULL, s, &buf, &frames, cb, cbctx,
+                                           0.0, 1.0, vcancel);
+    if (rc != 0) { free(buf); return rc; }
+    int wrc = wb_wav_write_pcm16(g_cache_path, buf, frames, 2, WB_SAMPLE_RATE);
+    free(buf);
+    if (wrc != 0) return -1;
+    mf = fopen(meta, "w");
+    if (mf) { fprintf(mf, "%.3f %.3f\n", s->length, s->bpm); fclose(mf); }
+    return 0;
+}
+int wb_engine_invalidate_render_cache(void) {
+    remove(g_cache_path);
+    remove("/tmp/bigmac_cache.meta");
+    return 0;
+}

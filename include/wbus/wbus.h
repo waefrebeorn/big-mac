@@ -422,6 +422,12 @@ int wb_engine_render_session(wb_engine *e, wb_session *s, wb_sample **out, uint3
  * then restores the previous mute states. Returns 0; caller frees *out. */
 int wb_engine_render_track(wb_engine *e, wb_session *s, int track,
                            wb_sample **out, uint32_t *frames);
+/* G71: render cache — pre-render the session to a preview WAV for smooth
+ * scrubbing. Invalidated automatically when length/bpm change. */
+int wb_engine_build_render_cache(wb_session *s,
+                                 void (*cb)(void*,double), void *cbctx,
+                                 int *cancelled);
+int wb_engine_invalidate_render_cache(void);
 
 /* G38: progress/cancel-aware variant. cb (optional) is invoked between render
  * chunks with progress mapped onto [lo,hi]. Returns 1 when cancelled, -1 on

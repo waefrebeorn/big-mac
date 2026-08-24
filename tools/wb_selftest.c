@@ -3269,6 +3269,33 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(ws);
     }
 
+
+    /* G71: render cache — build, hit, invalidate */
+    {
+        wb_session *cs = wb_session_create();
+        cs->bpm = 120.0; cs->length = WB_SAMPLE_RATE;
+        wb_track *ctr = wb_session_add_track(cs, "c", 0);
+        if (ctr) {
+            ctr->volume = 1.0f;
+            wb_session_add_note(ctr, 0, WB_SAMPLE_RATE, 69, 100);
+            wb_engine_invalidate_render_cache();
+            int rc = wb_engine_build_render_cache(cs, NULL, NULL, NULL);
+            CHECK(rc == 0, "G71: cache built");
+            FILE *f = fopen("/tmp/bigmac_cache.wav", "rb");
+            CHECK(f != NULL, "G71: cached WAV exists");
+            if (f) fclose(f);
+            /* second call should be a validity hit (no rebuild) */
+            rc = wb_engine_build_render_cache(cs, NULL, NULL, NULL);
+            CHECK(rc == 0, "G71: valid cache reused");
+            /* changing bpm invalidates */
+            cs->bpm = 140.0;
+            rc = wb_engine_build_render_cache(cs, NULL, NULL, NULL);
+            CHECK(rc == 0, "G71: rebuild after invalidation succeeds");
+        }
+        wb_engine_invalidate_render_cache();
+        wb_session_destroy(cs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

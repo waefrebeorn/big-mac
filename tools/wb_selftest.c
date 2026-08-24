@@ -2699,6 +2699,7 @@ static void test_media_bin(void) {
     CHECK(k1 == 0 && k2 == 1, "two bin entries appended");
     CHECK(s->bin_count == 2, "bin count is 2");
     /* save + reload */
+    s->bin_entries[1].color = 3;                    /* G68: label the video */
     wb_session_save(s, "/tmp/wb_bin_test.wbus");
     wb_session_destroy(s);
     wb_session *s2 = wb_session_load("/tmp/wb_bin_test.wbus");
@@ -2707,6 +2708,21 @@ static void test_media_bin(void) {
     CHECK(s2 && s2->bin_entries[0].kind == 0, "audio entry round-trips");
     CHECK(s2 && s2->bin_entries[1].kind == 1, "video entry round-trips");
     CHECK(s2 && s2->bin_entries[0].duration == 10.0, "audio duration round-trips");
+    CHECK(s2 && s2->bin_entries[1].color == 3, "G68: bin color round-trips");
+
+    /* G68: sorting — by name then by duration */
+    wb_session_add_bin_entry(s2, "/tmp/aaa.wav", 0, 5.0);   /* name < audio? */
+    wb_session_sort_bin(s2, 0);                              /* by name */
+    CHECK(s2->bin_count == 3 &&
+          strcasecmp(s2->bin_entries[0].name,
+                     s2->bin_entries[1].name) <= 0 &&
+          strcasecmp(s2->bin_entries[1].name,
+                     s2->bin_entries[2].name) <= 0,
+          "G68: sort by name orders entries");
+    wb_session_sort_bin(s2, 2);                              /* by duration */
+    CHECK(s2->bin_entries[0].duration <= s2->bin_entries[1].duration &&
+          s2->bin_entries[1].duration <= s2->bin_entries[2].duration,
+          "G68: sort by duration orders entries");
     remove("/tmp/wb_bin_test.wbus");
     if (s2) wb_session_destroy(s2);
 }

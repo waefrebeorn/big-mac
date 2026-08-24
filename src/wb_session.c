@@ -1265,6 +1265,32 @@ int wb_session_add_bin_entry(wb_session *s, const char *path, int kind,
     return (int)(s->bin_count - 1);
 }
 
+/* G68: sort bin entries. mode: 0 = by name, 1 = by kind then name,
+ * 2 = by duration. Stable enough via index tiebreak on equality. */
+void wb_session_sort_bin(wb_session *s, int mode) {
+    if (!s || s->bin_count < 2) return;
+    for (uint32_t i = 0; i + 1 < s->bin_count; i++) {       /* insertion sort */
+        int min = (int)i;
+        for (uint32_t j = i + 1; j < s->bin_count; j++) {
+            wb_bin_entry *a = &s->bin_entries[min], *b = &s->bin_entries[j];
+            int lt = 0;
+            if (mode == 1)
+                lt = b->kind < a->kind ||
+                     (b->kind == a->kind && strcasecmp(b->name, a->name) < 0);
+            else if (mode == 2)
+                lt = b->duration < a->duration;
+            else
+                lt = strcasecmp(b->name, a->name) < 0;
+            if (lt) min = (int)j;
+        }
+        if (min != (int)i) {
+            wb_bin_entry tmp = s->bin_entries[i];
+            s->bin_entries[i] = s->bin_entries[min];
+            s->bin_entries[min] = tmp;
+        }
+    }
+}
+
 void wb_session_update_offline(wb_session *s) {
     if (!s) return;
     for (uint32_t i = 0; i < s->bin_count; i++)

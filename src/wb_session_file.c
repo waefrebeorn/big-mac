@@ -119,6 +119,10 @@ int wb_session_save(const wb_session *s, const char *path) {
     for (uint32_t b = 0; b < s->bin_count; b++)
         fprintf(f, "bin %d %.6f %s\n", s->bin_entries[b].kind, s->bin_entries[b].duration,
                 s->bin_entries[b].path);
+    /* G68: per-bin-entry color labels (separate lines so old files load) */
+    for (uint32_t b = 0; b < s->bin_count; b++)
+        if (s->bin_entries[b].color > 0)
+            fprintf(f, "bin_color %u %d\n", b, s->bin_entries[b].color);
     fclose(f);
     return 0;
 }
@@ -282,6 +286,15 @@ wb_session *wb_session_load(const char *path) {
                     e->duration = bdur;
                     e->offline = (access(bpath, F_OK) != 0) ? 1 : 0;  /* G70 */
                 }
+            }
+            continue;
+        }
+        /* G68: bin color labels ("bin_color <index> <slot>") */
+        if (strcmp(tok,"bin_color")==0) {
+            unsigned bidx = 0; int cslot = 0;
+            if (fscanf(ts.f, "%u %d", &bidx, &cslot) == 2) {
+                if (bidx < s->bin_count)
+                    s->bin_entries[bidx].color = cslot & 7;
             }
             continue;
         }

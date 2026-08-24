@@ -165,6 +165,7 @@ typedef struct wb_bin_entry {
     double   duration;       /* seconds */
     char     name[256];      /* display name (basename of the file) */
     int      offline;        /* 1 if the source file is missing on disk */
+    int      color;          /* G68: label slot 0..7 (0 = none) for bin views */
 } wb_bin_entry;
 
 /* ---- session (the editable model) ------------------------------------- */
@@ -437,7 +438,9 @@ int  wb_session_video_clip_at(wb_session *s, int track, double timeline_pos);
  * browser click, audio/video import). The entry is marked offline if the file
  * does not yet exist. Returns the new bin index, or -1 if the bin is full. */
 int  wb_session_add_bin_entry(wb_session *s, const char *path, int kind,
-                              double duration);
+                             double duration);
+/* G68: sort the media bin (0 = name, 1 = kind+name, 2 = duration). */
+void wb_session_sort_bin(wb_session *s, int mode);
 
 /* (Re)compute the `offline` flag of every bin entry and video clip from disk
  * existence. Called on project load (G70) and before relink searches. */

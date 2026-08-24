@@ -2509,3 +2509,34 @@ int wb_session_estimate_meter(const wb_session *s, int track, int clip,
     free(flux);
     return best_m;
 }
+
+/* ---- R073 hop 26: zero-crossing snap --------------------------------------- */
+/* Find the nearest zero crossing to sample `pos` in a clip's audio, searching
+ * up to `max_search` samples in both directions. Returns the best position,
+ * or pos if none found / no audio. Mono-downmixed comparison. */
+uint32_t wb_session_snap_zero_crossing(const wb_session *s, int track,
+                                       int clip, uint32_t pos,
+                                       uint32_t max_search) {
+    if (!s || track < 0 || track >= (int)s->track_count) return pos;
+    const wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return pos;
+    const wb_clip *cl = &tr->clips[clip];
+    if (!cl->audio_data || cl->audio_frames < 2) return pos;
+    uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+
+    if (pos >= cl->audio_frames - 1)
+        return cl->audio_frames - 1;
+    for (uint32_t d = 0; d <= max_search; d++) {
+        long fwd = (long)pos + d;
+        long bwd = (long)pos - d;
+        if (fwd < (long)cl->audio_frames - 1 &&
+            (cl->audio_data[fwd * ch] >= 0) !=
+            (cl->audio_data[(fwd + 1) * ch] >= 0))
+            return (uint32_t)fwd;                 /* crossing just after fwd */
+        if (bwd >= 1 &&
+            (cl->audio_data[bwd * ch] >= 0) !=
+            (cl->audio_data[(bwd - 1) * ch] >= 0))
+            return (uint32_t)bwd;                 /* crossing just before */
+    }
+    return pos;
+}

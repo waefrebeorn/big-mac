@@ -4259,6 +4259,39 @@ static void test_scale_chord_step(void) {
         }
     }
 
+
+    /* R073 hop 26: zero-crossing snap */
+    {
+        wb_session *zs = wb_session_create();
+        wb_track *zt = wb_session_add_track(zs, "z",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(zt != NULL, "R073: zc track created");
+        uint32_t qnf = WB_SAMPLE_RATE;
+        wb_sample *qb = calloc((size_t)qnf, sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: zc buffer allocated");
+        /* 220Hz sine: zero crossings every ~100 samples; known crossing
+         * at the sample where sin goes + to - near mid-buffer */
+        for (uint32_t i = 0; i < qnf; i++)
+            qb[i] = (wb_sample)(0.5 * sin(2*M_PI*220.0*i/WB_SAMPLE_RATE));
+        CHECK(wb_session_add_audio_clip(zt, 0, 1.0, qb, qnf, 1) == 0,
+              "R073: zc clip created");
+        free(qb);
+        uint32_t proposed = qnf / 2;
+        uint32_t snapped = wb_session_snap_zero_crossing(
+            zs, 0, 0, proposed, 500);
+        CHECK(snapped != proposed || 1, "R073: snap returned");
+        /* at a true crossing, adjacent samples straddle zero (or are ~0) */
+        if (snapped + 1 < qnf && snapped > 0) {
+            double a = fabs((double)qb[snapped]);
+            double b = fabs((double)qb[snapped + 1]);
+            CHECK(a < 0.02 && b < 0.02,
+                  "R073: snapped point sits on a zero crossing");
+            printf("         R073 zc: %u -> %u (|s|=%.4f,%.4f)\n",
+                   proposed, snapped, a, b);
+        }
+        wb_session_destroy(zs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

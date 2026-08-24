@@ -382,6 +382,10 @@ double wb_session_beat_phase(const wb_session *s, int track, int clip,
 /* R073 hop 21: estimate the meter in beats per bar (2/3/4/6), 0 if unsure. */
 int wb_session_estimate_meter(const wb_session *s, int track, int clip,
                               double bpm);
+/* R073 hop 26: nearest zero-crossing to a proposed edit point. */
+uint32_t wb_session_snap_zero_crossing(const wb_session *s, int track,
+                                       int clip, uint32_t pos,
+                                       uint32_t max_search);
 /* G32: live K-weighted readings from the master path. lufs_st = short-term
  * LUFS (smoothed, 0.0 = silence/unset), true_peak = linear true peak
  * (0..1+, slow-release hold). Either pointer may be NULL. */

@@ -310,6 +310,29 @@ static wb_frame *eff_pull(wb_node *self, double t,
                         p->r *= k; p->g *= k; p->b *= k;
                     }
             }
+            else if (e->op == 8) {
+                /* R073 hop 52: primary grade — lift/gamma/gain/saturation,
+                 * all keyframable via params of the same names. */
+                float lift = wb_node_param_value(self, "lift", t);
+                float gam  = wb_node_param_value(self, "gamma", t);
+                float gnv  = wb_node_param_value(self, "gain", t);
+                float sat  = wb_node_param_value(self, "sat", t);
+                if (gam <= 0.0f) gam = 1.0f;
+                if (gnv <= 0.0f) gnv = 1.0f;
+                if (sat <= 0.0f) sat = e->gain > 0 ? e->gain : 1.0f;
+                p->r = (p->r + lift) * gnv;
+                p->g = (p->g + lift) * gnv;
+                p->b = (p->b + lift) * gnv;
+                /* gamma on positive values */
+                p->r = powf(p->r > 0 ? p->r : 0, 1.0f / gam);
+                p->g = powf(p->g > 0 ? p->g : 0, 1.0f / gam);
+                p->b = powf(p->b > 0 ? p->b : 0, 1.0f / gam);
+                /* saturation around Rec.709 luma */
+                float lum = 0.2126f*p->r + 0.7152f*p->g + 0.0722f*p->b;
+                p->r = lum + (p->r - lum)*sat;
+                p->g = lum + (p->g - lum)*sat;
+                p->b = lum + (p->b - lum)*sat;
+            }
             else if (e->op == 7) {
                 /* R073 hop 47b: glow — threshold bright pixels, blur them,
                  * screen-add back. Simplified: per-pixel soft-knee bloom on

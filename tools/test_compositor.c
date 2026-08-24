@@ -728,6 +728,26 @@ int main(void) {
         wb_node_destroy(red); wb_node_destroy(blue);
     }
 
+
+    /* R073 hop 52: primary grade — saturation + gamma verified */
+    {
+        wb_node *src = wb_node_source_color(1.0f, 0.5f, 0.0f, 1.0f, 32, 32);
+        wb_node *gr = wb_node_effect(8, 0.5f);   /* sat 0.5 = half chroma */
+        gr->inputs[0] = src;
+        wb_frame *fg = wb_node_pull(gr, 0.0, 0, 0, 32, 32);
+        CHECK(fg != NULL, "grade: pulled");
+        if (fg) {
+            wb_px p = fg->px[100];
+            float lum = 0.2126f*p.r + 0.7152f*p.g + 0.0722f*p.b;
+            /* saturation halved: channel distance from luma halves */
+            CHECK(fabsf((p.r - lum) - 0.5f*(1.0f - lum)) < 0.05f,
+                  "grade: red chroma halved at sat=0.5");
+            printf("         grade: r=%.3f lum=%.3f\n", p.r, lum);
+            wb_frame_free(fg);
+        }
+        wb_node_destroy(gr); wb_node_destroy(src);
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

@@ -515,6 +515,10 @@ int  wb_session_export_otio(const wb_session *s, const char *path);
 int wb_session_detect_transients(const wb_session *s, int track, int clip,
                                  float sensitivity,
                                  uint32_t *out, int max);
+/* G21: waveform auto-sync — sign-correlation offset between two audio clips.
+ * Positive result means clip_b must move later to align with clip_a. */
+int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,
+                           int track_b, int clip_b, double *offset_secs);
 /* G72: set a clip's retiming rate via its edit side-table entry. */
 double wb_session_set_retime(struct wb_clip_edit_table *et, int track,
                              int clip, double rate);

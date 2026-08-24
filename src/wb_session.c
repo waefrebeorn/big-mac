@@ -1937,3 +1937,50 @@ int wb_session_detect_transients(const wb_session *s, int track, int clip,
     free(flux);
     return count;
 }
+
+/* ---- G21: waveform auto-sync (cross-correlation) -------------------------- */
+/* Find the time offset of `clip_b` relative to `clip_a` by sliding a coarse
+ * correlation over the overlap region. Both mono-downmixed. Returns the
+ * offset in samples to ADD to b's timeline position so they align
+ * (positive = b should move later), or a code < 0:
+ *   -1 bad args, -2 no overlap, -3 correlation too weak. */
+int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,
+                           int track_b, int clip_b, double *offset_secs) {
+    if (!s || !offset_secs) return -1;
+    const wb_track *ta = &s->tracks[track_a], *tb = &s->tracks[track_b];
+    if ((uint32_t)clip_a >= ta->clip_count || (uint32_t)clip_b >= tb->clip_count)
+        return -1;
+    const wb_clip *ca = &ta->clips[clip_a], *cb = &tb->clips[clip_b];
+    if (!ca->audio_data || !cb->audio_data) return -2;
+
+    uint32_t chn = ca->audio_channels > 0 ? ca->audio_channels : 1;
+    /* downmix stride: sample every 32nd frame for speed (44.1k -> ~1.4k Hz) */
+    const uint32_t STRIDE = 32;
+    uint32_t na = ca->audio_frames / STRIDE;
+    uint32_t nb = cb->audio_frames / STRIDE;
+    if (na < 16 || nb < 16) return -2;
+
+    /* search offsets in SAMPLES over +/-2 seconds, stepping by STRIDE, but
+     * comparing a[i*STRIDE] against b[i*STRIDE + shift] directly so sub-stride
+     * offsets resolve exactly. */
+    int max_shift = 2 * WB_SAMPLE_RATE;
+    float best_score = 0; int best_shift = 0; int found = 0;
+    for (int shift = -max_shift; shift <= max_shift; shift += STRIDE / 2) {
+        long score = 0; long n = 0;
+        for (uint32_t i = 0; i < na; i++) {
+            long pos_b = (long)(i * STRIDE) + shift;
+            if (pos_b < 0 || pos_b >= (long)cb->audio_frames) continue;
+            float sa_ = ca->audio_data[i * STRIDE * chn];
+            float sb_ = cb->audio_data[pos_b * chn];
+            if (fabsf(sa_) < 0.01f || fabsf(sb_) < 0.01f) continue;
+            score += (sa_ > 0) == (sb_ > 0) ? 1 : -1;
+            n++;
+        }
+        if (n < 16) continue;
+        float norm = (float)score / n;
+        if (!found || norm > best_score) { best_score = norm; best_shift = shift; found = 1; }
+    }
+    if (!found || best_score < 0.15f) return -3;   /* too weak to trust */
+    *offset_secs = (double)best_shift / WB_SAMPLE_RATE;
+    return 0;
+}

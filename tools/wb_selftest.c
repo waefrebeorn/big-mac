@@ -3549,6 +3549,62 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(ts);
     }
 
+
+    /* G21: waveform auto-sync — recover a known misalignment */
+    {
+        wb_session *ss = wb_session_create();
+        wb_track *ta = wb_session_add_track(ss, "camA", 0);
+        wb_track *tb = wb_session_add_track(ss, "camB", 0);
+        CHECK(ta && tb, "G21: two tracks created");
+        if (ta && tb) {
+            uint32_t nf = WB_SAMPLE_RATE;   /* ~1s each */
+            double true_offset = 0.25 * WB_SAMPLE_RATE;
+            for (uint32_t t = 0; t < nf / 32; t++) {
+                float v = (t % 2 == 0) ? 0.5f : -0.5f;
+                for (int rep = 0; rep < 16; rep++) {
+                    (void)0;
+                }
+            }
+            /* build identical impulse trains: camA at t=0.., camB shifted +0.25s */
+            ta->clips = calloc(1, sizeof(wb_clip)); ta->clip_count = 1;
+            tb->clips = calloc(1, sizeof(wb_clip)); tb->clip_count = 1;
+            wb_clip *ca_ = &ta->clips[0], *cb_ = &tb->clips[0];
+            memset(ca_, 0, sizeof(*ca_)); memset(cb_, 0, sizeof(*cb_));
+            ca_->type = cb_->type = 1;
+            ca_->start = 0; cb_->start = 0;
+            ca_->length = (double)nf; cb_->length = (double)(nf + (uint32_t)true_offset);
+            ca_->audio_channels = cb_->audio_channels = 1;
+            ca_->audio_frames = nf;
+            cb_->audio_frames = nf + (uint32_t)true_offset;
+            ca_->audio_data = calloc(nf, sizeof(wb_sample));
+            cb_->audio_data = calloc(cb_->audio_frames, sizeof(wb_sample));
+            srand(12345);   /* deterministic fixture */
+            for (uint32_t i = 0; i < nf; i += 4) {
+                /* pseudo-random wide bursts: unique fingerprint, wide enough
+                 * that strided correlation catches them */
+                if ((rand() % 8) == 0) {
+                    float sign = (rand() % 2) ? 0.7f : -0.7f;
+                    for (int w2 = 0; w2 < 64 && i + (uint32_t)w2 < nf; w2++)
+                        ca_->audio_data[i + (uint32_t)w2] =
+                            sign * (i % 7 == 0 ? 0.5f : 0.3f);
+                }
+                uint32_t ib = i + (uint32_t)true_offset;
+                if (ib + 64 < cb_->audio_frames)
+                    for (int w2 = 0; w2 < 64; w2++)
+                        cb_->audio_data[ib + (uint32_t)w2] =
+                            ca_->audio_data[i + (uint32_t)w2];
+            }
+            double off = 0;
+            int rc = wb_session_sync_offset(ss, 0, 0, 1, 0, &off);
+            CHECK(rc == 0, "G21: sync offset computed");
+            if (rc == 0) {
+                CHECK(fabs(off - 0.25) < 0.05,
+                      "G21: recovered the true 0.25s misalignment");
+            }
+        }
+        wb_session_destroy(ss);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

@@ -515,6 +515,8 @@ int  wb_session_ripple_delete_video_clip(wb_session *s, int track, int clip);
 int  wb_session_slip_video_clip(wb_session *s, int track, int clip, double delta);
 /* Roll: slide the cut between clip and the next clip (total duration fixed). */
 int  wb_session_roll_video_clip(wb_session *s, int track, int clip, double delta);
+/* G17 Slide: move clip in time; adjacent neighbors absorb the gap/overlap. */
+int  wb_session_slide_video_clip(wb_session *s, int track, int clip, double delta);
 
 /* R048: transcript text-editing — delete the word range [w0, w1) from the
  * transcript AND ripple-cut that time span out of the track's video clips

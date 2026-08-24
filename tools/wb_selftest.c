@@ -1552,6 +1552,41 @@ static void test_video_edit(void) {
                   + (tr->clips[1].start + tr->clips[1].length - tr->clips[1].start);
     CHECK(fabs(total1 - 4.0) < 1e-6, "roll kept total timeline duration at 4s");
 
+    /* G17 slide: move clip 0 right +0.5s — left neighbor absent so it just
+     * moves; then slide left -0.3s and verify the RIGHT neighbor absorbs
+     * (its start follows m's tail, total span unchanged). Rebuild 3 clips. */
+    while (tr->clip_count > 0) {
+        wb_video_clip_free(tr->clips[tr->clip_count-1].video);
+        free(tr->clips[tr->clip_count-1].video);
+        tr->clip_count--;
+    }
+    pos = 0.0;
+    for (int i = 0; i < 3; i++) {
+        tr->clips = realloc(tr->clips, (tr->clip_count+1)*sizeof(wb_clip));
+        wb_clip *cl = &tr->clips[tr->clip_count++];
+        memset(cl, 0, sizeof(*cl));
+        cl->type = 2; cl->start = pos;
+        cl->video = calloc(1, sizeof(wb_video_clip));
+        wb_video_clip_init(cl->video);
+        cl->video->start_in_source = i * 2.0;
+        cl->video->duration = 2.0;
+        cl->video->timeline_pos = pos;
+        cl->length = 2.0;
+        pos += 2.0;
+    }
+    double span0 = tr->clips[2].start + tr->clips[2].length;
+    CHECK(wb_session_slide_video_clip(s, 0, 1, 0.5) == 0, "slide middle clip +0.5s");
+    CHECK(fabs(tr->clips[1].start - 2.5) < 1e-6, "slide moved middle clip to 2.5s");
+    CHECK(fabs(tr->clips[0].length - 2.5) < 1e-6, "slide extended left clip to 2.5s");
+    CHECK(fabs(tr->clips[2].start - 4.5) < 1e-6, "slide pushed right clip start to 4.5s");
+    CHECK(fabs(tr->clips[1].video->start_in_source - 2.0) < 1e-6,
+          "slide kept middle clip source window fixed");
+    CHECK(fabs(tr->clips[2].length - 1.5) < 1e-6, "slide shrank right clip to 1.5s");
+    double span1 = tr->clips[2].start + tr->clips[2].length;
+    CHECK(fabs(span1 - span0) < 1e-6, "slide preserved overall span");
+    CHECK(wb_session_slide_video_clip(s, 0, 1, -10.0) == 0, "oversized left slide clamps");
+    CHECK(tr->clips[2].length >= 0.04, "right clip never collapses below min");
+
     for (uint32_t c = 0; c < tr->clip_count; c++) { wb_video_clip_free(tr->clips[c].video); free(tr->clips[c].video); }
     wb_session_destroy(s);
 }

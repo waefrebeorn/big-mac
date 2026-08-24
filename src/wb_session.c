@@ -722,6 +722,63 @@ int wb_session_slip_video_clip(wb_session *s, int track, int clip, double delta)
     return 0;
 }
 
+/* G17: slide — move clip `clip` on the timeline by `delta` seconds while the
+ * ADJACENT neighbors absorb the change (Premiere Slide, U): the moved clip
+ * keeps its own source window; the left neighbor's tail extends/shrinks to
+ * meet it, and the right neighbor's head shifts with its source window
+ * advancing so total program duration is preserved. Clamped so no clip
+ * goes below minimum length. */
+int wb_session_slide_video_clip(wb_session *s, int track, int clip, double delta) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    wb_clip *m = &tr->clips[clip];
+    if (m->type != 2 || !m->video) return -1;
+
+    /* find adjacent clips on the same lane */
+    wb_clip *left = NULL, *right = NULL;
+    double m_end0 = m->start + m->length;
+    for (uint32_t i = 0; i < tr->clip_count; i++) {
+        if ((int)i == clip) continue;
+        wb_clip *o = &tr->clips[i];
+        if (o->type != 2 || !o->video) continue;
+        if (!left && fabs(o->start + o->length - m->start) < 0.01)
+            left = o;                       /* ends where m begins */
+        else if (!right && fabs(o->start - m_end0) < 0.01)
+            right = o;                      /* begins where m ends */
+    }
+
+    if (delta < 0) {   /* sliding LEFT: m eats into the right clip's head */
+        if (!right) return 0;               /* nothing to absorb — no move */
+        double maxneg = -(right->length - 0.05);
+        if (delta < maxneg) delta = maxneg;
+    } else if (delta > 0) {  /* sliding RIGHT: m eats into the left tail */
+        if (!left) return 0;
+        double maxpos = left->length - 0.05;
+        if (delta > maxpos) delta = maxpos;
+    } else {
+        return 0;
+    }
+
+    m->start += delta;
+    /* left neighbor's tail follows m's head (grows or shrinks with delta) */
+    if (left) {
+        left->length = m->start - left->start;
+        if (left->length < 0.05) left->length = 0.05;
+    }
+    /* right neighbor's head follows m's tail; its source window advances by
+     * delta and its length compensates so program duration is preserved */
+    if (right) {
+        right->start = m->start + m->length;
+        right->length -= delta;
+        right->video->start_in_source += delta;
+        if (right->video->start_in_source < 0)
+            right->video->start_in_source = 0;
+        if (right->length < 0.05) right->length = 0.05;
+    }
+    return 0;
+}
+
 /* R025: roll — adjust the cut between clip `clip` and the next clip on the
  * track: extend clip[clip] by `delta` and shrink clip[clip+1] by the same,
  * sliding clip[clip+1]'s source in-point so total timeline duration is

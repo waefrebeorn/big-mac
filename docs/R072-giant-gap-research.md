@@ -38,7 +38,7 @@ every gap below is a break in one of those seven loops.
 [G11] P2 — Project templates + recent-files list + new-project dialog
       (Reaper templates, Cakewalk dialog threads).
 [G12] P2 — Autosave + crash recovery copies (Premiere auto-save folder/.bak).  **WIRED (pre-existing G57 autosave every 120s, keep-5 prune; recovery via G58)**
-[G13] P2 — Clip colors/naming in-grid (Ableton convention; SESSION audit found
+[G13] P2 — Clip colors/naming in-grid (Ableton convention; SESSION audit found  **WIRED R073: color slot in clip-edit side-table, right-click body cycles, 8-color border palette**
       bars colored but slots blank).
 
 ## C. ROUGH-CUT loop

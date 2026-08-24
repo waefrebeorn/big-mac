@@ -4229,6 +4229,36 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(qs);
     }
 
+
+    /* R073 hop 22: Catmull-Rom preserves HF under pitch shift */
+    {
+        uint32_t nf = 4 * WB_SAMPLE_RATE;
+        wb_sample *in = malloc((size_t)nf * 2 * sizeof(wb_sample));
+        if (in) {
+            /* 8kHz tone: near Nyquist/4; linear interp would attenuate */
+            for (uint32_t i = 0; i < nf; i++) {
+                wb_sample v = (wb_sample)(0.5 *
+                    sin(2*M_PI*8000.0*i/WB_SAMPLE_RATE));
+                in[i*2] = v; in[i*2+1] = v;
+            }
+            wb_sample *op = NULL;
+            uint32_t np = wb_timestretch(in, nf, 2, 1.0, 12.0, &op);
+            CHECK(np > WB_SAMPLE_RATE, "R073: HF pitch produced audio");
+            if (op && np > WB_SAMPLE_RATE) {
+                double sum = 0; uint32_t cnt = 0;
+                uint32_t start = np/2, end = start + WB_SAMPLE_RATE;
+                for (uint32_t i = start; i < end && i < np; i++) {
+                    sum += (double)op[i*2] * op[i*2]; cnt++;
+                }
+                float rms = sqrtf((float)(sum / cnt));
+                CHECK(rms > 0.15f,
+                      "R073: 8->16kHz tone retains energy (CR interp)");
+                printf("         R073 HF rms=%.3f\n", rms);
+            }
+            free(op); free(in);
+        }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

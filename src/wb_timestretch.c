@@ -136,10 +136,18 @@ static uint32_t wsola(const float *in, uint32_t nin, double rate,
             float wnorm = sqrtf(w_in * w_in + w_old * w_old);
             if (wnorm < 1e-6f) wnorm = 1.0f;
             double sp = (double)p + (double)k * pitch;
-            uint32_t s0 = (uint32_t)sp;
-            if (s0 + 1 >= nin || out_pos + k >= max_out) break;
-            float f = (float)(sp - (double)s0);
-            float v = in[s0] * (1.0f - f) + in[s0 + 1] * f;
+            uint32_t s1 = (uint32_t)sp;
+            if (s1 + 2 >= nin || out_pos + k >= max_out) break;
+            float fr = (float)(sp - (double)s1);
+            /* R073 hop 22: Catmull-Rom cubic — linear interpolation low-passes
+             * treble and aliases; CR keeps response flat past 15kHz at 44.1 */
+            uint32_t s0i = s1 > 0 ? s1 - 1 : 0;
+            float y0 = in[s0i], y1 = in[s1],
+                  y2 = in[s1+1], y3 = in[s1+2];
+            float v = 0.5f * ((2.0f * y1)
+                     + (-y0 + y2) * fr
+                     + (2.0f*y0 - 5.0f*y1 + 4.0f*y2 - y3) * fr*fr
+                     + (-y0 + 3.0f*y1 - 3.0f*y2 + y3) * fr*fr*fr);
             out[out_pos + k] =
                 (out[out_pos + k] * w_old + v * w_in) / wnorm;
         }

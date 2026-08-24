@@ -291,6 +291,16 @@ static wb_frame *eff_pull(wb_node *self, double t,
                     }
                 }
             }
+            else if (e->op == 5) {
+                /* R073 hop 45: luma key — dark pixels go transparent
+                 * (screen-blend style, ideal over black-bg CGI renders).
+                 * threshold from keyframable "lum_thr" param. */
+                float thr = wb_node_param_value(self, "lum_thr", t);
+                if (thr <= 0.0f) thr = gain > 0 ? gain : 0.15f;
+                float lum = 0.2126f*p->r + 0.7152f*p->g + 0.0722f*p->b;
+                if (lum <= thr)       p->a = 0.0f;
+                else if (lum < thr*2) p->a *= (lum - thr) / thr;
+            }
             else if (e->op == 3) {
                 /* R073 hop 41: chroma key — green-screen removal.
                  * keyed when green dominates red+blue beyond tolerance;

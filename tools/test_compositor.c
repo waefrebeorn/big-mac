@@ -527,6 +527,33 @@ int main(void) {
         wb_node_destroy(txt);
     }
 
+
+    /* R073 hop 45: luma key — black background of a render goes transparent */
+    {
+        wb_node *src = wb_node_source_color(0.9f, 0.9f, 0.9f, 1.0f, 32, 32);
+        wb_node *key = wb_node_effect(5, 0.2f);   /* op 5 = luma key */
+        key->inputs[0] = src;
+        wb_frame *f = wb_node_pull(key, 0.0, 0, 0, 32, 32);
+        CHECK(f != NULL, "lumakey: frame pulled");
+        if (f) {
+            CHECK(f->px[10*f->w+10].a > 0.99f,
+                  "lumakey: bright source survives the luma key");
+            wb_frame_free(f);
+        }
+        /* dark source survives: near-black keeps alpha... inverted check:
+         * a DIM source below threshold loses alpha */
+        wb_node *src2 = wb_node_source_color(0.05f, 0.05f, 0.05f, 1.0f,
+                                             32, 32);
+        wb_node *key2 = wb_node_effect(5, 0.2f);
+        key2->inputs[0] = src2;
+        wb_frame *f2 = wb_node_pull(key2, 0.0, 0, 0, 32, 32);
+        CHECK(f2 != NULL && f2->px[100].a < 0.01f,
+              "lumakey: dim source keyed out");
+        if (f2) wb_frame_free(f2);
+        wb_node_destroy(key); wb_node_destroy(src);
+        wb_node_destroy(key2); wb_node_destroy(src2);
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

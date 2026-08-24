@@ -19,3 +19,9 @@ int wb_ui_text_width(const char *text, int scale);
 #endif
 
 #endif /* WUBUS_WB_UI_H */
+
+struct wb_px_stub { float r,g,b,a; };
+/* R073 hop 44: rasterize text into an RGBA float buffer (compositor). */
+int wb_ui_text_to_rgba(const char *text, int scale,
+                       float r, float g, float b, float a,
+                       void *px, int W, int H, int x0, int y0);

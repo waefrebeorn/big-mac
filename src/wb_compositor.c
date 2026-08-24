@@ -6,7 +6,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
-#include "wbus/wbus_anim.h"   /* R073 hop 43: CGI source */
+#include "wbus/wbus_anim.h"
+#include "wbus/wb_ui.h"   /* R073 hop 43: CGI source */
 
 /* ---- G1: global quality-of-service dial (0..1) ----------------------- */
 static double g_quality = 1.0;   /* default full quality */
@@ -893,5 +894,44 @@ wb_node *wb_node_source_anim(wb_anim *anim, int w, int h) {
     s->h = h > 0 ? h : 240;
     n->user = s;
     n->pull = src_anim_pull;
+    return n;
+}
+
+/* ---- R073 hop 44: TEXT SOURCE (title generator node) ----------------------- */
+typedef struct {
+    char   text[128];
+    int    scale, x, y;
+    float  r, g, b, a;
+    int    w, h;
+} src_text_t;
+static wb_frame *src_text_pull(wb_node *self, double t,
+                               int rx, int ry, int rw, int rh, int phase) {
+    (void)t; (void)phase;
+    src_text_t *d = self->user;
+    wb_frame *f = wb_frame_alloc(d->w, d->h);
+    if (!f) return NULL;
+    memset(f->px, 0, (size_t)d->w * d->h * sizeof(wb_px));
+    /* animate position via keyframable "cx" (normalized 0..1 horizontal) */
+    float cxn = wb_node_param_value(self, "cx", t);
+    if (cxn <= 0.0f) cxn = (float)d->x / d->w;
+    int x0 = (int)(cxn * d->w);
+    wb_ui_text_to_rgba(d->text, d->scale, d->r, d->g, d->b, d->a,
+                       f->px, d->w, d->h, x0, d->y);
+    f->roi_x = rx; f->roi_y = ry; f->roi_w = rw; f->roi_h = rh;
+    return f;
+}
+wb_node *wb_node_source_text(const char *text, int scale,
+                             float r, float g, float b, float a,
+                             int w, int h) {
+    wb_node *n = wb_node_create(WB_NODE_SOURCE, "src_text");
+    if (!n) return NULL;
+    src_text_t *s = calloc(1, sizeof(*s));
+    snprintf(s->text, sizeof(s->text), "%s", text ? text : "");
+    s->scale = scale > 0 ? scale : 2;
+    s->x = 4; s->y = h / 3;
+    s->r = r; s->g = g; s->b = b; s->a = a;
+    s->w = w > 0 ? w : 320; s->h = h > 0 ? h : 240;
+    n->user = s;
+    n->pull = src_text_pull;
     return n;
 }

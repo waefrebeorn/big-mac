@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include "wbus/wbus_anim.h"
+#include "wbus/wb_ui.h"
 #include <stdlib.h>
 #include <math.h>
 #include "wbus/wbus.h"
@@ -483,6 +484,47 @@ int main(void) {
             wb_anim_free(an);
             wb_mesh_free(cube);
         }
+    }
+
+    /* R073 hop 44: text/title source node */
+    {
+        wb_node *txt = wb_node_source_text("AB", 3,
+                                           1.0f, 1.0f, 1.0f, 1.0f, 64, 32);
+        CHECK(txt != NULL, "text: node created");
+        wb_frame *f = txt ? wb_node_pull(txt, 0.0, 0, 0, 64, 32) : NULL;
+        CHECK(f != NULL, "text: frame pulled");
+        if (f) {
+            int lit = 0;
+            for (int i = 0; i < 64*32; i++)
+                if (f->px[i].a > 0.5f && f->px[i].r > 0.5f) lit++;
+            /* two glyphs at scale 3 => each ~15x21 lit cells; expect a few
+             * hundred lit pixels */
+            CHECK(lit > 150, "text: glyphs rasterize (lit pixels present)");
+            printf("         text: lit=%d\n", lit);
+            wb_frame_free(f);
+        }
+        /* keyframed horizontal position animates */
+        wb_param_track *xt = wb_param_track_create();
+        wb_param_track_set(xt, 0.0, 0.05f, WB_KF_LINEAR);
+        wb_param_track_set(xt, 2.0, 0.60f, WB_KF_LINEAR);
+        wb_node_add_param(txt, "cx", xt);
+        wb_frame *fa = wb_node_pull(txt, 0.0, 0, 0, 64, 32);
+        wb_frame *fb = wb_node_pull(txt, 2.0, 0, 0, 64, 32);
+        int first_a = -1, first_b = -1;
+        if (fa && fb) {
+            for (int x = 0; x < 64 && first_a < 0; x++)
+                if (fa->px[10*64+x].a > 0.5f) first_a = x;
+            for (int x = 0; x < 64 && first_b < 0; x++)
+                if (fb->px[10*64+x].a > 0.5f) first_b = x;
+            CHECK(first_b > first_a,
+                  "text: keyframed cx moves the title rightward");
+            printf("         text: first lit col t0=%d t2=%d\n",
+                   first_a, first_b);
+        }
+        if (fa) wb_frame_free(fa);
+        if (fb) wb_frame_free(fb);
+        wb_param_track_free(xt);
+        wb_node_destroy(txt);
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);

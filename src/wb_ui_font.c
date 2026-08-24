@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <SDL.h>
+#include "wbus/wbus_compositor.h"
 
 /* 5x7 font. Each glyph is 7 bytes, one bit per column row (LSB = rightmost).
  * 95 glyphs (0x20..0x7E). Sparse-ish but readable. */
@@ -136,4 +137,34 @@ int wb_ui_draw_text(SDL_Renderer *r, int x, int y, const char *text, int scale,
 /* measure width of a line without drawing */
 int wb_ui_text_width(const char *text, int scale) {
     return (int)strlen(text) * (GLYPH_W * scale + 1) - 1;
+}
+
+/* R073 hop 44: render text into an RGBA float pixel buffer (compositor
+ * text node). No SDL — writes directly into px[W*H]. Returns width. */
+int wb_ui_text_to_rgba(const char *text, int scale,
+                       float r, float g, float b, float a,
+                       wb_px *px, int W, int H, int x0, int y0) {
+    (void)a;
+    int cur = x0;
+    for (const unsigned char *p = (const unsigned char *)text; *p; p++) {
+        unsigned char ch = *p;
+        if (ch < 0x20 || ch > 0x7E) { cur += GLYPH_W*scale + 1; continue; }
+        const unsigned char *glyph = FONT[ch - 0x20];
+        for (int row = 0; row < GLYPH_H; row++) {
+            unsigned char bits = glyph[row];
+            for (int col = 0; col < GLYPH_W; col++) {
+                if (!(bits & (1 << (GLYPH_W - 1 - col)))) continue;
+                for (int sy = 0; sy < scale; sy++)
+                    for (int sx = 0; sx < scale; sx++) {
+                        int X = cur + col*scale + sx;
+                        int Y = y0 + row*scale + sy;
+                        if (X < 0 || X >= W || Y < 0 || Y >= H) continue;
+                        wb_px *q = &px[Y*W + X];
+                        q->r = r; q->g = g; q->b = b; q->a = a;
+                    }
+            }
+        }
+        cur += GLYPH_W * scale + 1;
+    }
+    return cur - x0;
 }

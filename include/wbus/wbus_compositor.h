@@ -160,6 +160,11 @@ wb_node *wb_node_source_color(float r, float g, float b, float a, int w, int h);
 struct wb_anim;
 wb_node *wb_node_source_anim(struct wb_anim *anim, int w, int h);
 
+/* R073 hop 44: title/text generator node (built-in 5x7 font). */
+wb_node *wb_node_source_text(const char *text, int scale,
+                             float r, float g, float b, float a,
+                             int w, int h);
+
 /* EFFECT: applies a simple op over its single input.
  * op: 0 = identity(bypass), 1 = brightness*gain (gain is keyframable
  *      via param "gain"), 2 = invert-alpha matte */

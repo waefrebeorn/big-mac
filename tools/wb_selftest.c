@@ -3307,6 +3307,40 @@ static void test_scale_chord_step(void) {
         CHECK(wb_engine_vst3_faults(NULL) == 0, "G34: NULL engine safe");
     }
 
+
+    /* G76: FX chain export/import round-trip */
+    {
+        wb_session *xs = wb_session_create();
+        wb_track *xtr = wb_session_add_track(xs, "chain", 0);
+        CHECK(xtr != NULL, "G76: track created");
+        if (xtr) {
+            wb_session_set_insert(xs, 0, 1, "eq");
+            wb_session_set_insert(xs, 0, 2, "chorus");
+            wb_session_set_insert(xs, 0, 3, "delay");
+            char buf[256];
+            CHECK(wb_session_export_chain(xs, 0, buf, sizeof(buf)) > 0,
+                  "G76: chain exported");
+            printf("         G76 chain: %s\n", buf);
+            /* wipe, then import the string into a fresh track */
+            for (int sl = 1; sl < 4; sl++)
+                wb_session_set_insert(xs, 0, sl, NULL);
+            wb_track *x2 = wb_session_add_track(xs, "chain2", 0);
+            CHECK(x2 != NULL && wb_session_import_chain(xs, 1, buf) == 0,
+                  "G76: chain imported to second track");
+            CHECK(strcmp(x2->inserts[1].id, "eq") == 0 &&
+                  strcmp(x2->inserts[3].id, "delay") == 0,
+                  "G76: slots restored by position");
+            /* "-" clears */
+            char withclear[256];
+            snprintf(withclear, sizeof(withclear), "-|comp|-|-");
+            wb_session_import_chain(xs, 1, withclear);
+            CHECK(strcmp(x2->inserts[1].id, "comp") == 0 &&
+                  x2->inserts[2].id[0] == 0 && x2->inserts[3].id[0] == 0,
+                  "G76: dash token clears a slot; others set by position");
+        }
+        wb_session_destroy(xs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

@@ -477,6 +477,11 @@ int  wb_session_add_bin_entry(wb_session *s, const char *path, int kind,
                              double duration);
 /* G68: sort the media bin (0 = name, 1 = kind+name, 2 = duration). */
 void wb_session_sort_bin(wb_session *s, int mode);
+/* G76: FX chain rack — export/import a track's insert chain as text
+ * ("eq|chorus|-|delay"; "-" clears a slot). */
+int  wb_session_export_chain(const wb_session *s, int track,
+                             char *out, int cap);
+int  wb_session_import_chain(wb_session *s, int track, const char *chain);
 /* G28: strip silence — split an audio clip into its loud regions
  * (thresh linear 0..1, min_sec minimum region length). Returns region count;
  * 0 = all silent (clip removed), -1 error. */

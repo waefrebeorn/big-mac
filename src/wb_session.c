@@ -1713,3 +1713,41 @@ int wb_session_swap_clips(wb_session *s, int track_a, int clip_a,
     if (e2 > s->length) s->length = e2;
     return 0;
 }
+
+/* ---- G76: FX chain rack presets (save/load chains) ---------------------- */
+#define WB_CHAIN_MAX_SLOTS 8
+/* Serialize a track's insert chain to "<id1>|<id2>|..." (slot order 0..N).
+ * Returns bytes written, or -1. */
+int wb_session_export_chain(const wb_session *s, int track,
+                            char *out, int cap) {
+    if (!s || track < 0 || track >= (int)s->track_count || !out || cap <= 0)
+        return -1;
+    int w = 0;
+    out[0] = 0;
+    for (int slot = 0; slot < WB_MAX_INSERT_SLOTS && slot < WB_CHAIN_MAX_SLOTS; slot++) {
+        const char *id = s->tracks[track].inserts[slot].id;
+        if (!id || !id[0]) id = "-";
+        int n = snprintf(out + w, cap - w, "%s%s", slot ? "|" : "", id);
+        if (n < 0 || w + n >= cap) return -1;
+        w += n;
+    }
+    return w;
+}
+/* Load a chain string ("eq|chorus||delay") into the track: each token sets
+ * that slot; "-" clears it. Returns 0 or -1. */
+int wb_session_import_chain(wb_session *s, int track, const char *chain) {
+    if (!s || track < 0 || track >= (int)s->track_count || !chain) return -1;
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%s", chain);
+    int slot = 0;
+    char *tok = strtok(buf, "|");
+    while (tok && slot < WB_MAX_INSERT_SLOTS) {
+        if (strcmp(tok, "-") == 0)
+            wb_session_set_insert(s, track, slot, NULL);
+        else
+            wb_session_set_insert(s, track, slot, tok);
+        slot++;
+        tok = strtok(NULL, "|");
+    }
+    return 0;
+}

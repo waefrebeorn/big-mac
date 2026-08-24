@@ -101,7 +101,7 @@ every gap below is a break in one of those seven loops.
       (audit-confirmed static text only).
 [G41] P1 WIRED(STEMS export per-track WAVs) — Stems export: selected tracks → individual files, same start
       (Logic stems workflow; collaboration requirement).
-[G42] P2 — Platform preset targets: YouTube -14 LUFS, Netflix -27 LKFS/-2dBTP,
+[G42] P2 — Platform preset targets: YouTube -14 LUFS, Netflix -27 LKFS/-2dBTP,  **WIRED R073: full 5-profile delivery cycle incl. ATSC-A85; per-profile LUFS+TP honored end-to-end**
       broadcast -23 (loudness spec docs; we normalize to one target only).
 [G43] P2 — Watch-folder auto-export (AME watch folders).
 [G44] P2 — Text/title overlay tool: basic lower thirds/titles with font controls

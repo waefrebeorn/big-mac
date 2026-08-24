@@ -69,7 +69,7 @@ every gap below is a break in one of those seven loops.
 [G26] P2 — Time-stretch/pitch-shift clips to tempo/key (Elastic Audio/Flex Time;
       zero stretch support today).
 [G27] P2 — Transient detection + slice editing on audio clips (Reason slices).
-[G28] P2 — Strip silence / region detect from GUI (we detect silence in agent
+[G28] P2 — Strip silence / region detect from GUI (we detect silence in agent  **WIRED R073: wb_session_strip_silence with hangover window, region-split clips, 8 gate checks**
       pipeline only; Logic strip-silence is a standard tool).
 [G29] P3 — Take-folder style comping UI polish (comping model exists; no
       take-folder visual).

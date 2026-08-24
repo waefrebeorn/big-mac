@@ -194,7 +194,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
 [G80] P2 — Scale highlight + scale-lock ("draw in-key notes only" — Ableton 12  **WIRED R073: scale_lock snaps step_click pitches via engine wb_scale_snap; LOCK toggle live**
       Scale Awareness, Cubase Scale Assistant).
 [G81] P2 — Chord/scale stamping into piano roll (FL chord tools).  **WIRED R073: chord stamp fills following steps with diatonic tones via engine wb_chord_tones**
-[G82] P3 — Chord track with harmonic transformation (Cubase Chord Track).
+[G82] P3 — Chord track with harmonic transformation (Cubase Chord Track).  **WIRED R073: session chord grid + snap_to_chords harmonic transformation, persisted**
 [G83] P3 — MIDI transformations: arpeggiate/strum/humanize/randomize  **WIRED R073: wb_session_transform_notes humanize/randomize/arpeggiate/strum, 5 gate checks**
       (Live 12 MIDI Tools, Bitwig Note FX).
 [G84] P3 — Articulation management hiding raw keyswitches (Cubase Expression  **WIRED R073: named articulation map + ART cycle button sending keyswitches**

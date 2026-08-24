@@ -5203,9 +5203,12 @@ static void handle_key(app *a, SDL_Keycode k) {
                         tcl->audio_data = nst;
                         tcl->audio_frames = nn;
                         tcl->length = (double)nn / WB_SAMPLE_RATE;
-                        printf("stretch: clip %u -> %.2fs (%.1fx, "
-                               "%d transients)\n", ci, tcl->length,
-                               rate, nth);
+                        double cbpm_show =
+                            wb_session_estimate_bpm(a->session,
+                                a->selected_track, (int)ci);
+                        printf("stretch: clip %u -> %.2fs (%.2fx, "
+                               "%d transients, est %.1f BPM)\n",
+                               ci, tcl->length, rate, nth, cbpm_show);
                         snprintf(a->last_status,
                                  sizeof(a->last_status),
                                  "STRETCH %.1fx", rate);

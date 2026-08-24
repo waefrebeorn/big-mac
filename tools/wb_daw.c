@@ -2596,6 +2596,23 @@ static int save_project(app *a, const char *path) {
     }
     if (!a->project_path[0]) snprintf(a->project_path, sizeof(a->project_path), "%s", dst);
     printf("project: saved %s (%u tracks)\n", dst, a->session->track_count);
+    /* G59: versioned backup — a timestamped snapshot beside the project
+     * (Live Save convention). Keeps the last 10; failures are non-fatal. */
+    {
+        char bdir[600];
+        snprintf(bdir, sizeof(bdir), "%.450s.backups", dst);
+        mkdir(bdir, 0755);
+        char bpath[768];
+        snprintf(bpath, sizeof(bpath), "%s/%lld.wbus", bdir, (long long)time(NULL));
+        if (wb_session_save(a->session, bpath) == 0) {
+            char cmd[1400];
+            snprintf(cmd, sizeof(cmd),
+                "ls -t %s/*.wbus 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null",
+                bdir);
+            int prc = system(cmd); (void)prc;
+            printf("backup: %s\n", bpath);
+        }
+    }
     return 0;
 }
 

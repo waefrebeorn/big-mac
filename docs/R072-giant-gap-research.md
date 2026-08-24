@@ -84,7 +84,7 @@ every gap below is a break in one of those seven loops.
       panels (inserts array exists; no visible chain editor).
 [G32] P1 — Real-time LUFS/true-peak meter on master (Youlean class; delivery  **WIRED R073: wb_lufs on live master path, wb_engine_get_master_lufs, mixer LUFS/TP readouts
       normalize exists offline but no live meter).
-[G33] P2 — Track freeze/bounce-in-place for CPU (Ardour/Logic freeze; user
+[G33] P2 — Track freeze/bounce-in-place for CPU (Ardour/Logic freeze; user  **WIRED R073: wb_engine_render_track isolated offline bounce (mute-swap + restore), gate-verified**
       directive list already flags FREEZE button — still open).
 [G34] P2 — Plugin sandboxing / crash isolation (Bitwig crash protection; a bad
       VST3 kills our whole process today).

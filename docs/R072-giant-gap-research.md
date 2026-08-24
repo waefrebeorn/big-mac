@@ -20,7 +20,7 @@ every gap below is a break in one of those seven loops.
 [G01] P0 WIRED(file browser) — File browser / OS open dialog for import. Import is hardcoded paths.
       Every NLE starts here (Premiere Cmd+I opens a browser).
 [G02] P0 WIRED(audio import wb_import) — Audio-file import into audio tracks via GUI (WAV/AIFF/MP3).
-[G03] P1 — Drag-and-drop import zone (Finder → timeline).
+[G03] P1 — Drag-and-drop import zone (Finder → timeline).  **WIRED R073: SDL_DROPFILE -> browser_import (video/audio/SRT)**
 [G04] P1 — Media bin: persistent list of imported assets with thumbnails,  **WIRED R073: wb_session_add_bin_entry + save/load "bin" records (lane C)**
       durations, search/rename (Kdenlive "media bin", FCP "browser").
 [G05] P2 — Audio recording input path: arm track, choose input device, record

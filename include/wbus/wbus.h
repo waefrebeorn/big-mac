@@ -369,6 +369,10 @@ wb_mod_matrix *wb_engine_get_mod_matrix(wb_engine *e);
 /* R028: master bus output meters (post master-volume, pre-dac). peak/rms are
  * linear 0..N amplitudes; pass NULL for either to ignore. */
 void wb_engine_get_master_meter(wb_engine *e, float *peak, float *rms);
+/* R073: output clip latch — stays set once true-peak exceeds full scale
+ * until wb_engine_clear_clip_latch(). */
+int  wb_engine_get_clip_latch(const wb_engine *e);
+void wb_engine_clear_clip_latch(wb_engine *e);
 /* G32: live K-weighted readings from the master path. lufs_st = short-term
  * LUFS (smoothed, 0.0 = silence/unset), true_peak = linear true peak
  * (0..1+, slow-release hold). Either pointer may be NULL. */

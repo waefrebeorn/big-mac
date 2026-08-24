@@ -76,6 +76,7 @@ struct wb_engine {
     wb_lufs    master_lufs;      /* G32: live short-term LUFS + true peak */
     float      master_lufs_st;   /* last short-term LUFS (UI-polled) */
     float      master_true_pk;   /* true-peak (0..1+ linear, UI-polled) */
+    int        master_clipped;   /* R073 hop 11: clip latch (UI-cleared) */
     float cpu_load;
 
     /* R043 (G1/G2): clip-edit side-table (fade/offset handles). Self-contained
@@ -633,6 +634,9 @@ static void stage_mix(wb_engine *e, uint32_t n, wb_sample *out) {
      * actually hears, so it must reflect the final output, not any one fader. */
     e->master_peak = pk;
     e->master_rms  = sqrtf(sumsq / (n * 2));
+    /* R073 hop 11: clip latch on the instantaneous block peak — RT-safe
+     * plain store, cleared by the UI via wb_engine_clear_clip_latch(). */
+    if (pk > 1.0f) e->master_clipped = 1;
     /* G32: K-weighted short-term LUFS + true peak on the live master path.
      * wb_lufs_process is fixed-cost per block (biquads + gate accumulators),
      * no allocation — RT-safe. */
@@ -644,6 +648,7 @@ static void stage_mix(wb_engine *e, uint32_t n, wb_sample *out) {
         float ntp = (float)tp;
         e->master_true_pk = ntp > e->master_true_pk ? ntp
                           : e->master_true_pk * 0.999f;   /* slow release */
+
         if (st > -70.0)
             e->master_lufs_st = e->master_lufs_st == 0.0f
                               ? (float)st
@@ -976,6 +981,16 @@ void wb_engine_get_master_lufs(wb_engine *e, float *lufs_st, float *true_peak) {
     if (!e) { if (lufs_st) *lufs_st = 0; if (true_peak) *true_peak = 0; return; }
     if (lufs_st)   *lufs_st   = e->master_lufs_st;
     if (true_peak) *true_peak = e->master_true_pk;
+}
+
+/* R073 hop 11: clip latch — poll from the UI; wb_engine_clear_clip_latch()
+ * resets it. Plain stores on both sides: benign race, worst case the UI
+ * clears a clip that fired one block later. */
+int  wb_engine_get_clip_latch(const wb_engine *e) {
+    return e ? e->master_clipped : 0;
+}
+void wb_engine_clear_clip_latch(wb_engine *e) {
+    if (e) e->master_clipped = 0;
 }
 
 void wb_engine_set_insert_bypass(wb_engine *e, int track, int slot, int on) {

@@ -4047,6 +4047,34 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(qs);
     }
 
+
+    /* R073 hop 11: clip latch — latches on over-full-scale output, clears */
+    {
+        wb_session *cs = wb_session_create();
+        cs->bpm = 120.0; cs->length = 88200.0;
+        wb_track *ctr = wb_session_add_track(cs, "Loud", 0);
+        ctr->volume = 4.0f;   /* push the master over full scale */
+        wb_session_add_note(ctr, 0, 44100.0, 69, 127);
+        wb_engine *ce = wb_engine_create();
+        wb_engine_set_session(ce, cs);
+        wb_engine_seek(ce, 0.0); wb_engine_play(ce);
+        wb_sample cout[4096*2];
+        CHECK(wb_engine_get_clip_latch(ce) == 0,
+              "R073: clip latch starts clear");
+        wb_engine_render(ce, cout, 4096);
+        CHECK(wb_engine_get_clip_latch(ce) == 1,
+              "R073: clip latch sets on over-full-scale output");
+        wb_engine_clear_clip_latch(ce);
+        cs->tracks[0].mute = 1;   /* direct session write (live in engine) */
+        wb_engine_render(ce, cout, 4096);   /* silence: must stay cleared */
+        { float p1=0,r1=0; wb_engine_get_master_meter(ce,&p1,&r1);
+          printf("         R073 post-mute pk=%.4f\n", p1); }
+        CHECK(wb_engine_get_clip_latch(ce) == 0,
+              "R073: latch stays clear after clean output");
+        wb_engine_destroy(ce);
+        wb_session_destroy(cs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

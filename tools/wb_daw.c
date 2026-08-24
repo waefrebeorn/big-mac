@@ -268,6 +268,13 @@ typedef struct app {
     wb_launchrec *lrec;              /* launcher state recorder */
     int           launchrec_armed;   /* REC ARR toggle on SESSION tab */
     wb_export_job ejob;              /* one-slot background export queue */
+    /* G53: batch render matrix — per-marker-region jobs queued sequentially */
+    struct {
+        int   n;                     /* queued job count (0 = batch idle) */
+        int   i;                     /* next job index */
+        double rs[16], rd[16];       /* per-job range (seconds; -1 = whole) */
+        char  out[16][400];          /* per-job output paths */
+    } batch;
     int  export_range_mode;          /* 0 = WHOLE, 1 = IN..playhead */
     int  export_res_h;               /* 0/1080 native, 480, 720 */
     int  delivery_profile_idx;       /* G52: index into g_delivery_cycle */
@@ -2838,6 +2845,77 @@ static double snap_pos(app *a, double pos) {
     return grid;
 }
 
+/* ---- G53: batch render matrix ------------------------------------------ */
+/* Queue one export job per pair of consecutive SECTION markers (kind 1);
+ * a leading marker with no section after it renders to session end. Output
+ * names use "<base>_<MarkerLabel>.mp4" (Reaper $region wildcard spirit).
+ * With batch armed, EXPORT runs these sequentially through the one-slot
+ * job queue via batch_tick(). */
+static void batch_queue_from_markers(app *a) {
+    if (!a->session) return;
+    a->batch.n = 0; a->batch.i = 0;
+    const char *base = a->vid_export[0] ? a->vid_export
+                                        : "/tmp/bigmac_export.mp4";
+    char stem[340];
+    snprintf(stem, sizeof(stem), "%s", base);
+    char *dot = strrchr(stem, '.');
+    if (dot && dot != stem) *dot = 0;
+    const char *ext = strrchr(base, '.');
+    ext = ext ? ext : ".mp4";
+
+    for (uint32_t m = 0; m < a->session->marker_count && a->batch.n < 16; m++) {
+        wb_marker *mk = &a->session->markers[m];
+        if (mk->kind != 1) continue;                 /* section markers only */
+        double rs = mk->pos / (double)WB_SAMPLE_RATE;
+        /* find the next section marker for the region end */
+        double re = -1.0;
+        for (uint32_t k = m + 1; k < a->session->marker_count; k++) {
+            if (a->session->markers[k].kind == 1) {
+                re = a->session->markers[k].pos / (double)WB_SAMPLE_RATE;
+                break;
+            }
+        }
+        double rd = re > rs ? re - rs : -1.0;       /* -1 = run to end */
+        snprintf(a->batch.out[a->batch.n], sizeof(a->batch.out[0]),
+                 "%.300s_%.40s%s", stem,
+                 mk->label[0] ? mk->label : "region", ext);
+        a->batch.rs[a->batch.n] = rs;
+        a->batch.rd[a->batch.n] = rd;
+        a->batch.n++;
+    }
+    if (a->batch.n > 0)
+        snprintf(a->last_status, sizeof(a->last_status),
+                 "BATCH QUEUED %d regions", a->batch.n);
+}
+
+/* Pump the batch: start the next queued job when the slot is free. */
+static void batch_tick(app *a) {
+    if (a->batch.n <= 0 || a->batch.i >= a->batch.n) return;
+    if (wb_export_job_running(&a->ejob)) return;
+    if (a->ejob.done) wb_export_job_reset(&a->ejob);   /* reap finished job */
+    int rc = wb_export_job_start(&a->ejob, a->session,
+                                 a->batch.out[a->batch.i],
+                                 a->vid_captions_ready ? a->vid_srt : NULL,
+                                 a->export_codec_h264 ? WB_VIDEO_CODEC_H264
+                                                      : WB_VIDEO_CODEC_PRORES,
+                                 a->batch.rs[a->batch.i],
+                                 a->batch.rd[a->batch.i],
+                                 a->export_res_h);
+    if (rc == 0) {
+        printf("batch: job %d/%d -> %s\n",
+               a->batch.i + 1, a->batch.n, a->batch.out[a->batch.i]);
+        a->batch.i++;
+    } else if (rc == -2) {
+        /* busy: retry next tick */ ;
+    } else {
+        fprintf(stderr, "batch: job %d failed to start\n", a->batch.i);
+        a->batch.i++;
+    }
+    if (a->batch.i >= a->batch.n)
+        snprintf(a->last_status, sizeof(a->last_status),
+                 "BATCH %d/%d done", a->batch.n, a->batch.n);
+}
+
 /* ---- R036: commit the STEP pattern into the track's arrangement clip -- */
 static void step_commit_to_clip(app *a) {
     int ti = a->selected_track; if (ti < 0 || !a->session) return;
@@ -2962,6 +3040,13 @@ static void handle_action(app *a, int act) {
             }
         } else if (act == 2) {  /* EXPORT -> background render queue (G38) */
             if (a->vid_has_clip) {
+                /* G53: shift+EXPORT = batch render per marker region */
+                if (SDL_GetModState() & KMOD_SHIFT) {
+                    if (!a->vid_export[0]) snprintf(a->vid_export, sizeof(a->vid_export),
+                             "/tmp/bigmac_export_%d.mp4", (int)(a->t.song_pos/WB_SAMPLE_RATE*100));
+                    batch_queue_from_markers(a);
+                    return;
+                }
                 if (!a->vid_export[0]) snprintf(a->vid_export, sizeof(a->vid_export),
                          "/tmp/bigmac_export_%d.mp4", (int)(a->t.song_pos/WB_SAMPLE_RATE*100));
                 /* G39: range — IN marker (SDLK_SEMICOLON) to playhead; whole otherwise */
@@ -4728,6 +4813,7 @@ int main(int argc, char **argv) {
         }
         render(a);
         perf_tick(a);
+        batch_tick(a);   /* G53: pump the batch render matrix */
         /* G57: autosave — every 120s, to a dated Auto-Save folder (Premiere
          * convention). Only when a project path exists OR the session has
          * content; atomic via wb_session_save's own write. Keeps last 5. */

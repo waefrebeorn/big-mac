@@ -268,6 +268,11 @@ typedef struct app {
     wb_launchrec *lrec;              /* launcher state recorder */
     int           launchrec_armed;   /* REC ARR toggle on SESSION tab */
     wb_export_job ejob;              /* one-slot background export queue */
+    /* G43/G54: watch folder — new media auto-imports; a .wbus drop
+     * triggers an auto-render of the current session (AME model). */
+    char     watch_dir[256];
+    time_t   watch_last_poll;
+    unsigned watch_seen_crc;         /* xor of path hashes seen last scan */
     /* G53: batch render matrix — per-marker-region jobs queued sequentially */
     struct {
         int   n;                     /* queued job count (0 = batch idle) */
@@ -2928,6 +2933,51 @@ static void batch_tick(app *a) {
                  "BATCH %d/%d done", a->batch.n, a->batch.n);
 }
 
+/* ---- G43/G54: watch folder --------------------------------------------- */
+/* Poll WB_WATCH_DIR (default ~/Desktop is NOT watched — opt-in dir only)
+ * every 5s. New media files auto-import (G43). A .wbus file dropped in
+ * triggers an immediate auto-render of the current session to
+ * <watch>/<projectname>.mp4 (G54, AME watch-folder model). */
+static unsigned watch_hash(const char *s) {
+    unsigned h = 2166136261u;
+    while (*s) { h ^= (unsigned)*s++; h *= 16777619u; }
+    return h;
+}
+static void watch_poll(app *a) {
+    if (!a->watch_dir[0]) return;
+    time_t now = time(NULL);
+    if (now - a->watch_last_poll < 5) return;      /* every 5s */
+    a->watch_last_poll = now;
+    char paths[32][WB_IMPORT_PATH_MAX];
+    int n = wb_import_scan_dir(a->watch_dir, paths, 32);
+    unsigned crc = 0;
+    for (int i = 0; i < n; i++) {
+        crc ^= watch_hash(paths[i]);
+        size_t pl = strlen(paths[i]);
+        int is_proj = pl > 5 && !strcasecmp(paths[i] + pl - 5, ".wbus");
+        /* already seen? skip import/render for it */
+        if (!(watch_hash(paths[i]) & ~a->watch_seen_crc)) continue;
+        if (is_proj) {
+            /* G54: auto-render current session beside the dropped project */
+            char outp[512];
+            snprintf(outp, sizeof(outp), "%.400s.mp4", paths[i]);
+            if (!wb_export_job_running(&a->ejob)) {
+                int rc = wb_export_job_start(&a->ejob, a->session, outp,
+                                             NULL,
+                                             a->export_codec_h264 ? WB_VIDEO_CODEC_H264
+                                                                  : WB_VIDEO_CODEC_PRORES,
+                                             -1.0, -1.0, a->export_res_h);
+                printf("watch: auto-render %s -> %s (rc=%d)\n",
+                       paths[i], outp, rc);
+            }
+        } else {
+            browser_import(a, paths[i]);           /* G43: auto-import */
+            printf("watch: auto-imported %s\n", paths[i]);
+        }
+    }
+    a->watch_seen_crc = crc;
+}
+
 /* ---- R036: commit the STEP pattern into the track's arrangement clip -- */
 static void step_commit_to_clip(app *a) {
     int ti = a->selected_track; if (ti < 0 || !a->session) return;
@@ -4594,6 +4644,11 @@ int main(int argc, char **argv) {
     a->engine = wb_engine_create();
     a->ws = wb_workspace_create(ws_on_change, a);  /* R043: tier controller */
     a->comp_graph = wb_node_graph_create();          /* R043-G6: Fusion node view */
+    /* G43/G54: watch folder is opt-in via WB_WATCH_DIR */
+    {
+        const char *wd = getenv("WB_WATCH_DIR");
+        if (wd && wd[0]) snprintf(a->watch_dir, sizeof(a->watch_dir), "%s", wd);
+    }
     /* G24: keyframe track on the Gain node (node 2) for the curve editor */
     a->kf_track = wb_param_track_create();
     a->kf_drag = -1;
@@ -4854,6 +4909,7 @@ int main(int argc, char **argv) {
         render(a);
         perf_tick(a);
         batch_tick(a);   /* G53: pump the batch render matrix */
+        watch_poll(a);   /* G43/G54: watch-folder auto-import/auto-render */
         /* G57: autosave — every 120s, to a dated Auto-Save folder (Premiere
          * convention). Only when a project path exists OR the session has
          * content; atomic via wb_session_save's own write. Keeps last 5. */

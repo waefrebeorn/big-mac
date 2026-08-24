@@ -4142,6 +4142,32 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(qs);
     }
 
+
+    /* R073 hop 17: prior keeps 90 BPM material at 90 (not 180/45) */
+    {
+        wb_session *qs = wb_session_create();
+        wb_track *qt = wb_session_add_track(qs, "click90",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: bpm90 track created");
+        uint32_t qnf = 4 * WB_SAMPLE_RATE;
+        wb_sample *qb = calloc((size_t)qnf, sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: bpm90 buffer allocated");
+        for (int h = 0; h < 6; h++) {
+            uint32_t pos =
+                (uint32_t)((0.05f + h * (2.0f / 3.0f)) * WB_SAMPLE_RATE);
+            for (uint32_t j = 0; j < 100 && pos + j < qnf; j++)
+                qb[pos + j] = (wb_sample)(0.8f * (1 - j / 100.0f));
+        }
+        CHECK(wb_session_add_audio_clip(qt, 0, 4.0, qb, qnf, 1) == 0,
+              "R073: bpm90 clip created");
+        free(qb);
+        double bpm = wb_session_estimate_bpm(qs, 0, 0);
+        CHECK(bpm > 84 && bpm < 96,
+              "R073: 90 BPM material stays near 90");
+        printf("         R073 estimated %.1f BPM (want ~90)\n", bpm);
+        wb_session_destroy(qs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

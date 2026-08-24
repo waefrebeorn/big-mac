@@ -2379,6 +2379,10 @@ double wb_session_estimate_bpm(const wb_session *s, int track, int clip) {
         for (uint32_t f = 0; f + lag < nframes; f++)
             corr += flux[f] * flux[f + lag];
         corr /= (nframes - lag);                    /* normalize by overlap */
+        /* R073 hop 17: Schreiber/Müller tempo prior — log-normal weight
+         * centered at 120 BPM breaks octave ties toward the perceptually
+         * expected metrical level */
+        corr *= exp(-0.5 * pow(log2(bpm / 120.0) / 1.0, 2.0));
         if (corr > best_corr) { best_corr = corr; best_bpm = bpm; }
     }
     /* R073: octave-error correction — a click train matches equally at 2x

@@ -88,7 +88,7 @@ every gap below is a break in one of those seven loops.
       directive list already flags FREEZE button — still open).
 [G34] P2 — Plugin sandboxing / crash isolation (Bitwig crash protection; a bad
       VST3 kills our whole process today).
-[G35] P2 — MIDI learn: map hardware knobs to any param (universal expectation).
+[G35] P2 — MIDI learn: map hardware knobs to any param (universal expectation).  **WIRED R073: Ctrl+L learn arm + target cycle, CC dispatch to master/track vol, tempo, insert param**
 [G36] P3 — Score/notation view (Cubase 14 Dorico-engine score editor trend).
 [G37] P3 — Surround/spatial monitoring paths (5.1/Atmos trend; stereo-only today).
 

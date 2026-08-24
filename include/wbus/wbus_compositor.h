@@ -104,6 +104,14 @@ int  wb_node_add_param_lane(wb_node *n, const char *name, wb_automation_lane *la
 /* Get the animated value of a node param at time t (0 if unset). */
 float wb_node_param_value(const wb_node *n, const char *name, double t);
 
+/* G67: basic color grading — Lift/Gamma/Gain applied to a frame in place.
+ * lift/gain are additive/multiplicative offsets (-1..1 typical), gamma is
+ * the classic exponent (1.0 = neutral, <1 brightens mids, >1 darkens).
+ * exposure (stops-ish linear) and saturation multiplier ride along since
+ * the clip model already carries them (R018-C). All clamped to [0,1]. */
+void wb_frame_grade(wb_frame *f, float lift, float gamma, float gain,
+                    float exposure, float saturation);
+
 /* G12: GPU-offload boundary. The CPU path is always authoritative; the
  * backend flag marks where a future Metal interop layer slots in. Frames
  * carry a `gpu` ownership flag for the swap boundary. */

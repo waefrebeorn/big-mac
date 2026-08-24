@@ -2979,6 +2979,33 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(ts);
     }
 
+    /* G67: color grading — lift/gamma/gain/exposure/saturation math */
+    {
+        wb_frame *fr = wb_frame_alloc(4, 4);
+        CHECK(fr != NULL, "G67: frame allocated");
+        if (fr) {
+            for (int i = 0; i < 16; i++) {
+                fr->px[i] = (wb_px){ 0.5f, 0.5f, 0.5f, 1.0f };
+            }
+            wb_frame_grade(fr, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f);   /* neutral */
+            CHECK(fabsf(fr->px[0].r - 0.5f) < 1e-4, "G67: neutral grade is identity");
+            wb_frame_grade(fr, 0.2f, 1.0f, 1.0f, 0.0f, 1.0f);   /* lift up */
+            CHECK(fr->px[0].r > 0.6f, "G67: lift raises blacks/mids");
+            for (int i = 0; i < 16; i++)
+                fr->px[i] = (wb_px){ 0.5f, 0.5f, 0.5f, 1.0f };
+            wb_frame_grade(fr, 0.0f, 2.0f, 1.0f, 0.0f, 1.0f);   /* gamma 2 */
+            CHECK(fr->px[0].r > 0.5f, "G67: gamma > 1 brightens mids (display convention)");
+            for (int i = 0; i < 16; i++)
+                fr->px[i] = (wb_px){ 0.25f, 0.5f, 0.75f, 1.0f };
+            wb_frame_grade(fr, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f);   /* desaturate */
+            float luma = 0.2126f*0.25f + 0.7152f*0.5f + 0.0722f*0.75f;
+            CHECK(fabsf(fr->px[0].r - luma) < 1e-4 &&
+                  fabsf(fr->px[0].g - luma) < 1e-4,
+                  "G67: saturation 0 collapses to luma");
+            wb_frame_free(fr);
+        }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

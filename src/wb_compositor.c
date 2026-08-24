@@ -770,3 +770,34 @@ int wb_node_graph_bind_param(const wb_node_graph *g, int i,
     return wb_node_add_param(g->nodes[i], name, tr);
 }
 
+
+
+/* ---- G67: basic color grading ------------------------------------------- */
+void wb_frame_grade(wb_frame *f, float lift, float gamma, float gain,
+                    float exposure, float saturation) {
+    if (!f || !f->px) return;
+    if (gamma <= 0.0f) gamma = 1.0f;
+    float inv_g = 1.0f / gamma;
+    int n = f->w * f->h;
+    for (int i = 0; i < n; i++) {
+        wb_px *p = &f->px[i];
+        float r = p->r * gain + lift + exposure * 0.5f;
+        float g = p->g * gain + lift + exposure * 0.5f;
+        float b = p->b * gain + lift + exposure * 0.5f;
+        /* gamma (on positive values) */
+        if (r > 0) r = powf(r, inv_g);
+        if (g > 0) g = powf(g, inv_g);
+        if (b > 0) b = powf(b, inv_g);
+        /* saturation around luma */
+        if (saturation != 1.0f) {
+            float luma = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+            r = luma + (r - luma) * saturation;
+            g = luma + (g - luma) * saturation;
+            b = luma + (b - luma) * saturation;
+        }
+        if (r < 0) r = 0; if (r > 1) r = 1;
+        if (g < 0) g = 0; if (g > 1) g = 1;
+        if (b < 0) b = 0; if (b > 1) b = 1;
+        p->r = r; p->g = g; p->b = b;
+    }
+}

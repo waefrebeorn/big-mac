@@ -13,6 +13,7 @@
 
 #include "wbus.h"
 #include "wbus_lufs.h"
+#include "wbus_limiter.h"
 #include "wbus_midi.h"
 #include "wbus_modulation.h"
 #include "wbus_midifx.h"
@@ -4443,6 +4444,33 @@ static void test_scale_chord_step(void) {
         printf("         R073 true-peak: sample=%.4f true=%.4f\n",
                spk, tp);
         wb_session_destroy(qs);
+    }
+
+
+    /* R073 hop 37: lookahead limiter bricks the ceiling */
+    {
+        uint32_t qnf = WB_SAMPLE_RATE;
+        wb_sample *qb = malloc((size_t)qnf * 2 * sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: limiter buffer allocated");
+        for (uint32_t i = 0; i < qnf; i++) {
+            wb_sample v = (wb_sample)(1.35 *
+                sin(2*M_PI*220.0*i/WB_SAMPLE_RATE));
+            qb[i*2] = v; qb[i*2+1] = v;
+        }
+        wb_limiter *lm = wb_limiter_create(WB_SAMPLE_RATE, 3.0, 0.95f);
+        CHECK(lm != NULL, "R073: limiter created");
+        if (lm) {
+            int rc = wb_limiter_process(lm, qb, qnf);
+            CHECK(rc == 0, "R073: limiter processed");
+            float pk = 0;
+            for (uint32_t i = 0; i < qnf; i++)
+                if (fabsf(qb[i*2]) > pk) pk = fabsf(qb[i*2]);
+            CHECK(pk <= 0.96f && pk > 0.90f,
+                  "R073: limiter holds the 0.95 ceiling");
+            printf("         R073 limiter peak=%.4f (ceiling 0.95)\n", pk);
+            wb_limiter_destroy(lm);
+        }
+        free(qb);
     }
 
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");

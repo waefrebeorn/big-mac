@@ -16,6 +16,10 @@ struct wb_input_ring {
     wb_sample *buf;        /* interleaved stereo, cap_frames*2 samples */
     uint32_t   cap;        /* capacity in FRAMES */
     uint32_t   w, r;       /* write/read cursors (frames, wrap freely) */
+    /* R073 hop 25: DC blocker state (1-pole HPF ~15 Hz, per channel) —
+     * recorded DC skews meters/LUFS and the sync gates. Single-producer
+     * write path owns this state; RT-safe arithmetic only. */
+    float dc_x[2], dc_y[2];
 };
 
 wb_input_ring *wb_inputring_create(uint32_t cap_frames) {
@@ -44,17 +48,23 @@ uint32_t wb_inputring_write(wb_input_ring *r, const wb_sample *data,
     uint32_t avail = r->cap - (r->w - r->r);
     if (frames > avail) frames = avail;          /* drop oldest-on-full policy:
                                                     overwrite not safe SPSC */
+    /* R073 hop 25: DC blocker before the ring — y[n] = x[n]-x[n-1]+R*y[n-1],
+     * R = 1 - 2*pi*15/sr ≈ 0.99786 at 44.1k */
+    const float R = 0.99786f;
     uint32_t written = 0;
-    while (written < frames) {
-        uint32_t idx = r->w % r->cap;
-        uint32_t run = frames - written;
-        uint32_t to_end = r->cap - idx;
-        if (run > to_end) run = to_end;
-        memcpy(r->buf + idx * 2, data + written * 2,
-               run * 2 * sizeof(wb_sample));
-        r->w += run;
-        written += run;
+    for (uint32_t i = 0; i < frames; i++) {
+        if ((r->w + i) - r->r >= r->cap) break;      /* full: stop early */
+        uint32_t idx = (r->w + i) % r->cap;
+        for (int cn = 0; cn < 2; cn++) {
+            float x = data[i * 2 + cn];
+            float y = x - r->dc_x[cn] + R * r->dc_y[cn];
+            r->dc_x[cn] = x;
+            r->dc_y[cn] = y;
+            r->buf[idx * 2 + cn] = y;
+        }
+        written++;
     }
+    r->w += written;
     return written;
 }
 

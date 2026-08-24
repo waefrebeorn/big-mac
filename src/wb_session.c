@@ -1926,6 +1926,19 @@ int wb_session_detect_transients(const wb_session *s, int track, int clip,
         if (f + 1 < nframes)    s += flux[f+1];
         flux[f] = s / (1.0f + (f > 0) + (f + 1 < nframes));
     }
+    /* R073 hop 9 (Stowell & Plumbley '07): adaptive whitening — track a
+     * per-frame peak ceiling that attacks instantly and decays slowly, then
+     * scale flux by it. Detection becomes independent of absolute volume:
+     * quiet passages detect as well as loud ones. */
+    {
+        float ceiling = 1e-6f;
+        const float DECAY = 0.995f;   /* per-frame; ~1s to forget a peak */
+        for (uint32_t f = 0; f < nframes; f++) {
+            ceiling *= DECAY;
+            if (flux[f] > ceiling) ceiling = flux[f];
+            flux[f] /= ceiling;
+        }
+    }
     const uint32_t MIN_DIST = HOP;                 /* ~one hop between hits */
     float thr_scale = 1.5f + sensitivity * 3.0f;   /* higher sens -> pickier */
     /* pass 1: candidate peaks vs centered threshold */
@@ -1946,7 +1959,7 @@ int wb_session_detect_transients(const wb_session *s, int track, int clip,
             win[y+1] = keyv;
         }
         float med = win[m / 2];
-        float thr = med * thr_scale + 0.0005f;
+        float thr = med * thr_scale + 0.002f;   /* whitened domain */
         if (flux[f] > thr && flux[f] >= flux[f-1] && flux[f] > flux[f+1]) {
             cand[ncand] = f * HOP;
             candv[ncand] = flux[f];

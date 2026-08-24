@@ -4020,6 +4020,32 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(qs);
     }
 
+
+    /* R073 hop 9: whitened detection — very quiet hits still found */
+    {
+        wb_session *qs = wb_session_create();
+        wb_track *qt = wb_session_add_track(qs, "quiet",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: whitening track created");
+        uint32_t qnf = WB_SAMPLE_RATE;
+        wb_sample *qb = calloc((size_t)qnf, sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: whitening buffer allocated");
+        /* 6 hits at only 0.03 amplitude, every 0.15s */
+        for (int h = 0; h < 6; h++) {
+            uint32_t pos = (uint32_t)((0.05f + h * 0.15f) * WB_SAMPLE_RATE);
+            for (uint32_t j = 0; j < 200 && pos + j < qnf; j++)
+                qb[pos + j] = (wb_sample)(0.03f * (1.0f - j / 200.0f));
+        }
+        int rc = wb_session_add_audio_clip(qt, 0.0, 1.0, qb, qnf, 1);
+        free(qb);
+        CHECK(rc == 0, "R073: whitening clip created");
+        uint32_t hits[16];
+        int nh = wb_session_detect_transients(qs, 0, 0, 0.5f, hits, 16);
+        CHECK(nh == 6, "R073: all 6 whisper-level onsets detected");
+        printf("         R073 whitened onsets=%d (want 6)\n", nh);
+        wb_session_destroy(qs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

@@ -54,3 +54,59 @@ int wb_cgi_audio_pulse(wb_anim *a, int obj,
     }
     return wrote;
 }
+
+/* ---- R073 hop 56: beat-grid pulse ------------------------------------------ */
+/* Like wb_cgi_audio_pulse, but keys land on the BEAT GRID (from
+ * wb_session_estimate_bpm) and scale follows per-beat onset strength, so
+ * pulses are musically aligned. Needs a session for tempo estimation.
+ * Returns keys written or -1. */
+int wb_cgi_beat_pulse(wb_session *s, int track, int clip,
+                      wb_anim *a, int obj,
+                      float base, float amount);
+
+int wb_cgi_beat_pulse(wb_session *s, int track, int clip,
+                      wb_anim *a, int obj,
+                      float base, float amount) {
+    if (!s || !a) return -1;
+    double bpm = wb_session_estimate_bpm(s, track, clip);
+    if (bpm < 30.0) return -1;                   /* unsure */
+    const wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    const wb_clip *cl = &tr->clips[clip];
+    if (!cl->audio_data || cl->audio_frames == 0) return -1;
+
+    /* per-beat onset loudness: RMS in the first quarter of each beat */
+    double beat_sec = 60.0 / bpm;
+    int nbeats = (int)(cl->audio_frames / WB_SAMPLE_RATE / beat_sec);
+    if (nbeats < 2) return -1;
+    uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+
+    float rms[512]; float gmax = 1e-6f;
+    if (nbeats > 512) nbeats = 512;
+    for (int b = 0; b < nbeats; b++) {
+        uint32_t s0 = (uint32_t)(b * beat_sec * WB_SAMPLE_RATE);
+        uint32_t s1 = s0 + (uint32_t)(beat_sec * WB_SAMPLE_RATE * 0.25);
+        if (s1 > cl->audio_frames) s1 = cl->audio_frames;
+        double sum = 0; uint32_t cnt = 0;
+        for (uint32_t i = s0; i < s1; i++) {
+            for (uint32_t c2 = 0; c2 < ch; c2++) {
+                double v = cl->audio_data[i * ch + c2];
+                sum += v * v; cnt++;
+            }
+        }
+        rms[b] = cnt ? sqrtf((float)(sum / cnt)) : 0.0f;
+        if (rms[b] > gmax) gmax = rms[b];
+    }
+
+    int wrote = 0;
+    for (int b = 0; b < nbeats; b++) {
+        double t = b * beat_sec;
+        float norm = rms[b] / gmax;
+        float scale = base + amount * norm;
+        if (wb_anim_key(a, obj, t,
+                        0, 0, -2, 0.0f, norm * 3.14159f, 0.0f,
+                        scale) == 0)
+            wrote++;
+    }
+    return wrote;
+}

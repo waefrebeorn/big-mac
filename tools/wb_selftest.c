@@ -4614,6 +4614,41 @@ static void test_scale_chord_step(void) {
     }
 
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
+
+    /* R073 hop 56: beat-aligned pulse */
+    {
+        wb_session *qs = wb_session_create();
+        qs->length = 2 * WB_SAMPLE_RATE;
+        wb_track *qt = wb_session_add_track(qs, "beat",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: beatpulse track created");
+        uint32_t qnf = 2 * WB_SAMPLE_RATE;
+        wb_sample *qb = calloc((size_t)qnf, sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: beatpulse buffer allocated");
+        for (int h = 0; h < 4; h++) {   /* 120 BPM = every 0.5s */
+            uint32_t pos =
+                (uint32_t)((0.05f + h * 0.5f) * WB_SAMPLE_RATE);
+            for (uint32_t j = 0; j < 100 && pos + j < qnf; j++)
+                qb[pos + j] = (wb_sample)(0.7f * (1 - j / 100.0f));
+        }
+        CHECK(wb_session_add_audio_clip(qt, 0, 2.0, qb, qnf, 1) == 0,
+              "R073: beatpulse clip added");
+        free(qb);
+        wb_anim *an = wb_anim_create(64, 64);
+        CHECK(an != NULL, "R073: beatpulse anim created");
+        wb_mesh *cube = wb_mesh_box(8, 8, 8, 255, 200, 80);
+        int obj = cube ? wb_anim_add_object(an, cube,
+                                            255, 200, 80) : -1;
+        CHECK(obj >= 0, "R073: beatpulse object added");
+        int wrote = wb_cgi_beat_pulse(qs, 0, 0, an, obj, 1.0f, 0.6f);
+        CHECK(wrote >= 3, "R073: beat pulse keys on the grid");
+        printf("         R073 beatpulse keys=%d\n", wrote);
+        if (cube) wb_mesh_free(cube);
+        wb_anim_free(an);
+        wb_session_destroy(qs);
+    }
+
+    printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
     printf("\n%d checks, %d failures\n", checks, failures);
 }
 

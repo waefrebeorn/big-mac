@@ -11,4 +11,11 @@ int wb_cgi_audio_pulse(struct wb_anim *a, int obj,
                        const wb_sample *audio, uint32_t frames,
                        uint32_t chn, double dur_secs,
                        float base, float amount);
+
+struct wb_session;
+/* R073 hop 56: beat-aligned pulse — keys land on the estimated beat grid;
+ * scale follows per-beat onset loudness. */
+int wb_cgi_beat_pulse(struct wb_session *s, int track, int clip,
+                      struct wb_anim *a, int obj,
+                      float base, float amount);
 #endif

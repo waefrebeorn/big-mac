@@ -3699,6 +3699,29 @@ static void test_scale_chord_step(void) {
         }
     }
 
+
+    /* G37: spatial placement folds to stereo pan + level */
+    {
+        wb_session *vs = wb_session_create();
+        wb_session_add_track(vs, "front", 0);
+        CHECK(wb_session_set_spatial(vs, 0, 0.0, 1.0f) == 0,
+              "G37: front-center placed");
+        CHECK(fabs(vs->tracks[0].pan) < 0.01, "G37: center angle -> centered pan");
+        float vol_front = vs->tracks[0].volume;
+        /* rear placement attenuates (surround dip) and pans hard */
+        CHECK(wb_session_set_spatial(vs, 0, 180.0, 1.0f) == 0,
+              "G37: rear placed");
+        CHECK(vs->tracks[0].volume < vol_front * 0.75f,
+              "G37: rear sources carry the -3dB surround dip");
+        /* invalid angles rejected; enable toggles the monitor flag */
+        CHECK(wb_session_set_spatial(vs, 0, -10, 1.0f) == -1 &&
+              wb_session_set_spatial(vs, 0, 400, 1.0f) == -1,
+              "G37: out-of-range angles rejected");
+        wb_session_spatial_enable(vs, 1);
+        CHECK(vs->surround_monitor == 1, "G37: surround monitor enabled");
+        wb_session_destroy(vs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

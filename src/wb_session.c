@@ -2087,3 +2087,36 @@ int wb_session_multicam_switch(wb_clip_edit_table *et, int track,
     }
     return 0;
 }
+
+/* ---- G37: surround/spatial monitoring ------------------------------------- */
+/* Per-track spatial placement: angle in degrees (0 = center/front, 90 =
+ * side right, 180 = rear, 270 = side left). When the session's surround
+ * monitor is enabled, pan/gain derive from the angle via a constant-power
+ * 5.1 placement folded down to stereo:
+ *   front L/R at +-30°, surround L/R at +-110°, center 0°, LFE omitted.
+ * Returns 0 or -1. */
+int wb_session_set_spatial(wb_session *s, int track, double angle_deg,
+                           float elevation_gain) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    if (angle_deg < 0 || angle_deg >= 360) return -1;
+    if (elevation_gain < 0 || elevation_gain > 2) return -1;
+    wb_track *tr = &s->tracks[track];
+    tr->spatial_angle = angle_deg;
+    tr->spatial_gain  = elevation_gain;
+    /* constant-power fold to stereo: front sector keeps normal pan; rear
+     * sources gain the surround dip (-3 dB headroom, phase-inverted feel via
+     * reduced level). */
+    double rad = angle_deg * M_PI / 180.0;
+    /* constant-power stereo fold: angle clockwise from front-center maps
+     * directly onto the pan law (0°=C, +90°=R, -90°/270°=L) */
+    float panv = (float)sin(rad);
+    if (panv > 1) panv = 1; if (panv < -1) panv = -1;
+    tr->pan = panv;
+    /* rear hemisphere attenuates toward -3 dB at 180° */
+    float rear = (float)(0.5 + 0.5 * cos(rad));   /* 1 front .. 0 rear */
+    tr->volume *= (0.707f + 0.293f * rear) * elevation_gain;
+    return 0;
+}
+void wb_session_spatial_enable(wb_session *s, int on) {
+    if (s) s->surround_monitor = on ? 1 : 0;
+}

@@ -110,6 +110,9 @@ typedef struct wb_track {
     int        kind;          /* WB_TRACK_KIND_* */
     float      volume;        /* linear gain */
     float      pan;           /* -1..1 */
+    /* G37: spatial placement for the surround monitor path */
+    double     spatial_angle; /* degrees 0..359, 0 = front center */
+    float      spatial_gain;  /* elevation/height trim 0..2 */
     int        mute;
     int        solo;
     int        route;         /* -1 = master, else index of bus track (kind 2) */
@@ -209,6 +212,8 @@ typedef struct wb_session {
     double    swing;
     /* G79: 0 = meters pre-fader (default), 1 = post-fader (Pro Tools mode). */
     int       meter_post_fader;
+    /* G37: surround monitor path enable (angles fold to stereo out) */
+    int       surround_monitor;
     /* G04/G70 (Wave 3 lane C): app-level media bin — the persistent list of
      * imported assets. Each entry records the source path, kind, duration and
      * display name; `offline` is set on load when the source is missing. */
@@ -527,6 +532,11 @@ int wb_session_multicam_group(struct wb_clip_edit_table *et, int track,
                               const int *clip_indices, int n);
 int wb_session_multicam_switch(struct wb_clip_edit_table *et, int track,
                                int any_member, int angle);
+/* G37: surround/spatial monitoring — place a track on the surround field
+ * (folded to the stereo bus as a monitor path) and toggle the monitor. */
+int  wb_session_set_spatial(wb_session *s, int track, double angle_deg,
+                            float elevation_gain);
+void wb_session_spatial_enable(wb_session *s, int on);
 /* G21: waveform auto-sync — sign-correlation offset between two audio clips.
  * Positive result means clip_b must move later to align with clip_a. */
 int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,

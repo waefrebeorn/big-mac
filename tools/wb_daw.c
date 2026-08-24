@@ -1121,6 +1121,24 @@ static void draw_step(app *a) {
             SDL_RenderFillRect(a->ren, &cr);
         }
     }
+    /* G85: ghost notes — other tracks' steps as dim dots in the grid so
+     * patterns can be composed against each other (FL ghost channels). */
+    if (a->session) {
+        setc(a->ren, 120, 120, 140);   /* dim ghost gray */
+        for (uint32_t gt = 0; gt < a->session->track_count; gt++) {
+            if ((int)gt == ti) continue;
+            for (int s = 0; s < steps; s++) {
+                int gp = a->step_pitch[gt][s];
+                if (gp < 0) continue;
+                int gr = 7 - (gp % rows);
+                if (gr < 0 || gr >= rows) continue;
+                int px = x0 + pad + s*(cw+pad);
+                int py = y0 + gr*(rh+pad);
+                SDL_Rect dot = { px + cw/2 - 2, py + rh/2 - 2, 4, 4 };
+                SDL_RenderFillRect(a->ren, &dot);
+            }
+        }
+    }
 }
 
 /* ---- R035/R039: SESSION clip-launcher grid (tracks x scenes) -------- */

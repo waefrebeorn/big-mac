@@ -5180,8 +5180,18 @@ static void handle_key(app *a, SDL_Keycode k) {
                     int nth = wb_session_detect_transients(
                         a->session, a->selected_track, (int)ci, 0.5f,
                         trans, 256);
-                    double rate =
-                        (SDL_GetModState() & KMOD_SHIFT) ? 2.0 : 0.5;
+                    /* R073 hop 16: stretch to the project tempo when the
+                     * clip's own tempo can be estimated */
+                    double rate = 0.0;
+                    if (!(SDL_GetModState() & KMOD_SHIFT) &&
+                        a->session->bpm > 1.0) {
+                        double cbpm = wb_session_estimate_bpm(
+                            a->session, a->selected_track, (int)ci);
+                        if (cbpm > 10.0)
+                            rate = cbpm / a->session->bpm;
+                    }
+                    if (rate <= 0.0)
+                        rate = (SDL_GetModState() & KMOD_SHIFT) ? 2.0 : 0.5;
                     wb_sample *nst = NULL;
                     uint32_t nn = wb_timestretch_tr(
                         tcl->audio_data, tcl->audio_frames,

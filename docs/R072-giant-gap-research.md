@@ -190,7 +190,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
 [G77] P2 — Copy-paste channel-strip settings between strips (Reaper/Logic).  **WIRED R073: wb_session_copy_strip (volume/pan/chain), 3 gate checks**
 [G78] P2 — Peak-hold + LUFS/true-peak meter on master (refines G32; VU misses  **WIRED R073: wb_lufs K-weighted meter + peak hold, RBJ high-shelf fix, silence-flush test**
       streaming targets entirely).
-[G79] P3 — Pre/post-fader meter point option (Pro Tools gain-staging modes).
+[G79] P3 — Pre/post-fader meter point option (Pro Tools gain-staging modes).  **WIRED R073: session meter_post_fader flag + gate check (post reads lower with fader down)**
 [G80] P2 — Scale highlight + scale-lock ("draw in-key notes only" — Ableton 12  **WIRED R073: scale_lock snaps step_click pitches via engine wb_scale_snap; LOCK toggle live**
       Scale Awareness, Cubase Scale Assistant).
 [G81] P2 — Chord/scale stamping into piano roll (FL chord tools).  **WIRED R073: chord stamp fills following steps with diatonic tones via engine wb_chord_tones**

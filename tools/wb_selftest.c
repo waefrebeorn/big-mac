@@ -3892,6 +3892,58 @@ static void test_scale_chord_step(void) {
         }
     }
 
+
+    /* R073 hop 5: NCC sync survives level drift + DC offset */
+    {
+        wb_session *ss = wb_session_create();
+        wb_track *t1 = wb_session_add_track(ss, "camA",
+                                            WB_TRACK_KIND_AUDIO);
+        wb_track *t2 = wb_session_add_track(ss, "camB",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(t1 && t2, "R073: sync tracks created");
+        uint32_t nf = WB_SAMPLE_RATE;
+        wb_sample *buf_a = calloc((size_t)nf, sizeof(wb_sample));
+        wb_sample *buf_b = calloc((size_t)(nf + WB_SAMPLE_RATE/4),
+                                  sizeof(wb_sample));
+        CHECK(buf_a && buf_b, "R073: sync buffers allocated");
+        /* the API copies the buffer into a clip it owns */
+        int rca = buf_a ? wb_session_add_audio_clip(
+            t1, 0.0, 1.0, buf_a, nf, 1) : -1;
+        int rcb = buf_b ? wb_session_add_audio_clip(
+            t2, 0.25, 1.25, buf_b, nf + WB_SAMPLE_RATE/4, 1) : -1;
+        free(buf_a); free(buf_b);
+        CHECK(rca == 0 && rcb == 0 &&
+              t1->clips[0].audio_data && t2->clips[0].audio_data,
+              "R073: sync clips created with owned buffers");
+        wb_clip *ca = &t1->clips[0];
+        wb_clip *cb = &t2->clips[0];
+        if (ca->audio_data && cb->audio_data) {
+            unsigned seed = 7;
+            for (uint32_t k = 8; k < nf / 32 - 4; k += 3) {
+                seed = seed * 1103515245 + 12345;
+                float v = ((seed >> 16) & 0xFF) / 255.0f - 0.5f;
+                if (fabsf(v) < 0.15f) v += 0.2f;
+                uint32_t ia = k * 32;
+                for (uint32_t j = 0; j < 24; j++)
+                    if (ia + j < nf) ca->audio_data[ia+j] =
+                        (wb_sample)(v * (1.0f - j / 24.0f));
+                uint32_t ib = ia + WB_SAMPLE_RATE / 4;
+                for (uint32_t j = 0; j < 24; j++)   /* half level + DC */
+                    if (ib + j < nf + WB_SAMPLE_RATE/4)
+                        cb->audio_data[ib+j] =
+                            (wb_sample)(0.5f * v * (1.0f - j / 24.0f) + 0.3f);
+            }
+            double off = -999;
+            int rc = wb_session_sync_offset(ss, 0, 0, 1, 0, &off);
+            CHECK(rc == 0, "R073: NCC sync computed on degraded pair");
+            if (rc == 0)
+                CHECK(fabs(off - 0.25) < 0.05,
+                      "R073: NCC recovers 0.25s despite level drift + DC");
+            printf("         R073 NCC off=%.4f\n", rc == 0 ? off : 0.0);
+        }
+        wb_session_destroy(ss);   /* session owns the clip buffers */
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

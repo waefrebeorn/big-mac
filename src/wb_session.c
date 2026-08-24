@@ -1963,24 +1963,34 @@ int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,
     /* search offsets in SAMPLES over +/-2 seconds, stepping by STRIDE, but
      * comparing a[i*STRIDE] against b[i*STRIDE + shift] directly so sub-stride
      * offsets resolve exactly. */
+    /* R073 hop 5: windowed normalized cross-correlation. Raw sign agreement
+     * false-positives when one recording drifts in level or carries DC.
+     * NCC removes both: subtract per-window means, normalize by signal
+     * energies. A Hann-style weight tapers window edges so partial overlaps
+     * don't win on sheer sample count. */
     int max_shift = 2 * WB_SAMPLE_RATE;
-    float best_score = 0; int best_shift = 0; int found = 0;
+    float best_score = -2.0f; int best_shift = 0; int found = 0;
     for (int shift = -max_shift; shift <= max_shift; shift += STRIDE / 2) {
-        long score = 0; long n = 0;
+        double sab = 0, sa2 = 0, sb2 = 0, wa = 0, wb = 0;
+        long n = 0;
         for (uint32_t i = 0; i < na; i++) {
             long pos_b = (long)(i * STRIDE) + shift;
             if (pos_b < 0 || pos_b >= (long)cb->audio_frames) continue;
-            float sa_ = ca->audio_data[i * STRIDE * chn];
-            float sb_ = cb->audio_data[pos_b * chn];
-            if (fabsf(sa_) < 0.01f || fabsf(sb_) < 0.01f) continue;
-            score += (sa_ > 0) == (sb_ > 0) ? 1 : -1;
+            double a = ca->audio_data[i * STRIDE * chn];
+            double b = cb->audio_data[pos_b * chn];
+            if (fabs(a) < 0.01 && fabs(b) < 0.01) continue;
+            /* Hann-style edge taper over the first/last 10% of frames */
+            double w = 1.0;
+            if (i < na / 10)          w = 0.5 * (1.0 - cos(M_PI * i / (na / 10.0)));
+            else if (i > na - na / 10) w = 0.5 * (1.0 - cos(M_PI * (na - i) / (na / 10.0)));
+            sab += w * a * b; sa2 += w * a * a; sb2 += w * b * b;
             n++;
         }
-        if (n < 16) continue;
-        float norm = (float)score / n;
-        if (!found || norm > best_score) { best_score = norm; best_shift = shift; found = 1; }
+        if (n < 16 || sa2 <= 1e-9 || sb2 <= 1e-9) continue;
+        float ncc = (float)(sab / sqrt(sa2 * sb2));
+        if (!found || ncc > best_score) { best_score = ncc; best_shift = shift; found = 1; }
     }
-    if (!found || best_score < 0.15f) return -3;   /* too weak to trust */
+    if (!found || best_score < 0.3f) return -3;   /* too weak to trust */
     *offset_secs = (double)best_shift / WB_SAMPLE_RATE;
     return 0;
 }

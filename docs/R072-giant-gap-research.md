@@ -50,8 +50,8 @@ every gap below is a break in one of those seven loops.
 [G16] P1 WIRED(razor tool R + click splits all under x) — Razor at playhead / blade-all-tracks shortcut (Cmd-B class).
 [G17] P1 — Slide edit (move content, neighbors adjust) distinct from slip
       (Derek Lieu trick list: slide vs slip are separate tools everywhere).  **WIRED R073: wb_session_slide_video_clip (Premiere Slide semantics, span-preserving), 8 gate checks**
-[G18] P2 — Replace edit / match frame (source monitor ↔ timeline roundtrip).
-[G19] P2 — Three-point editing (set in/out in source, place at playhead).
+[G18] P2 — Replace edit / match frame (source monitor ↔ timeline roundtrip).  **WIRED R073: wb_session_replace_video_clip match-frame swap**
+[G19] P2 — Three-point editing (set in/out in source, place at playhead).  **WIRED R073: wb_session_three_point_edit — split straddlers, delete covered, place source range**
 [G20] P2 — Multicam: sync angles by waveform/timecode, switch angles live
       (FCP multicam workflow; pain point #1 in r/editors threads).
 [G21] P2 — Auto audio/video sync of separate recordings by waveform

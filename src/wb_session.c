@@ -1768,3 +1768,8 @@ int wb_session_copy_strip(wb_session *s, int src_track, int dst_track) {
         wb_session_import_chain(s, dst_track, chain);
     return 0;
 }
+
+/* G79: meter tap point */
+void wb_session_set_meter_point(wb_session *s, int post_fader) {
+    if (s) s->meter_post_fader = post_fader ? 1 : 0;
+}

@@ -578,6 +578,13 @@ static void stage_effects(wb_engine *e, uint32_t frames) {
                     sum += v * v;
                 }
             }
+            /* G79: post-fader tap scales the reading by the fader gain so
+             * the meter shows what the fader is doing to the level. */
+            if (e->session->meter_post_fader) {
+                float g2 = tr->volume * tr->volume;
+                pk *= (float)sqrt(g2);
+                sum *= g2;
+            }
             st->meter_peak = pk;
             st->meter_rms  = (float)sqrtf(sum / (double)frames);
         }

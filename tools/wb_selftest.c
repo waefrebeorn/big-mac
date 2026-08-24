@@ -3358,6 +3358,35 @@ static void test_scale_chord_step(void) {
         CHECK(wb_session_copy_strip(ys, -1, 1) == -1, "G77: bad src rejected");
     }
 
+
+    /* G79: pre/post-fader meter tap */
+    {
+        wb_session *ms = wb_session_create();
+        ms->bpm = 120.0; ms->length = WB_SAMPLE_RATE;
+        wb_track *mtr = wb_session_add_track(ms, "m", 0);
+        if (mtr) {
+            mtr->volume = 0.25f;   /* heavy fader attenuation */
+            wb_session_add_note(mtr, 0, WB_SAMPLE_RATE, 69, 100);
+            wb_engine *me = wb_engine_create();
+            wb_engine_set_session(me, ms);
+            wb_engine_seek(me, 0); wb_engine_play(me);
+            wb_sample ob[1024*2];
+            wb_engine_render(me, ob, 1024);
+            float pk_pre; wb_track *mt = &ms->tracks[0];
+            pk_pre = mt->meter_peak;
+            /* switch to post-fader: reading must drop by ~the fader ratio */
+            wb_session_set_meter_point(ms, 1);
+            wb_engine_seek(me, 0);
+            wb_engine_render(me, ob, 1024);
+            float pk_post = mt->meter_peak;
+            CHECK(pk_pre > pk_post * 2.0f,
+                  "G79: post-fader meter reads lower with fader down");
+            printf("         pre=%.3f post=%.3f\n", (double)pk_pre, (double)pk_post);
+            wb_engine_destroy(me);
+        }
+        wb_session_destroy(ms);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

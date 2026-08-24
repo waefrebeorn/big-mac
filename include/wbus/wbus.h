@@ -207,6 +207,8 @@ typedef struct wb_session {
      * (Roger Linn MPC spec: 50% = straight .. 75%; stored 0..0.6 as the
      * DELAY FRACTION, i.e. 0.25 == MPC 75%). 0 = straight. */
     double    swing;
+    /* G79: 0 = meters pre-fader (default), 1 = post-fader (Pro Tools mode). */
+    int       meter_post_fader;
     /* G04/G70 (Wave 3 lane C): app-level media bin — the persistent list of
      * imported assets. Each entry records the source path, kind, duration and
      * display name; `offline` is set on load when the source is missing. */
@@ -410,6 +412,8 @@ float wb_engine_cpu_load(wb_engine *e);
 uint64_t wb_engine_xruns(wb_engine *e);
 /* G34: number of VST3 plugins quarantined for emitting bad output. */
 int wb_engine_vst3_faults(wb_engine *e);
+/* G79: toggle meter tap point session-wide. */
+void wb_session_set_meter_point(wb_session *s, int post_fader);
 
 /* Begin/end a non-RT edit (session structure change). render() try-locks
  * this; if it's held at block time, render counts an Xrun and returns

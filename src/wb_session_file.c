@@ -38,6 +38,20 @@ static int read_line_rest(FILE *f, char *out, size_t sz) {
 /* ---- token stream ------------------------------------------------------- */
 typedef struct { FILE *f; } tok_s;
 
+static char *next_tok(tok_s *ts);
+
+/* G86: look at the next token without consuming it. */
+static char *peek_tok(tok_s *ts) {
+    static char buf[512];
+    long pos = ftell(ts->f);
+    if (pos < 0) return NULL;
+    char *t = next_tok(ts);
+    if (!t) { fseek(ts->f, pos, SEEK_SET); return NULL; }
+    snprintf(buf, sizeof(buf), "%s", t);
+    fseek(ts->f, pos, SEEK_SET);
+    return buf;
+}
+
 static char *next_tok(tok_s *ts) {
     static char buf[512];
     int c;
@@ -97,8 +111,14 @@ int wb_session_save(const wb_session *s, const char *path) {
             const wb_clip *cl = &tk->clips[c];
             fprintf(f, "  clip %u start %.3f length %.3f gain %.4f lane %d\n", c, cl->start, cl->length, cl->clip_gain, cl->lane);
             for (uint32_t n = 0; n < cl->note_count; n++)
-                fprintf(f, "    note %d %.3f %.3f %d\n",
-                        cl->notes[n].pitch, cl->notes[n].start, cl->notes[n].dur, cl->notes[n].vel);
+                if (cl->notes[n].mod || cl->notes[n].atouch)
+                    fprintf(f, "    note %d %.3f %.3f %d %d %d\n",
+                            cl->notes[n].pitch, cl->notes[n].start, cl->notes[n].dur,
+                            cl->notes[n].vel, cl->notes[n].mod, cl->notes[n].atouch);
+                else
+                    fprintf(f, "    note %d %.3f %.3f %d\n",
+                            cl->notes[n].pitch, cl->notes[n].start, cl->notes[n].dur,
+                            cl->notes[n].vel);
             fprintf(f, "  end_clips\n");
         }
         fprintf(f, "end_track\n");
@@ -219,11 +239,21 @@ wb_session *wb_session_load(const char *path) {
                             tok=next_tok(&ts); if(tok) cl->lane=atoi(tok);
                         }
                         else if (strcmp(tok,"note")==0) {
-                            wb_note no = {0,0,0,100};
+                            wb_note no = {0,0,0,100,0,0};
                             tok=next_tok(&ts); no.pitch = tok?(uint8_t)atoi(tok):0;
                             tok=next_tok(&ts); no.start = tok?atof(tok):0;
                             tok=next_tok(&ts); no.dur  = tok?atof(tok):0;
                             tok=next_tok(&ts); no.vel  = tok?(uint8_t)atoi(tok):0;;
+                            /* G86: optional mod + aftertouch tokens. Peek
+                             * without consuming unless they look numeric so we
+                             * don't swallow the "end_clips" marker. */
+                            tok = peek_tok(&ts);
+                            if (tok && tok[0] >= '0' && tok[0] <= '9') {
+                                no.mod = (uint8_t)atoi(next_tok(&ts));
+                                tok = peek_tok(&ts);
+                                if (tok && tok[0] >= '0' && tok[0] <= '9')
+                                    no.atouch = (uint8_t)atoi(next_tok(&ts));
+                            }
                             cl->note_count++;
                             cl->notes = realloc(cl->notes, cl->note_count*sizeof(wb_note));
                             cl->notes[cl->note_count-1] = no;

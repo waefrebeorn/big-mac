@@ -54,6 +54,10 @@ typedef struct wb_note {
     double dur;      /* samples */
     uint8_t pitch;   /* MIDI note 0-127 */
     uint8_t vel;     /* 0-127 */
+    /* G86: multi-CC lanes. Per-note controller snapshots shown/edited in the
+     * lane editors. Defaults 0 (mod off) / 0 (no aftertouch). */
+    uint8_t mod;     /* CC1 modulation wheel 0-127 */
+    uint8_t atouch;  /* channel aftertouch 0-127 */
 } wb_note;
 
 /* ---- clips ------------------------------------------------------------ */

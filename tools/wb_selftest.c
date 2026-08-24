@@ -3164,6 +3164,28 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(ms);
     }
 
+
+    /* G86: multi-CC lanes — mod/atouch persist through .wbus roundtrip */
+    {
+        wb_session *cs = wb_session_create();
+        wb_track *ctr = wb_session_add_track(cs, "cc", 0);
+        CHECK(ctr != NULL, "G86: track created");
+        if (ctr) {
+            wb_session_add_note(ctr, 0, WB_SAMPLE_RATE, 60, 100);
+            wb_note *n = &ctr->clips[0].notes[0];
+            n->mod = 77; n->atouch = 42;
+            wb_session_save(cs, "/tmp/g86.wbus");
+            wb_session_destroy(cs);
+            wb_session *l = wb_session_load("/tmp/g86.wbus");
+            CHECK(l && l->tracks[0].clip_count == 1 &&
+                  l->tracks[0].clips[0].notes[0].mod == 77 &&
+                  l->tracks[0].clips[0].notes[0].atouch == 42,
+                  "G86: mod/atouch round-trip");
+            remove("/tmp/g86.wbus");
+            if (l) wb_session_destroy(l);
+        } else { remove("/tmp/g86.wbus"); }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

@@ -200,6 +200,7 @@ typedef struct app {
     int vel_drag_step;       /* G87: vertical drag active on this step (-1=none) */
     int  prefs_visible;      /* G51: preferences overlay toggle */
     int  reduced_motion;     /* G62: WB_REDUCED_MOTION=1 disables flashes */
+    int  cc_lane;            /* G86: 0=VEL, 1=MOD (CC1), 2=AFTERTOUCH */
     /* G44: title tool */
     char title_text[128];
     double title_in, title_out;   /* seconds */
@@ -1029,7 +1030,11 @@ static void draw_arrangement(app *a) {
         int vh = 30;
         SDL_Rect vstrip = { GUTTER_W, vy, ARRANG_W, vh };
         setc(a->ren, C_PANEL2); SDL_RenderFillRect(a->ren, &vstrip);
-        wb_ui_draw_text(a->ren, GUTTER_W+4, vy+2, "VELOCITY", 1, C_TEXT_DIM);
+        static const char *lnames[] = { "VELOCITY", "MOD CC1", "AFTERTOUCH" };
+        wb_ui_draw_text(a->ren, GUTTER_W+4, vy+2, lnames[a->cc_lane % 3],
+                        1, C_TEXT_DIM);
+        wb_ui_draw_text(a->ren, GUTTER_W+90, vy+2,
+                        "(click LANE button to cycle)", 1, C_TEXT_DIM);
         if (a->session) for (uint32_t t=0;t<a->session->track_count;t++) {
             wb_track *tr = &a->session->tracks[t];
             for (uint32_t c=0;c<tr->clip_count;c++) {
@@ -1039,7 +1044,12 @@ static void draw_arrangement(app *a) {
                     double s = cl->start + nt->start;
                     int x = arr_x(a, s);
                     if (x < GUTTER_W) continue;
-                    int vv = nt->vel > 127 ? 127 : (nt->vel < 0 ? 0 : nt->vel);
+                    int vv;
+                    switch (a->cc_lane % 3) {
+                    case 1:  vv = nt->mod;    break;
+                    case 2:  vv = nt->atouch; break;
+                    default: vv = nt->vel;    break;
+                    }
                     int bh = (int)((vv/127.0f) * (vh-4));
                     SDL_Rect vb = { x, vy + (vh-2) - bh, 3, bh };
                     setc(a->ren, 200, 200, 90);
@@ -1871,6 +1881,8 @@ static void draw_action_bar(app *a) {
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "+ TRACK", 0);
         ui_button(a->ren, BTN_ACT1, bx+bw+6,  by, bw, bh, "MARKER",  0);
         ui_button(a->ren, BTN_ACT2, bx+2*(bw+6), by, bw, bh, "COMP",    0);
+        ui_button(a->ren, 64000, bx+3*(bw+6), by, bw, bh,
+                  (const char *[]){"VEL","MOD","ATOUCH"}[a->cc_lane % 3], 0); /* G86 */
     } else if (tab == 1) {  /* PAD */
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "STOP ALL", 0);
         ui_button(a->ren, BTN_ACT1, bx+bw+6,   by, bw, bh, "CAPTURE", 0);   /* G93 */
@@ -3728,6 +3740,9 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                 }
                 case BTN_ACT0: case BTN_ACT1: case BTN_ACT2: case BTN_ACT3:
                     handle_action(a, id - BTN_ACT0); break;
+                case 64000:   /* G86: cycle the lane editor VEL/MOD/ATOUCH */
+                    a->cc_lane = (a->cc_lane + 1) % 3;
+                    break;
                 case 62000:   /* G92: retrig on the selected step (STEP tab) */
                     handle_action(a, 4); break;
                 case 63000: { /* G95: cycle follow action + chance for the

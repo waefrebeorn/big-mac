@@ -3186,6 +3186,19 @@ static void test_scale_chord_step(void) {
         } else { remove("/tmp/g86.wbus"); }
     }
 
+
+    /* G84: articulation map */
+    CHECK(wb_articulation_count() == 6, "G84: six articulations");
+    CHECK(wb_articulation_keyswitch(2) == 38 &&
+          strcmp(wb_articulation_name(2), "STACCATO") == 0,
+          "G84: keyswitch map resolves");
+    wb_session *as = wb_session_create();
+    wb_session_add_track(as, "a", 0);
+    CHECK(wb_session_set_articulation(as, 0, 1) == 0 &&
+          wb_session_set_articulation(as, 0, -5) == -1,
+          "G84: set_articulation validates ids");
+    wb_session_destroy(as);
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

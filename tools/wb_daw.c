@@ -212,6 +212,7 @@ typedef struct app {
     int   midi_learn_target; /* target id to bind when armed */
     struct { int cc; int target; } midi_map[16];
     int   midi_map_n;
+    int   articulation;      /* G84: current articulation id for selected track */
     int last_lp_row;         /* last Mk2 grid row lit (for release dim) */
     int last_lp_col;
 
@@ -1892,6 +1893,12 @@ static void draw_action_bar(app *a) {
         ui_button(a->ren, BTN_ACT2, bx+2*(bw+6), by, bw, bh, "CAPTURE", 0); /* G93 */
         ui_button(a->ren, BTN_ACT3, bx+3*(bw+6), by, bw, bh, "FILL", 0);    /* G91: shift=4th alt=rand */
         ui_button(a->ren, 62000, bx+4*(bw+6), by, bw, bh, "RETRIG", 0);     /* G92 */
+        {   /* G84: articulation cycle — hides the raw keyswitch note */
+            static char albl[24];
+            snprintf(albl, sizeof(albl), "ART:%s",
+                     wb_articulation_name(a->articulation));
+            ui_button(a->ren, 65000, bx+5*(bw+6), by, bw, bh, albl, a->articulation != 0);
+        }
     } else if (tab == 3) {  /* SESSION */
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "STOP ALL", 0);
         ui_button(a->ren, BTN_ACT1, bx+bw+6,   by, bw, bh,
@@ -3743,6 +3750,23 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                 case 64000:   /* G86: cycle the lane editor VEL/MOD/ATOUCH */
                     a->cc_lane = (a->cc_lane + 1) % 3;
                     break;
+                case 65000: { /* G84: cycle articulation + send keyswitch */
+                    int n = wb_articulation_count();
+                    a->articulation = (a->articulation + 1) % n;
+                    int ks = wb_articulation_keyswitch(a->articulation);
+                    if (a->selected_track >= 0) {
+                        wb_engine_note(a->engine, a->selected_track,
+                                       (uint8_t)ks, 100);
+                        wb_engine_note(a->engine, a->selected_track,
+                                       (uint8_t)ks, 0);
+                    }
+                    snprintf(a->last_status, sizeof(a->last_status),
+                             "ARTICULATION %s (keyswitch %d)",
+                             wb_articulation_name(a->articulation), ks);
+                    printf("articulation: %s -> keyswitch %d\n",
+                           wb_articulation_name(a->articulation), ks);
+                    break;
+                }
                 case 62000:   /* G92: retrig on the selected step (STEP tab) */
                     handle_action(a, 4); break;
                 case 63000: { /* G95: cycle follow action + chance for the

@@ -466,6 +466,11 @@ int  wb_session_strip_silence(wb_session *s, int track, int clip,
 /* G83: MIDI transformations — 0 humanize, 1 randomize-velocities,
  * 2 arpeggiate-up, 3 strum. Returns notes touched or -1. */
 int  wb_session_transform_notes(wb_session *s, int track, int clip, int mode);
+/* G84: articulation management — named articulations hide raw keyswitches. */
+int         wb_session_set_articulation(wb_session *s, int track, int art_id);
+const char *wb_articulation_name(int art_id);
+int         wb_articulation_keyswitch(int art_id);
+int         wb_articulation_count(void);
 
 /* (Re)compute the `offline` flag of every bin entry and video clip from disk
  * existence. Called on project load (G70) and before relink searches. */

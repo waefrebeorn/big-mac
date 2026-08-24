@@ -325,6 +325,8 @@ void wb_engine_set_snap(wb_engine *e, int on);                    /* G10 */
 
 /* ---- parameter/note injection from UI (thread-safe) ------------------- */
 void wb_engine_set_track_volume(wb_engine *e, int track, float vol);
+/* G35: set the master bus volume directly (0..1+). */
+void wb_engine_set_master_volume(wb_engine *e, float vol);
 void wb_engine_note(wb_engine *e, int track, uint8_t pitch, uint8_t vel);
 /* R037: SESSION-view clip launching (transport-independent loop playback).
  * wb_engine_launch toggles a clip playing from its start; passing the already-

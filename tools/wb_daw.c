@@ -198,6 +198,12 @@ typedef struct app {
     int kf_drag;                 /* -1 none, else key index being dragged */
     double kf_drag_t0;           /* key time at drag start */
     int vel_drag_step;       /* G87: vertical drag active on this step (-1=none) */
+    /* G35: MIDI learn — CC number -> target. target: 0=master vol,
+     * 1=selected track vol, 2=tempo, 3=insert slot 1 param 0 (selected tr). */
+    int   midi_learn_armed;  /* 1 = next CC received binds */
+    int   midi_learn_target; /* target id to bind when armed */
+    struct { int cc; int target; } midi_map[16];
+    int   midi_map_n;
     int last_lp_row;         /* last Mk2 grid row lit (for release dim) */
     int last_lp_col;
 
@@ -2594,6 +2600,48 @@ static void midi_cb(wb_midi_event ev, void *userdata) {
             }
             a->last_lp_row = row; a->last_lp_col = col;
         }
+    } else if (st == 0xB0) {
+        /* G35: MIDI learn — CC maps to a bound target */
+        int cc = ev.data1, val = ev.data2;
+        if (a->midi_learn_armed) {
+            /* bind: reuse an existing entry for this CC or append */
+            int slot = -1;
+            for (int i = 0; i < a->midi_map_n; i++)
+                if (a->midi_map[i].cc == cc) { slot = i; break; }
+            if (slot < 0 && a->midi_map_n < 16)
+                slot = a->midi_map_n++;
+            if (slot >= 0) {
+                a->midi_map[slot].cc = cc;
+                a->midi_map[slot].target = a->midi_learn_target;
+                snprintf(a->last_status, sizeof(a->last_status),
+                         "LEARNED CC %d -> target %d", cc,
+                         a->midi_learn_target);
+                printf("midilearn: CC %d -> %d\n", cc, a->midi_learn_target);
+            }
+            a->midi_learn_armed = 0;
+            return;
+        }
+        for (int i = 0; i < a->midi_map_n; i++) {
+            if (a->midi_map[i].cc != cc) continue;
+            float f = val / 127.0f;
+            switch (a->midi_map[i].target) {
+            case 0:  /* master volume */
+                wb_engine_set_master_volume(a->engine, f);
+                break;
+            case 1:  /* selected track volume */
+                if (a->selected_track >= 0)
+                    wb_engine_set_track_volume(a->engine, a->selected_track, f);
+                break;
+            case 2:  /* tempo 60..180 */
+                wb_engine_set_bpm(a->engine, 60.0 + f * 120.0);
+                break;
+            case 3:  /* selected track insert slot 1, param 0 */
+                if (a->selected_track >= 0)
+                    wb_engine_set_insert_param(a->engine, a->selected_track,
+                                               1, 0, f);
+                break;
+            }
+        }
     } else if (st == 0x80) {
         /* note off → silence the voice (key off) + dim the pad */
         wb_engine_note(a->engine, a->midi_track, ev.data1, 0);
@@ -4474,7 +4522,15 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_l:
-        if (a->tab == 0 || a->tab == 1 || (a->tab == 5 && a->trim_mode)) {
+        if (ctrl) {  /* G35: Ctrl+L arms MIDI learn; repeat cycles the target */
+            static const char *lt[] = { "MASTER VOL", "TRACK VOL", "TEMPO",
+                                        "INSERT P0" };
+            a->midi_learn_armed = 1;
+            a->midi_learn_target = (a->midi_learn_target + 1) % 4;
+            snprintf(a->last_status, sizeof(a->last_status),
+                     "MIDI LEARN: move a knob for %s", lt[a->midi_learn_target]);
+            printf("midilearn: armed for %s\n", lt[a->midi_learn_target]);
+        } else if (a->tab == 0 || a->tab == 1 || (a->tab == 5 && a->trim_mode)) {
             if (a->jkl_speed < 0) a->jkl_speed = 1;
             else if (a->jkl_speed < 8) a->jkl_speed++;
             else a->jkl_speed = 0;

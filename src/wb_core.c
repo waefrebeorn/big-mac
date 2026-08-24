@@ -832,6 +832,12 @@ void wb_engine_set_track_volume(wb_engine *e, int track, float vol) {
     wb_cmd c = { .type = WB_CMD_SET_TRACK_VOL, .i0 = track, .f0 = vol };
     wb_cmd_push(&e->queue, c);
 }
+/* G35: master volume setter (thread-safe via the cmd queue). */
+void wb_engine_set_master_volume(wb_engine *e, float vol) {
+    if (!e) return;
+    if (vol < 0.0f) vol = 0.0f;
+    e->master_volume = vol;   /* plain float read on RT path; atomic enough */
+}
 void wb_engine_note(wb_engine *e, int track, uint8_t pitch, uint8_t vel) {
     /* mirror into any armed recorder for this track (RT-safe) */
     if (e && track >= 0 && track < (int)WB_MAX_TRACKS && e->recorders[track]) {

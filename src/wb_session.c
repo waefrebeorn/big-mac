@@ -1809,3 +1809,78 @@ int wb_session_batch_transitions(wb_session *s, int track, struct
     }
     return cuts;
 }
+
+/* ---- G47: OTIO export ----------------------------------------------------- */
+/* Export the video arrangement as an OpenTimelineIO (JSON) timeline: one
+ * Track containing a Clip per video clip, with source_range (source in-point
+ * and duration in seconds) and timeline offsets. OTIO's schema is JSON; we
+ * emit the core fields interchange tools read. Returns 0 or -1. */
+int wb_session_export_otio(const wb_session *s, const char *path) {
+    if (!s || !path) return -1;
+    FILE *f = fopen(path, "w");
+    if (!f) return -1;
+    fprintf(f,
+        "{\n"
+        "  \"OTIO_SCHEMA\": \"Timeline.1\",\n"
+        "  \"name\": \"BigMac Session\",\n"
+        "  \"global_start_time\": \"00:00:00:00\",\n"
+        "  \"tracks\": {\n"
+        "    \"OTIO_SCHEMA\": \"Stack.1\",\n"
+        "    \"children\": [\n");
+    int emitted_any = 0;
+    for (uint32_t t = 0; t < s->track_count; t++) {
+        if (s->tracks[t].kind != WB_TRACK_KIND_VIDEO) continue;
+        emitted_any = 1;
+        fprintf(f,
+            "      {\n"
+            "        \"OTIO_SCHEMA\": \"Track.1\",\n"
+            "        \"name\": \"V%u\",\n"
+            "        \"kind\": \"Video\",\n"
+            "        \"children\": [\n", t);
+        double cursor = 0.0;
+        int first = 1;
+        for (uint32_t c = 0; c < s->tracks[t].clip_count; c++) {
+            const wb_clip *cl = &s->tracks[t].clips[c];
+            if (cl->type != 2 || !cl->video) continue;
+            double src_in = cl->video->start_in_source < 0
+                          ? 0 : cl->video->start_in_source;
+            double dur = cl->video->duration > 0 ? cl->video->duration : 0;
+            double gap = cl->start - cursor;   /* gap before this clip */
+            /* represent gaps as Gap objects so offsets stay exact */
+            while (gap > 0.001) {
+                double g = gap > 1.0 ? 1.0 : gap;
+                fprintf(f,
+                    "%s        {\"OTIO_SCHEMA\":\"Gap.1\","
+                    "\"source_range\":{\"start_time\":0,"
+                    "\"duration\":%.6f}}",
+                    first ? "" : ",\n", g);
+                first = 0;
+                cursor += g; gap -= g;
+                if (gap > 0.001) continue;
+                break;
+            }
+            fprintf(f,
+                    "%s        {\"OTIO_SCHEMA\":\"Clip.1\","
+                    "\"name\":\"%s\","
+                    "\"media_reference\":{"
+                    "\"OTIO_SCHEMA\":\"ExternalReference.1\","
+                    "\"target_url\":\"%s\"},"
+                    "\"source_range\":{"
+                    "\"start_time\":%.6f,\"duration\":%.6f}"
+                    "}",
+                    first ? "" : ",\n",
+                    cl->video->source_path ? cl->video->source_path : "clip",
+                    cl->video->source_path ? cl->video->source_path : "",
+                    src_in, dur);
+            first = 0;
+            cursor = cl->start + dur;
+        }
+        fprintf(f, "\n        ]\n      }");
+        /* only the first video track is emitted in full for now */
+        break;
+    }
+    (void)emitted_any;
+    fprintf(f, "\n    ]\n  }\n}\n");
+    fclose(f);
+    return 0;
+}

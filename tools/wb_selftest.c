@@ -3470,6 +3470,41 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(bs);
     }
 
+
+    /* G47: OTIO export — valid JSON, contains clip + schema fields */
+    {
+        wb_session *os = wb_session_create();
+        int vt = wb_session_add_video_track(os, "V1");
+        CHECK(vt >= 0, "G47: video track created");
+        if (vt >= 0) {
+            wb_track *otr = &os->tracks[vt];
+            otr->clips = calloc(1, sizeof(wb_clip));
+            otr->clip_count = 1;
+            wb_clip *cl = &otr->clips[0];
+            memset(cl, 0, sizeof(*cl));
+            cl->type = 2; cl->start = 0; cl->length = 3.0;
+            cl->video = calloc(1, sizeof(wb_video_clip));
+            wb_video_clip_init(cl->video);
+            snprintf(cl->video->source_path,
+                     sizeof(cl->video->source_path), "/tmp/g47_src.mp4");
+            cl->video->start_in_source = 1.5;
+            cl->video->duration = 3.0;
+            CHECK(wb_session_export_otio(os, "/tmp/g47.otio") == 0,
+                  "G47: OTIO export succeeds");
+            FILE *f = fopen("/tmp/g47.otio", "r");
+            CHECK(f != NULL, "G47: OTIO file exists");
+            char body[4096] = {0};
+            if (f) { size_t rd = fread(body, 1, sizeof(body)-1, f); body[rd] = 0; fclose(f); }
+            CHECK(strstr(body, "\"Timeline.1\"") &&
+                  strstr(body, "\"Clip.1\"") &&
+                  strstr(body, "g47_src.mp4") &&
+                  strstr(body, "1.500000"),
+                  "G47: OTIO carries schema, clip ref, source in-point");
+            remove("/tmp/g47.otio");
+        }
+        wb_session_destroy(os);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

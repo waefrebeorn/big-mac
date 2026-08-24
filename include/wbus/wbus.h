@@ -506,6 +506,8 @@ int  wb_session_copy_strip(wb_session *s, int src_track, int dst_track);
 /* G73: batch transitions — set a default crossfade across all cuts. */
 int  wb_session_batch_transitions(wb_session *s, int track,
                                   struct wb_clip_edit_table *et, double xf);
+/* G47: export the video arrangement as OpenTimelineIO (JSON). */
+int  wb_session_export_otio(const wb_session *s, const char *path);
 /* G72: set a clip's retiming rate via its edit side-table entry. */
 double wb_session_set_retime(struct wb_clip_edit_table *et, int track,
                              int clip, double rate);

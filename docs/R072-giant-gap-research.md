@@ -54,7 +54,7 @@ every gap below is a break in one of those seven loops.
 [G19] P2 — Three-point editing (set in/out in source, place at playhead).  **WIRED R073: wb_session_three_point_edit — split straddlers, delete covered, place source range**
 [G20] P2 — Multicam: sync angles by waveform/timecode, switch angles live
       (FCP multicam workflow; pain point #1 in r/editors threads).
-[G21] P2 — Auto audio/video sync of separate recordings by waveform
+[G21] P2 — Auto audio/video sync of separate recordings by waveform  **WIRED R073: sign-correlation sync offset (silence-gated, sample-resolution search), gate-verified on 0.25s misalignment**
       ("syncing separate audio is a nightmare" — top pain point).
 [G22] P3 — Magnetic-timelime-style rippling default OR swap-clips drag.  **WIRED R073: wb_session_swap_clips + ALT+drop swap in arrangement**
 

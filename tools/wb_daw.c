@@ -5167,6 +5167,44 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_t:  /* EDIT tab: T = G15 TRIM MODE (Ctrl+T = legacy trim start) */
+        if (SDL_GetModState() & KMOD_CTRL) {
+            /* R073 hop 14: Ctrl+T = transient-aware stretch on the selected
+             * track's first audio clip (Shift = 2x faster, default 0.5x). */
+            if (a->session && a->selected_track >= 0 &&
+                a->selected_track < (int)a->session->track_count) {
+                wb_track *ttr = &a->session->tracks[a->selected_track];
+                for (uint32_t ci = 0; ci < ttr->clip_count; ci++) {
+                    wb_clip *tcl = &ttr->clips[ci];
+                    if (tcl->type != 1 || !tcl->audio_data) continue;
+                    uint32_t trans[256];
+                    int nth = wb_session_detect_transients(
+                        a->session, a->selected_track, (int)ci, 0.5f,
+                        trans, 256);
+                    double rate =
+                        (SDL_GetModState() & KMOD_SHIFT) ? 2.0 : 0.5;
+                    wb_sample *nst = NULL;
+                    uint32_t nn = wb_timestretch_tr(
+                        tcl->audio_data, tcl->audio_frames,
+                        tcl->audio_channels > 0 ? tcl->audio_channels : 1,
+                        rate, 0.0, nth > 0 ? trans : NULL,
+                        (uint32_t)(nth > 0 ? nth : 0), &nst);
+                    if (nn > 0 && nst) {
+                        free(tcl->audio_data);
+                        tcl->audio_data = nst;
+                        tcl->audio_frames = nn;
+                        tcl->length = (double)nn / WB_SAMPLE_RATE;
+                        printf("stretch: clip %u -> %.2fs (%.1fx, "
+                               "%d transients)\n", ci, tcl->length,
+                               rate, nth);
+                        snprintf(a->last_status,
+                                 sizeof(a->last_status),
+                                 "STRETCH %.1fx", rate);
+                    }
+                    break;
+                }
+            }
+            break;
+        }
         if (a->tab == 5 && a->vid_has_clip && !ctrl) {
             trim_mode_enter(a, -1);
         } else if (a->tab == 5 && a->vid_has_clip) {

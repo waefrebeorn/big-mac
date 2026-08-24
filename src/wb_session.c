@@ -1470,3 +1470,76 @@ int wb_session_strip_silence(wb_session *s, int track, int clip,
     free(newclips);
     return nreg;
 }
+
+/* ---- G18/G19: replace edit + three-point editing ------------------------ */
+/* G18: replace edit — swap the clip at (track, clip) for a new source,
+ * keeping the SAME timeline position and duration (match-frame replace).
+ * Returns the new clip index, or -1 on error. */
+int wb_session_replace_video_clip(wb_session *s, int track, int clip,
+                                  const char *new_source) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    wb_clip *old = &tr->clips[clip];
+    if (old->type != 2 || !old->video) return -1;
+    double pos = old->start;                 /* keep position + duration */
+    double old_dur = old->length > 0 ? old->length
+                   : (old->video->duration > 0 ? old->video->duration : 0.0);
+    if (wb_session_remove_video_clip(s, track, clip) != 0) return -1;
+    /* remove compacted the array; insert the replacement at the same spot by
+     * re-adding at pos, then moving it into index `clip` */
+    int ni = wb_session_add_video_clip(s, track, new_source, pos);
+    if (ni < 0) return -1;
+    /* match-frame: restore the exact slot duration (add_video_clip may leave
+     * length 0 for offline sources until a probe succeeds). */
+    tr->clips[ni].length = old_dur;
+    tr->clips[ni].video->duration = old_dur;
+    tr->clips[ni].video->timeline_pos = pos;
+    if (ni != clip) {
+        wb_clip tmp = tr->clips[clip];
+        tr->clips[clip] = tr->clips[ni];
+        tr->clips[ni] = tmp;
+    }
+    return clip;
+}
+
+/* G19: three-point editing — place a source range [src_in, src_in+dur) from
+ * `source` onto the timeline AT playhead `dest`, overwriting whatever is
+ * there (splitting straddlers). Points 1+2 = source in/out; point 3 =
+ * timeline destination. Returns the new clip index or -1. */
+int wb_session_three_point_edit(wb_session *s, int track, const char *source,
+                                double src_in, double dur, double dest) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    if (dur <= 0.0) return -1;
+    wb_track *tr = &s->tracks[track];
+    /* split any clip straddling [dest, dest+dur), back to front */
+    for (uint32_t c = tr->clip_count; c-- > 0; ) {
+        wb_clip *cl = &tr->clips[c];
+        if (cl->type != 2 || !cl->video) continue;
+        double cs = cl->start, ce = cl->start + cl->length;
+        if (cs < dest && ce > dest && ce <= dest + dur)
+            wb_session_split_video_clip(s, track, (int)c, dest);
+        else if (cs < dest + dur && ce > dest + dur && cs >= dest)
+            wb_session_split_video_clip(s, track, (int)c, dest + dur);
+        else if (cs < dest && ce > dest + dur) {
+            wb_session_split_video_clip(s, track, (int)c, dest);
+            /* after split the tail sits at index c+1 */
+            wb_session_split_video_clip(s, track, (int)c + 1, dest + dur);
+        }
+    }
+    /* delete fully-covered clips, back to front */
+    for (uint32_t c = tr->clip_count; c-- > 0; ) {
+        wb_clip *cl = &tr->clips[c];
+        if (cl->type != 2 || !cl->video) continue;
+        if (cl->start >= dest && cl->start + cl->length <= dest + dur + 0.001)
+            wb_session_remove_video_clip(s, track, (int)c);
+    }
+    /* place the source range */
+    int ni = wb_session_add_video_clip(s, track, source, dest);
+    if (ni >= 0 && tr->clips[ni].video) {
+        tr->clips[ni].video->start_in_source = src_in;
+        tr->clips[ni].length = dur;
+        tr->clips[ni].video->duration = dur;
+    }
+    return ni;
+}

@@ -544,6 +544,12 @@ int  wb_session_move_insert(wb_session *s, int track, int from, int to);
 /* G63: re-pair facing fades of adjacent clips after moves/trims (dynamic
  * transitions). Pass the engine's clip-edit side-table. */
 void wb_session_update_transitions(wb_session *s, struct wb_clip_edit_table *et);
+/* G18: replace edit — same slot, new source (match frame). */
+int  wb_session_replace_video_clip(wb_session *s, int track, int clip,
+                                   const char *new_source);
+/* G19: three-point edit — source in/dur placed at timeline dest, overwrite. */
+int  wb_session_three_point_edit(wb_session *s, int track, const char *source,
+                                 double src_in, double dur, double dest);
 
 /* R048: transcript text-editing — delete the word range [w0, w1) from the
  * transcript AND ripple-cut that time span out of the track's video clips

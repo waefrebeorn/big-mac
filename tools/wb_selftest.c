@@ -3089,6 +3089,53 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(gs);
     }
 
+
+    /* G18/G19: replace edit + three-point editing */
+    {
+        wb_session *rs = wb_session_create();
+        wb_track *rtr = wb_session_add_track(rs, "V", 3);
+        CHECK(rtr != NULL, "G18: video track created");
+        if (rtr) {
+            /* build one 2s clip manually (no ffmpeg needed for the math) */
+            rtr->clips = calloc(1, sizeof(wb_clip));
+            rtr->clip_count = 1;
+            wb_clip *cl = &rtr->clips[0];
+            memset(cl, 0, sizeof(*cl));
+            cl->type = 2; cl->start = 0; cl->length = 2.0;
+            cl->video = calloc(1, sizeof(wb_video_clip));
+            wb_video_clip_init(cl->video);
+            snprintf(cl->video->source_path, sizeof(cl->video->source_path),
+                     "/tmp/g18_old.mp4");
+            cl->video->duration = 2.0;
+            /* G19: three-point place of a new source over [1.0, 3.5) */
+            int ni = wb_session_three_point_edit(rs, 0, "/tmp/g18_new.mp4",
+                                                 5.0, 2.5, 1.0);
+            CHECK(ni >= 0, "G19: three-point edit placed a clip");
+            int found_new = -1;
+            for (uint32_t c = 0; c < rtr->clip_count; c++)
+                if (strstr(rtr->clips[c].video->source_path, "g18_new"))
+                    found_new = (int)c;
+            CHECK(found_new >= 0 &&
+                  fabs(rtr->clips[found_new].start - 1.0) < 1e-6 &&
+                  fabs(rtr->clips[found_new].length - 2.5) < 1e-6,
+                  "G19: placed at dest with src_in + dur");
+            if (found_new >= 0)
+                CHECK(fabs(rtr->clips[found_new].video->start_in_source - 5.0) < 1e-6,
+                      "G19: source in-point honored");
+            /* G18: replace edit on the placed clip keeps slot + duration */
+            double p0 = rtr->clips[found_new].start;
+            double l0 = rtr->clips[found_new].length;
+            int rc = wb_session_replace_video_clip(rs, 0, found_new,
+                                                   "/tmp/g18_repl.mp4");
+            CHECK(rc == found_new &&
+                  strstr(rtr->clips[rc].video->source_path, "g18_repl") &&
+                  fabs(rtr->clips[rc].start - p0) < 1e-6 &&
+                  fabs(rtr->clips[rc].length - l0) < 1e-6,
+                  "G18: replace keeps position and duration");
+        }
+        wb_session_destroy(rs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

@@ -1751,3 +1751,20 @@ int wb_session_import_chain(wb_session *s, int track, const char *chain) {
     }
     return 0;
 }
+
+/* ---- G77: copy/paste channel-strip settings ------------------------------ */
+/* Copies volume, pan, and the whole insert chain from track A to B.
+ * Returns 0 or -1. */
+int wb_session_copy_strip(wb_session *s, int src_track, int dst_track) {
+    if (!s || src_track < 0 || src_track >= (int)s->track_count ||
+        dst_track < 0 || dst_track >= (int)s->track_count) return -1;
+    if (src_track == dst_track) return 0;
+    wb_track *from = &s->tracks[src_track];
+    wb_track *to   = &s->tracks[dst_track];
+    to->volume = from->volume;
+    to->pan    = from->pan;
+    char chain[256];
+    if (wb_session_export_chain(s, src_track, chain, sizeof(chain)) > 0)
+        wb_session_import_chain(s, dst_track, chain);
+    return 0;
+}

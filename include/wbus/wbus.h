@@ -482,6 +482,8 @@ void wb_session_sort_bin(wb_session *s, int mode);
 int  wb_session_export_chain(const wb_session *s, int track,
                              char *out, int cap);
 int  wb_session_import_chain(wb_session *s, int track, const char *chain);
+/* G77: copy channel-strip settings (volume/pan/insert chain) between tracks. */
+int  wb_session_copy_strip(wb_session *s, int src_track, int dst_track);
 /* G28: strip silence — split an audio clip into its loud regions
  * (thresh linear 0..1, min_sec minimum region length). Returns region count;
  * 0 = all silent (clip removed), -1 error. */

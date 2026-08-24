@@ -3341,6 +3341,23 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(xs);
     }
 
+
+    /* G77: copy channel-strip settings */
+    {
+        wb_session *ys = wb_session_create();
+        wb_session_add_track(ys, "src", 0);
+        wb_session_add_track(ys, "dst", 0);
+        ys->tracks[0].volume = 0.42f;
+        ys->tracks[0].pan = -0.25f;
+        wb_session_set_insert(ys, 0, 1, "eq");
+        CHECK(wb_session_copy_strip(ys, 0, 1) == 0, "G77: copy succeeds");
+        CHECK(fabs(ys->tracks[1].volume - 0.42f) < 1e-5 &&
+              fabs(ys->tracks[1].pan + 0.25f) < 1e-5 &&
+              strcmp(ys->tracks[1].inserts[1].id, "eq") == 0,
+              "G77: volume/pan/chain all copied");
+        CHECK(wb_session_copy_strip(ys, -1, 1) == -1, "G77: bad src rejected");
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

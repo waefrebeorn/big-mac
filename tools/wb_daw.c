@@ -55,9 +55,9 @@ static char g_scale_name_buf[32];   /* scale_name output buffer            */
 static const char *tab_name(int t) {
     static const char *names[] = {
         "ARRANGE", "PAD", "STEP", "SESSION",
-        "MEDIA", "EDIT", "CAPTIONS", "EXPORT"
+        "MEDIA", "EDIT", "CAPTIONS", "EXPORT", "SCORE"
     };
-    return (t >= 0 && t < 8) ? names[t] : "KEYS";
+    return (t >= 0 && t < 9) ? names[t] : "KEYS";
 }
 
 static const char *scale_name(int root, int type) {
@@ -1106,6 +1106,58 @@ static void draw_arrangement(app *a) {
 }
 
 /* ---- R035: PAD performance view (8x4 pad grid) ----------------------- */
+/* G36: score view — render the selected track's MIDI clips on a treble staff.
+ * Note heads at diatonic positions (wb_score_staff_position), ledger lines
+ * outside the staff, note names under the head. */
+static void draw_score(app *a) {
+    SDL_Rect pane = { GUTTER_W, MAIN_Y + RULER_H, ARRANG_W, 300 };
+    SDL_Rect bg = pane;
+    setc(a->ren, C_PANEL);
+    SDL_RenderFillRect(a->ren, &bg);
+    if (!a->session || a->selected_track < 0 ||
+        a->selected_track >= (int)a->session->track_count) {
+        wb_ui_draw_text(a->ren, pane.x+8, pane.y+8,
+                        "SCORE: select an instrument track", 1, C_TEXT_DIM);
+        return;
+    }
+    const int LINE_GAP   = 9;
+    const int TOP_LINE_Y = pane.y + 60;          /* top staff line (F5) */
+    /* five staff lines */
+    setc(a->ren, C_GRID);
+    for (int l = 0; l < 5; l++) {
+        int y = TOP_LINE_Y + l * LINE_GAP;
+        SDL_RenderDrawLine(a->ren, pane.x+4, y, pane.x+pane.w-4, y);
+    }
+    /* treble clef approximation: G-clef glyph text */
+    wb_ui_draw_text(a->ren, pane.x+10, TOP_LINE_Y-14, "&", 2, C_TEXT);
+    wb_track *tr = &a->session->tracks[a->selected_track];
+    int x = pane.x + 40;
+    for (uint32_t ci = 0; ci < tr->clip_count && x < pane.x + pane.w - 20; ci++) {
+        wb_clip *cl = &tr->clips[ci];
+        if (cl->type != 0 || !cl->notes) continue;
+        for (uint32_t k = 0; k < cl->note_count && x < pane.x + pane.w - 20; k++) {
+            int pos  = wb_score_staff_position(cl->notes[k].pitch);
+            int ny   = TOP_LINE_Y + 4*LINE_GAP - pos*(LINE_GAP/2);  /* middle C line bottom */
+            char nm[8];
+            wb_score_note_name(cl->notes[k].pitch, nm, sizeof(nm));
+            /* ledger lines when outside the staff */
+            setc(a->ren, C_TEXT_DIM);
+            if (ny > TOP_LINE_Y + 4*LINE_GAP)         /* below staff */
+                SDL_RenderDrawLine(a->ren, x-6, TOP_LINE_Y + 4*LINE_GAP + LINE_GAP,
+                                   x+6,      TOP_LINE_Y + 4*LINE_GAP + LINE_GAP);
+            if (ny < TOP_LINE_Y)                       /* above staff */
+                SDL_RenderDrawLine(a->ren, x-6, TOP_LINE_Y - LINE_GAP,
+                                   x+6,      TOP_LINE_Y - LINE_GAP);
+            /* note head: small filled ellipse-ish box */
+            SDL_Rect head = { x-5, ny-3, 11, 7 };
+            setc(a->ren, C_ACCENT);
+            SDL_RenderFillRect(a->ren, &head);
+            wb_ui_draw_text(a->ren, x-6, ny+6, nm, 1, C_TEXT_DIM);
+            x += 26;
+        }
+    }
+}
+
 static void draw_pad(app *a) {
     int x0 = GUTTER_W, y0 = MAIN_Y + RULER_H + 28;
     int cols = 8, rows = 4, pad = 6;
@@ -1812,6 +1864,9 @@ static void render(app *a) {
     case 3:  /* SESSION: clip launcher grid (R035) */
         draw_session(a);
         draw_mixer(a);
+        break;
+    case 8:  /* SCORE: notation view of the selected instrument track (G36) */
+        draw_score(a);
         break;
     default:  /* video editor tabs 4..7 */
         draw_video_preview(a);

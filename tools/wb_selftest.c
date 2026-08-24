@@ -3722,6 +3722,23 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(vs);
     }
 
+
+    /* G36: score staff positions + names */
+    {
+        CHECK(wb_score_staff_position(60) == 0, "G36: middle C at position 0");
+        CHECK(wb_score_staff_position(62) == 1 && wb_score_staff_position(64) == 2,
+              "G36: D/E step up diatonically");
+        CHECK(wb_score_staff_position(59) == -1,
+              "G36: B3 one step below middle C");
+        CHECK(wb_score_staff_position(61) == 1,
+              "G36: C# takes the D slot (sharp convention)");
+        char nm[8];
+        wb_score_note_name(60, nm, sizeof(nm));
+        CHECK(strcmp(nm, "C4") == 0, "G36: MIDI 60 named C4");
+        wb_score_note_name(69, nm, sizeof(nm));
+        CHECK(strcmp(nm, "A4") == 0, "G36: MIDI 69 named A4 (concert A)");
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

@@ -1044,6 +1044,24 @@ static void test_master_meter(void) {
     wb_engine_get_master_meter(e, &pk, &rms);
     CHECK(pk < 0.05f, "master meter falls to ~0 when all tracks muted");
 
+    /* G32: live LUFS/true-peak on the master path */
+    {
+        float st = 0.0f, tp = 0.0f;
+        wb_engine_get_master_lufs(e, &st, &tp);
+        CHECK(tp > 0.0f && tp <= 2.0f,
+              "G32: true-peak reading is a sane linear value");
+        CHECK(st == 0.0f || (st >= -70.0f && st <= 0.0f),
+              "G32: short-term LUFS in BS.1770 range (or silent)");
+        /* unmute and push signal through — LUFS must respond */
+        s->tracks[0].mute = 0;
+        for (int blk = 0; blk < 12; blk++)   /* > 400ms gate window */
+            wb_engine_render(e, out, 4096);
+        wb_engine_get_master_lufs(e, &st, &tp);
+        CHECK(st < 0.0f && st > -70.0f,
+              "G32: loudness responds to program audio");
+        printf("         master lufs_st=%.1f tp=%.3f\n", (double)st, (double)tp);
+    }
+
     wb_engine_destroy(e);
     wb_session_destroy(s);
 }

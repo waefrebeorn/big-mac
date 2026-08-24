@@ -25,6 +25,7 @@
 #include "wbus_clip_edit.h"
 #include "wb_internal.h"
 #include "wb_recorder.h"
+#include "wbus_lufs.h"   /* G32: live K-weighted loudness on the master */
 
 /* forward declarations: VST3 slot map (defined later in this file) */
 static void *wb_vst3_slot_map[WB_MAX_TRACKS][WB_MAX_INSERT_SLOTS];
@@ -72,6 +73,9 @@ struct wb_engine {
     float      master_volume;
     float      master_peak;      /* R028: master bus output peak (post master vol) */
     float      master_rms;       /* R028: master bus output RMS */
+    wb_lufs    master_lufs;      /* G32: live short-term LUFS + true peak */
+    float      master_lufs_st;   /* last short-term LUFS (UI-polled) */
+    float      master_true_pk;   /* true-peak (0..1+ linear, UI-polled) */
     float cpu_load;
 
     /* R043 (G1/G2): clip-edit side-table (fade/offset handles). Self-contained
@@ -603,6 +607,22 @@ static void stage_mix(wb_engine *e, uint32_t n, wb_sample *out) {
      * actually hears, so it must reflect the final output, not any one fader. */
     e->master_peak = pk;
     e->master_rms  = sqrtf(sumsq / (n * 2));
+    /* G32: K-weighted short-term LUFS + true peak on the live master path.
+     * wb_lufs_process is fixed-cost per block (biquads + gate accumulators),
+     * no allocation — RT-safe. */
+    wb_lufs_process(&e->master_lufs, out, (int)n);
+    {
+        double st = wb_lufs_short_term_lufs(&e->master_lufs);
+        double tp = wb_lufs_peak(&e->master_lufs);
+        /* smooth: hold max true-peak, ease LUFS toward the new reading */
+        float ntp = (float)tp;
+        e->master_true_pk = ntp > e->master_true_pk ? ntp
+                          : e->master_true_pk * 0.999f;   /* slow release */
+        if (st > -70.0)
+            e->master_lufs_st = e->master_lufs_st == 0.0f
+                              ? (float)st
+                              : e->master_lufs_st * 0.8f + (float)(st) * 0.2f;
+    }
 }
 
 wb_engine *wb_engine_create(void) {
@@ -617,6 +637,7 @@ wb_engine *wb_engine_create(void) {
     e->accL = malloc(e->acc_cap * sizeof(wb_sample));
     e->accR = malloc(e->acc_cap * sizeof(wb_sample));
     e->master_volume = 1.0f;
+    wb_lufs_create(&e->master_lufs, e->t.sample_rate);  /* G32 */
     if (pthread_mutex_init(&e->process_lock, NULL) == 0)
         e->lock_initialized = 1;
     wb_unit_ensure_all();   /* register built-in FX + instruments */
@@ -916,6 +937,13 @@ void wb_engine_get_master_meter(wb_engine *e, float *peak, float *rms) {
     if (!e) { if (peak) *peak = 0; if (rms) *rms = 0; return; }
     if (peak) *peak = e->master_peak;
     if (rms)  *rms  = e->master_rms;
+}
+
+/* G32: live K-weighted master readings */
+void wb_engine_get_master_lufs(wb_engine *e, float *lufs_st, float *true_peak) {
+    if (!e) { if (lufs_st) *lufs_st = 0; if (true_peak) *true_peak = 0; return; }
+    if (lufs_st)   *lufs_st   = e->master_lufs_st;
+    if (true_peak) *true_peak = e->master_true_pk;
 }
 
 void wb_engine_set_insert_bypass(wb_engine *e, int track, int slot, int on) {

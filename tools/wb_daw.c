@@ -1247,6 +1247,23 @@ static void draw_mixer(app *a) {
         wb_ui_draw_text(a->ren, mxk-4, fy_top-16, "MASTER", 1, C_TEXT);
         char mdbuf[16]; snprintf(mdbuf, sizeof(mdbuf), "%.1f", mdb);
         wb_ui_draw_text(a->ren, mxk-2, fy_bot+8, mdbuf, 1, C_ACCENT);
+        /* G32: live LUFS + true-peak readout under the master meter */
+        {
+            float st = 0.0f, tp = 0.0f;
+            wb_engine_get_master_lufs(a->engine, &st, &tp);
+            char lbuf[24];
+            if (st < -69.0f || st == 0.0f)
+                snprintf(lbuf, sizeof(lbuf), "LUFS --");
+            else
+                snprintf(lbuf, sizeof(lbuf), "LUFS %.1f", (double)st);
+            wb_ui_draw_text(a->ren, mxk-6, fy_bot+20, lbuf, 1,
+                            (st > -9.0f && st != 0.0f) ? C_MUTE : C_ACCENT);
+            char tbuf[24];
+            float tpdb = tp > 0.000001f ? 20*log10f(tp) : -120.0f;
+            snprintf(tbuf, sizeof(tbuf), "TP %.1f", (double)tpdb);
+            wb_ui_draw_text(a->ren, mxk-6, fy_bot+32, tbuf, 1,
+                            tp > 0.99f ? C_MUTE : C_TEXT_DIM);
+        }
     }
 }
 

@@ -338,6 +338,10 @@ wb_mod_matrix *wb_engine_get_mod_matrix(wb_engine *e);
 /* R028: master bus output meters (post master-volume, pre-dac). peak/rms are
  * linear 0..N amplitudes; pass NULL for either to ignore. */
 void wb_engine_get_master_meter(wb_engine *e, float *peak, float *rms);
+/* G32: live K-weighted readings from the master path. lufs_st = short-term
+ * LUFS (smoothed, 0.0 = silence/unset), true_peak = linear true peak
+ * (0..1+, slow-release hold). Either pointer may be NULL. */
+void wb_engine_get_master_lufs(wb_engine *e, float *lufs_st, float *true_peak);
 /* Per-insert slot bypass + wet mix (thread-safe via cmd queue). */
 void wb_engine_set_insert_bypass(wb_engine *e, int track, int slot, int on);
 void wb_engine_set_insert_wet(wb_engine *e, int track, int slot, float wet);

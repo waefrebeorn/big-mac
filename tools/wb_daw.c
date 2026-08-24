@@ -4482,8 +4482,37 @@ int main(int argc, char **argv) {
         snprintf(a->project_path, sizeof(a->project_path), "%s", file_path);
         printf("open: loaded %s (%u tracks)\n", file_path, a->session->track_count);
     } else {
-        a->session = wb_session_demo();
-        a->project_path[0] = 0;
+        /* G58: crash recovery — restore the newest autosave on relaunch.
+         * WB_NO_RECOVER=1 disables (for tests / clean starts). */
+        char rec[512]; rec[0] = 0;
+        const char *norecov = getenv("WB_NO_RECOVER");
+        if (!norecov || atoi(norecov) == 0) {
+            static const char *cmd_fmt =
+                "ls -t /tmp/bigmac_autosave/*.wbus 2>/dev/null | head -1";
+            FILE *p = popen(cmd_fmt, "r");
+            if (p) {
+                if (!fgets(rec, sizeof(rec), p)) rec[0] = 0;
+                pclose(p);
+                /* trim newline */
+                size_t rl = strlen(rec);
+                while (rl > 0 && (rec[rl-1] == '\n' || rec[rl-1] == '\r'))
+                    rec[--rl] = 0;
+            }
+        }
+        if (rec[0]) {
+            a->session = wb_session_load(rec);
+            if (a->session) {
+                snprintf(a->project_path, sizeof(a->project_path), "%s", rec);
+                printf("recover: restored autosave %s (%u tracks)\n",
+                       rec, a->session->track_count);
+            } else {
+                fprintf(stderr, "recover: autosave %s unreadable; demo instead\n", rec);
+            }
+        }
+        if (!a->session) {
+            a->session = wb_session_demo();
+            a->project_path[0] = 0;
+        }
     }
     wb_engine_set_session(a->engine, a->session);
     wb_engine_play(a->engine);   /* show the playhead + playing state */

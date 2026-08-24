@@ -32,6 +32,9 @@ typedef struct wb_clip_edit {
                               (sqrt gain law, constant loudness when paired with
                               a complementary fade), 2 = smoothstep (S-curve,
                               3t^2-2t^3) */
+    int    color;          /* G13: clip color slot 0..7 (0 = default palette);
+                              Ableton-style in-grid labeling. Side-table only —
+                              wb_clip layout is frozen (.wbus/memcpy). */
 } wb_clip_edit;
 
 /* Opaque table. Keyed by (track, clip); grows as needed. */

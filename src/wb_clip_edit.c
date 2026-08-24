@@ -55,7 +55,7 @@ static wb_clip_edit *ensure(wb_clip_edit_table *t, int track, int clip) {
         for (int i = t->cap[track]; i < ncap; i++)
             na[i].fade_in = na[i].fade_out = na[i].pre_fade_in = 0.0f,
             na[i].start_in_source = 0.0, na[i].loop = 0, na[i].loop_len = 0.0,
-            na[i].curve = 0;
+            na[i].curve = 0, na[i].color = 0;
         t->tracks[track] = na; t->cap[track] = ncap;
     }
     return &t->tracks[track][clip];

@@ -769,8 +769,19 @@ static void draw_arrangement(app *a) {
                     int mid = clipbox.y + clipbox.h/2;
                     SDL_RenderDrawLine(a->ren, clipbox.x+px, mid-amp, clipbox.x+px, mid+amp);
                 }
-                /* clip border */
-                setc(a->ren, C_GRID);
+                /* clip border — G13: tinted when the clip has a color slot */
+                {
+                    static const int cpal[8][3] = {
+                        { 70, 70, 78},                    /* 0 default C_GRID-ish */
+                        {220, 80, 80}, {235, 170, 60}, {110, 210, 90},
+                        { 80, 190, 220}, {120, 120, 240}, {210, 100, 220},
+                        {230, 230, 110} };
+                    int cs = 0;
+                    wb_clip_edit_table *cet = wb_engine_clip_edit(a->engine);
+                    const wb_clip_edit *cce = cet ? wb_clip_edit_get(cet, ti, (int)c) : NULL;
+                    if (cce) cs = cce->color & 7;
+                    setc(a->ren, cpal[cs][0], cpal[cs][1], cpal[cs][2]);
+                }
                 SDL_RenderDrawRect(a->ren, &clipbox);
                 int rx = clipbox.x + clipbox.w;
                 /* R067: mark perf clips distinctly — they replay an event
@@ -3728,6 +3739,16 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                     if (h == 5) {
                         if (te) te->loop = te->loop ? 0 : 1;
                         printf("loop: track %d clip %d -> %s\n", ti, c, te&&te->loop?"ON":"off");
+                        return;
+                    }
+                    /* G13: RIGHT-click the clip BODY (h==6) cycles its color
+                     * slot 0..7 in the side-table (Ableton labeling). */
+                    if (h == 6 && b.button == SDL_BUTTON_RIGHT && te) {
+                        te->color = (te->color + 1) % 8;
+                        printf("clip color: track %d clip %d -> slot %d\n",
+                               ti, c, te->color);
+                        snprintf(a->last_status, sizeof(a->last_status),
+                                 "CLIP COLOR %d", te->color);
                         return;
                     }
                     /* G64: RIGHT-click a fade handle cycles the crossfade

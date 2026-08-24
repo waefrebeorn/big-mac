@@ -146,7 +146,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
 [G57] P0 WIRED(autosave 120s to /tmp/bigmac_autosave keep-5) — Autosave to dated Auto-Save folder on an interval (Premiere default;
       Kdenlive autosave credited with rescuing projects). We save ONLY on Ctrl+S.
 [G58] P2 — Crash recovery on relaunch from latest autosave (Premiere behavior).  **WIRED R073: relaunch auto-restores newest autosave (WB_NO_RECOVER=1 opts out)**
-[G59] P2 — Versioned project backups/timeline snapshots (Resolve Live Save/DRP).
+[G59] P2 — Versioned project backups/timeline snapshots (Resolve Live Save/DRP).  **WIRED R073: every save writes a timestamped snapshot to <proj>.backups/ (keep 10)**
 
 ### Accessibility additions
 [G60] P2 — Screen-reader labels via accessibility API (OSARA proves full-DAW

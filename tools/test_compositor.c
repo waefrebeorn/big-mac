@@ -1213,6 +1213,51 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 76: power window limits the secondary spatially */
+    {
+        wb_node *src = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *cv = wb_node_effect(11, 0.0f);
+        wb_param_track *th = wb_param_track_create();
+        wb_param_track_set(th, 0.0, 0.0f, WB_KF_HOLD);
+        wb_param_track *tw = wb_param_track_create();
+        wb_param_track_set(tw, 0.0, 30.0f, WB_KF_HOLD);
+        wb_param_track *ts = wb_param_track_create();
+        wb_param_track_set(ts, 0.0, 0.2f, WB_KF_HOLD);
+        wb_param_track *twin = wb_param_track_create();
+        wb_param_track_set(twin, 0.0, 0.2f, WB_KF_HOLD);   /* radius .2 */
+        wb_param_track *tcx = wb_param_track_create();
+        wb_param_track_set(tcx, 0.0, 0.25f, WB_KF_HOLD);   /* center x .25 */
+        wb_param_track *tcy = wb_param_track_create();
+        wb_param_track_set(tcy, 0.0, 0.5f, WB_KF_HOLD);
+        wb_node_add_param(cv, "hue_c", th);
+        wb_node_add_param(cv, "hue_w", tw);
+        wb_node_add_param(cv, "sec_sat", ts);
+        wb_node_add_param(cv, "win_r", twin);
+        wb_node_add_param(cv, "win_cx", tcx);
+        wb_node_add_param(cv, "win_cy", tcy);
+        cv->inputs[0] = src;
+        wb_frame *f = cv ? wb_node_pull(cv, 0.0, 0, 0, 64, 64) : NULL;
+        CHECK(f != NULL, "pwin: pulled");
+        if (f) {
+            /* inside window (near x=16): desaturated r ~ 0.37
+             * outside (x=56, dist~0.47 > r+soft): untouched r=1.0 */
+            wb_px pin = f->px[32*64+16];
+            wb_px pout = f->px[32*64+56];
+            CHECK(pin.r < 0.6f && pout.r > 0.9f,
+                  "pwin: correction limited to the window region");
+            printf("         pwin: in-r=%.2f out-r=%.2f\n",
+                   pin.r, pout.r);
+            wb_frame_free(f);
+        }
+        if (cv) wb_node_destroy(cv);
+        if (src) wb_node_destroy(src);
+        wb_param_track_free(th); wb_param_track_free(tw);
+        wb_param_track_free(ts); wb_param_track_free(twin);
+        wb_param_track_free(tcx); wb_param_track_free(tcy);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

@@ -387,7 +387,24 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 float hw   = wb_node_param_value(self, "hue_w", t);
                 float hsh  = wb_node_param_value(self, "hue_shift", t);
                 float smul = wb_node_param_value(self, "sec_sat", t);
-                if (hw <= 0.0f) goto curves_skip;   /* unbound: identity */
+                if (hw <= 0.0f) break;   /* unbound: identity */
+                /* R073 hop 76: power window — circular soft mask limits
+                 * the secondary to a screen region (win_cx/cy/r/soft). */
+                float wr = wb_node_param_value(self, "win_r", t);
+                float wsel = 1.0f;
+                if (wr > 0.0f) {
+                    float nx = ((float)x + 0.5f) / rw
+                             - wb_node_param_value(self, "win_cx", t);
+                    float ny = ((float)y + 0.5f) / rh
+                             - wb_node_param_value(self, "win_cy", t);
+                    float ws = wb_node_param_value(self, "win_soft", t);
+                    if (ws <= 0.0f) ws = 0.15f;
+                    float dist = sqrtf(nx*nx + ny*ny);
+                    wsel = 1.0f - (dist - wr) / ws;
+                    if (wsel < 0.0f) wsel = 0.0f;
+                    if (wsel > 1.0f) wsel = 1.0f;
+                    if (wsel <= 0.0f) break;   /* outside window: skip */
+                }
                 float mx = p->r > p->g ? (p->r > p->b ? p->r : p->b)
                                        : (p->g > p->b ? p->g : p->b);
                 float mn = p->r < p->g ? (p->r < p->b ? p->r : p->b)
@@ -408,7 +425,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
                     while (dd < -180.0f) dd += 360.0f;
                     float ad = fabsf(dd);
                     if (ad < hw) {
-                        float sel = 1.0f - ad / hw;   /* soft selection */
+                        float sel = (1.0f - ad / hw) * wsel;   /* soft selection */
                         float lum = 0.2126f*p->r + 0.7152f*p->g
                                   + 0.0722f*p->b;
                         float sat = smul != 0.0f ? smul : 1.0f;

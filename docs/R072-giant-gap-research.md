@@ -117,7 +117,7 @@ every gap below is a break in one of those seven loops.
       proves pro-audio accessibility is real demand), full-keyboard operation.
 [G50] P3 — Customizable keyboard shortcuts + macros (Studio One macros,
       InDesign-style remapping; NNGroup accelerator best practice).
-[G51] P3 — Preferences surface: audio device, buffer size, latency display
+[G51] P3 — Preferences surface: audio device, buffer size, latency display  **WIRED R073: Ctrl+P prefs overlay — device/buffer/latency/xruns/CPU + env pref docs**
       (Sweetwater buffer-size guidance; currently fixed).
 
 ## H. Deep-research additions (3 parallel agents, 2026-08-23 — merged)

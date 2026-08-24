@@ -691,6 +691,43 @@ int main(void) {
         wb_node_destroy(red); wb_node_destroy(blue);
     }
 
+
+    /* R073 hop 51: slide + push */
+    {
+        wb_node *red = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 32, 32);
+        wb_node *blue = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 32, 32);
+        wb_node *slide = wb_node_transition(4, 2.0);
+        wb_transition_add(slide, red);
+        wb_transition_add(slide, blue);
+        wb_frame *fs = wb_node_pull(slide, 0.5, 0, 0, 32, 32);
+        CHECK(fs != NULL, "slide: midpoint pulled");
+        if (fs) {
+            int br = fs->px[16*32+12].b > 0.8f;   /* B covers x>=8 */
+            int al = fs->px[16*32+4].r > 0.8f;    /* A remains x<8 */
+            int bl = br, rr = al;
+            CHECK(bl && rr,
+                  "slide: B slides over stationary A");
+            printf("         slide: left-B=%d right-A=%d\n", bl, rr);
+            wb_frame_free(fs);
+        }
+        wb_node_destroy(slide);
+
+        wb_node *push = wb_node_transition(5, 2.0);
+        wb_transition_add(push, red);
+        wb_transition_add(push, blue);
+        wb_frame *fp = wb_node_pull(push, 0.5, 0, 0, 32, 32);
+        CHECK(fp != NULL, "push: midpoint pulled");
+        if (fp) {
+            /* at midpoint the boundary is exactly at x=16: left=B right=A */
+            int bl = fp->px[16*32+12].b > 0.8f;
+            int rr = fp->px[16*32+4].r > 0.8f;
+            CHECK(bl && rr, "push: boundary at midpoint splits frame");
+            wb_frame_free(fp);
+        }
+        wb_node_destroy(push);
+        wb_node_destroy(red); wb_node_destroy(blue);
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

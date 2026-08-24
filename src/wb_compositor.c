@@ -1042,6 +1042,23 @@ static wb_frame *trans_pull(wb_node *self, double t,
             float maxd = sqrtf(cx2*cx2 + cy2*cy2);
             if (dist < mB * maxd) { out->px[i] = pb; }
             else                  { out->px[i] = pa; }
+        } else {
+            /* R073 hop 51: slide (4) / push (5) — horizontal translation.
+             * sample A at (x + mB*W), B at (x - W + mB*W); for push both
+             * translate together, for slide B overlays a stationary A. */
+            int sx = (int)(mB * a->w);
+            if (tr->op == 5) {          /* push: both move */
+                int ax = px_i + a->w - sx;      /* A sliding right-out */
+                int bx = px_i - sx;             /* B entering from left */
+                out->px[i].r = out->px[i].g = out->px[i].b = 0;
+                out->px[i].a = 1.0f;
+                if (bx >= 0 && bx < a->w)      out->px[i] = pb;
+                else if (ax >= 0 && ax < a->w) out->px[i] = pa;
+            } else {                    /* slide: A fixed, B wipes over */
+                int bx = px_i - sx;
+                if (bx >= 0 && bx < a->w) out->px[i] = pb;
+                else                      out->px[i] = pa;
+            }
         }
     }
     wb_frame_free(a); wb_frame_free(b);

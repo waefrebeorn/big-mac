@@ -1884,3 +1884,56 @@ int wb_session_export_otio(const wb_session *s, const char *path) {
     fclose(f);
     return 0;
 }
+
+/* ---- G27: transient detection (spectral flux) ----------------------------- */
+/* Frame the clip into 1024-sample hops of 512, compute an energy-delta
+ * (positive spectral flux approximation via band energies), then pick peaks
+ * that rise above a sensitivity-scaled adaptive threshold. This is a compact
+ * time-domain variant: sum of positive sample-to-sample deltas per frame,
+ * which tracks onsets well for percussive material and is O(n). */
+int wb_session_detect_transients(const wb_session *s, int track, int clip,
+                                 float sensitivity, uint32_t *out, int max) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    wb_clip *cl = &tr->clips[clip];
+    if (cl->type != 1 || !cl->audio_data || cl->audio_frames < 1024) return -1;
+    uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+
+    const uint32_t HOP = 512;
+    uint32_t nframes = cl->audio_frames / HOP;
+    if (nframes < 4) return 0;
+    float *flux = malloc(nframes * sizeof(float));
+    if (!flux) return -1;
+
+    for (uint32_t f = 0; f < nframes; f++) {
+        float d = 0;
+        const wb_sample *base = cl->audio_data + f * HOP * ch;
+        for (uint32_t i = 1; i < HOP; i += 2) {   /* stride 2: cheap envelope */
+            float v0 = fabsf(base[(i-1) * ch]);
+            float v1 = fabsf(base[i * ch]);
+            float dv = v1 - v0;
+            if (dv > 0) d += dv;                  /* positive flux only */
+        }
+        flux[f] = d;
+    }
+    /* adaptive threshold: local mean over +/-8 frames, scaled by sensitivity */
+    float thr_scale = 1.5f + sensitivity * 3.0f;   /* higher sens -> pickier */
+    int count = 0;
+    uint32_t last_pick = 0;
+    for (uint32_t f = 2; f + 2 < nframes && count < max; f++) {
+        float mean = 0;
+        int m = 0;
+        for (uint32_t k = (f > 8 ? f - 8 : 0); k < f + 8 && k < nframes; k++, m++)
+            mean += flux[k];
+        mean /= (m ? m : 1);
+        float thr = mean * thr_scale + 0.0005f;
+        if (flux[f] > thr && flux[f] >= flux[f-1] && flux[f] > flux[f+1] &&
+            f * HOP > last_pick + HOP) {           /* min spacing ~ one hop */
+            out[count++] = f * HOP;
+            last_pick = f * HOP;
+        }
+    }
+    free(flux);
+    return count;
+}

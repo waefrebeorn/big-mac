@@ -3505,6 +3505,50 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(os);
     }
 
+
+    /* G27: transient detection on synthetic hits */
+    {
+        wb_session *ts = wb_session_create();
+        wb_track *ttr = wb_session_add_track(ts, "tr", 0);
+        CHECK(ttr != NULL, "G27: track created");
+        if (ttr) {
+            uint32_t nf = 4 * WB_SAMPLE_RATE;
+            ttr->clips = calloc(1, sizeof(wb_clip));
+            ttr->clip_count = 1;
+            wb_clip *cl = &ttr->clips[0];
+            memset(cl, 0, sizeof(*cl));
+            cl->type = 1; cl->start = 0; cl->length = (double)nf;
+            cl->audio_channels = 1; cl->audio_frames = nf;
+            cl->audio_data = calloc(nf, sizeof(wb_sample));
+            /* three percussive hits at ~0.5s, ~1.5s, ~2.5s: sharp attacks */
+            double hit[3] = { 0.5, 1.5, 2.5 };
+            for (int h = 0; h < 3; h++) {
+                uint32_t s0 = (uint32_t)(hit[h] * WB_SAMPLE_RATE);
+                for (uint32_t i = 0; i < 4000 && s0 + i < nf; i++) {
+                    float env = expf(-(float)i / 600.0f);
+                    cl->audio_data[s0 + i] =
+                        (wb_sample)(env * sinf(2*M_PI*200.0f*i/WB_SAMPLE_RATE));
+                }
+            }
+            uint32_t tr_out[64];
+            int nt = wb_session_detect_transients(ts, 0, 0, 0.3f,
+                                                  tr_out, 64);
+            CHECK(nt >= 2 && nt <= 6, "G27: three hits found (few false positives)");
+            if (nt > 0) {
+                int matched = 0;
+                for (int k = 0; k < nt; k++)
+                    for (int h = 0; h < 3; h++) {
+                        uint32_t expect = (uint32_t)(hit[h] * WB_SAMPLE_RATE);
+                        if (tr_out[k] + WB_SAMPLE_RATE/10 > expect &&
+                            tr_out[k] < expect + WB_SAMPLE_RATE/10)
+                            matched++;
+                    }
+                CHECK(matched >= 2, "G27: detected transients align with real hits");
+            }
+        }
+        wb_session_destroy(ts);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

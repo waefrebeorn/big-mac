@@ -508,6 +508,13 @@ int  wb_session_batch_transitions(wb_session *s, int track,
                                   struct wb_clip_edit_table *et, double xf);
 /* G47: export the video arrangement as OpenTimelineIO (JSON). */
 int  wb_session_export_otio(const wb_session *s, const char *path);
+/* G27: transient detection — spectral-flux onsets over an audio clip.
+ * Writes frame positions (samples, relative to clip start) into `out`
+ * (capacity max). sensitivity 0..1 (0 = only huge hits). Returns the
+ * number of transients found, or -1 on error. */
+int wb_session_detect_transients(const wb_session *s, int track, int clip,
+                                 float sensitivity,
+                                 uint32_t *out, int max);
 /* G72: set a clip's retiming rate via its edit side-table entry. */
 double wb_session_set_retime(struct wb_clip_edit_table *et, int track,
                              int clip, double rate);

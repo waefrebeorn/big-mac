@@ -4384,6 +4384,37 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(qs);
     }
 
+
+    /* R073 hop 31: loudness normalize to -16 LUFS */
+    {
+        wb_session *qs = wb_session_create();
+        wb_track *qt = wb_session_add_track(qs, "l",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: lufs-norm track created");
+        uint32_t qnf = 2 * WB_SAMPLE_RATE;   /* 2s for stable integration */
+        wb_sample *qb = malloc((size_t)qnf * sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: lufs-norm buffer allocated");
+        for (uint32_t i = 0; i < qnf; i++)
+            qb[i] = (wb_sample)(0.1 * sin(2*M_PI*1000.0*i/WB_SAMPLE_RATE));
+        CHECK(wb_session_add_audio_clip(qt, 0, 2.0, qb, qnf, 1) == 0,
+              "R073: lufs-norm clip created");
+        free(qb);
+        float gdb = wb_session_normalize_loudness(qs, 0, 0, -16.0);
+        CHECK(gdb > -999.0f && gdb > -30.0f,
+              "R073: loudness norm applied sane gain");
+        /* verify by re-measuring */
+        wb_lufs lv;
+        wb_lufs_create(&lv, WB_SAMPLE_RATE);
+        wb_lufs_process(&lv, qt->clips[0].audio_data,
+                        (int)qt->clips[0].audio_frames);
+        double now = wb_lufs_integrated_lufs(&lv);
+        CHECK(now > -18.0 && now < -14.0,
+              "R073: integrated loudness lands near -16 LUFS");
+        printf("         R073 lufs-norm gain=%.1fdB now=%.1f LUFS\n",
+               gdb, now);
+        wb_session_destroy(qs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

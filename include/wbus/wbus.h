@@ -396,6 +396,10 @@ void wb_session_edge_fades(wb_session *s, int track, int clip,
  * Returns applied gain or -1 on error. */
 float wb_session_normalize(wb_session *s, int track, int clip,
                            float target);
+/* R073 hop 31: loudness-normalize a clip to a BS.1770 integrated LUFS
+ * target with a true-peak guard. Returns gain in dB, or -999 on error. */
+float wb_session_normalize_loudness(wb_session *s, int track, int clip,
+                                    double target_lufs);
 /* G32: live K-weighted readings from the master path. lufs_st = short-term
  * LUFS (smoothed, 0.0 = silence/unset), true_peak = linear true peak
  * (0..1+, slow-release hold). Either pointer may be NULL. */

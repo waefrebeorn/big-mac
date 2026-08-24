@@ -14,6 +14,7 @@
 #include "wbus_video.h"
 #include "wbus/wbus_clip_edit.h"
 #include "wbus/wbus_midi.h"   /* G82: wb_scale_snap */
+#include "wbus/wbus_lufs.h"   /* R073 hop 31: loudness normalize */
 
 /* ---- create ------------------------------------------------------------- */
 wb_session *wb_session_create(void) {
@@ -2645,4 +2646,35 @@ float wb_session_normalize(wb_session *s, int track, int clip,
         for (uint32_t c = 0; c < ch; c++)
             cl->audio_data[i * ch + c] *= gain;
     return gain;
+}
+
+/* ---- R073 hop 31: loudness normalization ----------------------------------- */
+/* Normalize a clip's integrated loudness to `target_lufs` using the G78
+ * K-weighting engine, then peak-guard at 1.0. Returns applied gain in dB,
+ * or -999 on error. */
+float wb_session_normalize_loudness(wb_session *s, int track, int clip,
+                                    double target_lufs) {
+    if (!s || target_lufs < -40.0 || target_lufs > 0.0) return -999.0f;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -999.0f;
+    wb_clip *cl = &tr->clips[clip];
+    if (cl->type != 1 || !cl->audio_data || cl->audio_frames == 0)
+        return -999.0f;
+    uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+
+    wb_lufs l;
+    wb_lufs_create(&l, WB_SAMPLE_RATE);
+    wb_lufs_process(&l, cl->audio_data, (int)cl->audio_frames);
+    double cur = wb_lufs_integrated_lufs(&l);
+    if (cur <= -70.0) return -999.0f;            /* silence */
+    double gain_db = target_lufs - cur;
+    /* peak guard: never push the true peak past full scale */
+    double pk = wb_lufs_peak(&l);
+    if (pk > 1e-6 && gain_db > 20.0 * log10(1.0 / pk))
+        gain_db = 20.0 * log10(1.0 / pk);
+
+    float g = (float)pow(10.0, gain_db / 20.0);
+    for (uint32_t i = 0; i < cl->audio_frames * ch; i++)
+        cl->audio_data[i] *= g;
+    return (float)gain_db;
 }

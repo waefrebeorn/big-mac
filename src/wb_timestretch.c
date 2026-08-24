@@ -44,6 +44,14 @@ static void band_split(const float *in, uint32_t n, double corner_hz,
     }
 }
 
+/* R073 hop 24: windowed-sinc table (defined at end of file) */
+#define TS_SINC_PHASES 512
+#define TS_SINC_TAPS   8
+static float ts_sinc_table[TS_SINC_PHASES][TS_SINC_TAPS*2];
+static int   ts_sinc_ready;
+static void ts_sinc_init(void);
+static float ts_sinc_read(const float *in, uint32_t nin, double pos);
+
 /* WSOLA core: stretch mono input by `rate` into a grown buffer.
  * Returns output length, or 0 on error. *outp must be freed. */
 static uint32_t wsola(const float *in, uint32_t nin, double rate,
@@ -64,6 +72,7 @@ static uint32_t wsola(const float *in, uint32_t nin, double rate,
     float *out = calloc(max_out, sizeof(float));
     if (!out) return 0;
 
+    ts_sinc_init();
     uint32_t out_pos = 0;                        /* write cursor */
     uint32_t src_pos = 0;                        /* nominal read cursor */
     /* R073: natural-continuation anchor — the input segment that follows the
@@ -234,4 +243,39 @@ uint32_t wb_timestretch(const wb_sample *in, uint32_t frames, uint32_t chn,
                         double rate, double semitones, wb_sample **outp) {
     return wb_timestretch_tr(in, frames, chn, rate, semitones,
                              NULL, 0, outp);
+}
+
+/* ---- R073 hop 24: windowed-sinc interpolation table ------------------------ */
+static int ts_sinc_ready = 0;
+
+static void ts_sinc_init(void) {
+    if (ts_sinc_ready) return;
+    for (int p = 0; p < TS_SINC_PHASES; p++) {
+        double t = (double)p / TS_SINC_PHASES;       /* fractional phase */
+        for (int k = -TS_SINC_TAPS; k < TS_SINC_TAPS; k++) {
+            double x = (double)k + t;
+            double s = fabs(x) < 1e-9 ? 1.0 : sin(M_PI*x)/(M_PI*x);
+            /* Blackman window over the 16-tap span */
+            double w = 0.42 + 0.5*cos(M_PI*x/TS_SINC_TAPS)
+                           + 0.08*cos(2*M_PI*x/TS_SINC_TAPS);
+            ts_sinc_table[p][k + TS_SINC_TAPS] = (float)(s * w);
+        }
+    }
+    ts_sinc_ready = 1;
+}
+
+/* windowed-sinc interpolation of in[] at fractional position pos */
+static float ts_sinc_read(const float *in, uint32_t nin, double pos) {
+    if (pos < 0 || pos >= (double)nin) return 0;
+    uint32_t i0 = (uint32_t)pos;
+    int ph = (int)((pos - (double)i0) * TS_SINC_PHASES);
+    if (ph >= TS_SINC_PHASES) { ph = TS_SINC_PHASES - 1; }
+    const float *tap = ts_sinc_table[ph];
+    double acc = 0;
+    for (int k = -TS_SINC_TAPS; k < TS_SINC_TAPS; k++) {
+        long idx = (long)i0 + k;
+        if (idx < 0 || idx >= (long)nin) continue;
+        acc += in[idx] * tap[k + TS_SINC_TAPS];
+    }
+    return (float)acc;
 }

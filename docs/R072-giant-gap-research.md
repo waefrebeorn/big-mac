@@ -80,7 +80,7 @@ every gap below is a break in one of those seven loops.
       [WIRED Wave1-B: wb_track.send_level/send_target[2] + stage_bus send pass
       into kind-2 buses; mixer strip SEND A/B -/+ buttons, % readout, target
       cycle; test_sends.]
-[G31] P1 — FX chain rack UI per track: add/remove/reorder inserts with param
+[G31] P1 — FX chain rack UI per track: add/remove/reorder inserts with param  **WIRED R073: wb_session_set_insert/move_insert + mixer rack UI (+FX palette cycle, per-row X remove)**
       panels (inserts array exists; no visible chain editor).
 [G32] P1 — Real-time LUFS/true-peak meter on master (Youlean class; delivery  **WIRED R073: wb_lufs on live master path, wb_engine_get_master_lufs, mixer LUFS/TP readouts
       normalize exists offline but no live meter).

@@ -15,6 +15,7 @@
 #include "wbus_lufs.h"
 #include "wbus_limiter.h"
 #include "wbus_cgi_react.h"
+#include "wbus_cgi_bands.h"
 #include "wbus_anim.h"
 #include "wbus_mesh.h"
 #include "wbus_midi.h"
@@ -4680,6 +4681,35 @@ static void test_scale_chord_step(void) {
     }
 
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
+
+    /* R073 hop 61: band pulse — bass object vs hats object */
+    {
+        wb_anim *an = wb_anim_create(64, 64);
+        CHECK(an != NULL, "R073: bands anim created");
+        if (an) {
+            /* audio: 100Hz tone for first half, 6kHz for second half */
+            uint32_t qnf = WB_SAMPLE_RATE * 2;
+            wb_sample *qb = malloc((size_t)qnf * sizeof(wb_sample));
+            CHECK(qb != NULL, "R073: bands buffer allocated");
+            for (uint32_t i = 0; i < qnf; i++) {
+                double f = (i < qnf/2) ? 100.0 : 6000.0;
+                qb[i] = (wb_sample)(0.5 *
+                    sin(2*M_PI*f*i/WB_SAMPLE_RATE));
+            }
+            wb_mesh *bass_m = wb_mesh_sphere(6, 8, 12, 255, 80, 60);
+            int o_bass = bass_m ? wb_anim_add_object(an, bass_m,
+                                                255, 80, 60) : -1;
+            int kb = wb_cgi_band_pulse(an, o_bass, qb, qnf, 1, 2.0,
+                                       40.0f, 250.0f, 1.0f, 0.8f);
+            CHECK(kb > 0, "R073: bass band keys written");
+            printf("         R073 band keys=%d\n", kb);
+            if (bass_m) wb_mesh_free(bass_m);
+            free(qb);
+        }
+        wb_anim_free(an);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
 }
 

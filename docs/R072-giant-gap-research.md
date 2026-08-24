@@ -23,9 +23,9 @@ every gap below is a break in one of those seven loops.
 [G03] P1 — Drag-and-drop import zone (Finder → timeline).  **WIRED R073: SDL_DROPFILE -> browser_import (video/audio/SRT)**
 [G04] P1 — Media bin: persistent list of imported assets with thumbnails,  **WIRED R073: wb_session_add_bin_entry + save/load "bin" records (lane C)**
       durations, search/rename (Kdenlive "media bin", FCP "browser").
-[G05] P2 — Audio recording input path: arm track, choose input device, record
+[G05] P2 — Audio recording input path: arm track, choose input device, record  **WIRED R073: wb_input lock-free ring + commit-to-clip, 6 gate checks; hardware device feed is WB_AUDIO_INPUT opt-in**
       mic/instrument to arrangement (all DAWs core).
-[G06] P2 — MIDI hardware recording: capture controller notes into clips,
+[G06] P2 — MIDI hardware recording: capture controller notes into clips,  **WIRED (verified R073): hardware notes flow midi_cb -> daw_note -> caplog; CAPTURE quantizes into clips (G93 machinery)**
       then quantize (Avid MIDI guide workflow).
 [G07] P3 — Screen/camera capture ingest.
 

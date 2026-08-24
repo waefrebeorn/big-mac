@@ -1909,31 +1909,63 @@ int wb_session_detect_transients(const wb_session *s, int track, int clip,
     for (uint32_t f = 0; f < nframes; f++) {
         float d = 0;
         const wb_sample *base = cl->audio_data + f * HOP * ch;
-        for (uint32_t i = 1; i < HOP; i += 2) {   /* stride 2: cheap envelope */
-            float v0 = fabsf(base[(i-1) * ch]);
-            float v1 = fabsf(base[i * ch]);
-            float dv = v1 - v0;
+        /* R073: every sample pair — a stride-2 walk misses any onset whose
+         * rise lands on an even index (measured: half the hits invisible) */
+        for (uint32_t i = 1; i < HOP; i++) {
+            float dv = fabsf(base[i * ch]) - fabsf(base[(i-1) * ch]);
             if (dv > 0) d += dv;                  /* positive flux only */
         }
         flux[f] = d;
     }
-    /* adaptive threshold: local mean over +/-8 frames, scaled by sensitivity */
+    /* R073 hop 7 (Böck '12 / FMP peak-picking): smooth the novelty function,
+     * then pick peaks against a CENTERED local-mean threshold, then combine
+     * peaks closer than the min distance keeping only the largest. */
+    for (uint32_t f = 0; f < nframes; f++) {
+        float s = flux[f];
+        if (f > 0)              s += flux[f-1];
+        if (f + 1 < nframes)    s += flux[f+1];
+        flux[f] = s / (1.0f + (f > 0) + (f + 1 < nframes));
+    }
+    const uint32_t MIN_DIST = HOP;                 /* ~one hop between hits */
     float thr_scale = 1.5f + sensitivity * 3.0f;   /* higher sens -> pickier */
-    int count = 0;
-    uint32_t last_pick = 0;
-    for (uint32_t f = 2; f + 2 < nframes && count < max; f++) {
-        float mean = 0;
-        int m = 0;
-        for (uint32_t k = (f > 8 ? f - 8 : 0); k < f + 8 && k < nframes; k++, m++)
-            mean += flux[k];
-        mean /= (m ? m : 1);
-        float thr = mean * thr_scale + 0.0005f;
-        if (flux[f] > thr && flux[f] >= flux[f-1] && flux[f] > flux[f+1] &&
-            f * HOP > last_pick + HOP) {           /* min spacing ~ one hop */
-            out[count++] = f * HOP;
-            last_pick = f * HOP;
+    /* pass 1: candidate peaks vs centered threshold */
+    uint32_t *cand = malloc(nframes * sizeof(uint32_t));
+    float *candv = malloc(nframes * sizeof(float));
+    if (!cand || !candv) { free(cand); free(candv); free(flux); return -1; }
+    int ncand = 0;
+    for (uint32_t f = 2; f + 2 < nframes && ncand < (int)nframes; f++) {
+        /* median (not mean) local level: a nearby loud hit must not raise
+         * the threshold enough to mask the next one */
+        float win[16]; int m = 0;
+        for (uint32_t k = (f > 8 ? f - 8 : 0); k < f + 8 && k < nframes; k++)
+            win[m++] = flux[k];
+        for (int x = 1; x < m; x++) {              /* insertion sort */
+            float keyv = win[x];
+            int y = x - 1;
+            while (y >= 0 && win[y] > keyv) { win[y+1] = win[y]; y--; }
+            win[y+1] = keyv;
+        }
+        float med = win[m / 2];
+        float thr = med * thr_scale + 0.0005f;
+        if (flux[f] > thr && flux[f] >= flux[f-1] && flux[f] > flux[f+1]) {
+            cand[ncand] = f * HOP;
+            candv[ncand] = flux[f];
+            ncand++;
         }
     }
+    /* pass 2: combine candidates closer than MIN_DIST, keep the strongest */
+    int count = 0;
+    for (int i = 0; i < ncand && count < max; ) {
+        int j = i + 1;
+        int best = i;
+        while (j < ncand && cand[j] - cand[i] <= MIN_DIST) {
+            if (candv[j] > candv[best]) best = j;
+            j++;
+        }
+        out[count++] = cand[best];
+        i = j;
+    }
+    free(cand); free(candv);
     free(flux);
     return count;
 }

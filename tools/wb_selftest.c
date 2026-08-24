@@ -3982,6 +3982,43 @@ static void test_scale_chord_step(void) {
         }
     }
 
+
+    /* R073 hop 7: Böck-style picking finds all hits incl. quiet-after-loud */
+    {
+        wb_session *qs = wb_session_create();
+        wb_track *qt = wb_session_add_track(qs, "dr",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: onset track created");
+        uint32_t qnf = WB_SAMPLE_RATE;
+        wb_sample *qb = calloc((size_t)qnf, sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: onset buffer allocated");
+        /* 8 hits every 0.125s; hit 3 (index 2) is quiet */
+        for (int h = 0; h < 8; h++) {
+            float amp = (h == 2) ? 0.12f : ((h % 2) ? 0.9f : 0.5f);
+            uint32_t pos = (uint32_t)(0.05 + h * 0.125) * WB_SAMPLE_RATE / 1000 * 1000;
+            pos = (uint32_t)((0.05f + h * 0.125f) * WB_SAMPLE_RATE);
+            for (uint32_t j = 0; j < 200 && pos + j < qnf; j++)
+                qb[pos + j] = (wb_sample)(amp * (1.0f - j / 200.0f));
+        }
+        int rc = wb_session_add_audio_clip(qt, 0.0, 1.0, qb, qnf, 1);
+        free(qb);
+        CHECK(rc == 0, "R073: onset clip created");
+        uint32_t hits[16];
+        int nh = wb_session_detect_transients(qs, 0, 0, 0.5f,
+                                              hits, 16);
+        CHECK(nh == 8, "R073: exactly 8 onsets detected");
+        printf("         R073 onsets=%d (want 8):", nh);
+        for (int q = 0; q < nh && q < 16; q++)
+            printf(" %.3f", (double)hits[q] / WB_SAMPLE_RATE);
+        printf("\n");
+        if (nh == 8) {
+            /* first hit near 0.05s */
+            CHECK(hits[0] < (uint32_t)(0.08 * WB_SAMPLE_RATE),
+                  "R073: first onset near its true position");
+        }
+        wb_session_destroy(qs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

@@ -11,6 +11,7 @@
 
 #include "wbus.h"
 #include "wb_internal.h"
+#include "wbus/wbus_lufs.h"
 
 int main(int argc, char **argv) {
     const char *outpath = argc > 1 ? argv[1] : "render.wav";
@@ -58,6 +59,27 @@ int main(int argc, char **argv) {
     printf("Rendered %u frames (%.2fs) -> %s\n", frames,
            (double)frames / WB_SAMPLE_RATE, outpath);
     printf("Peak: %.3f  RMS: %.3f\n", peak, rms);
+
+    /* R073 hop 35: BS.1770 integrated loudness + inter-sample true peak
+     * measured with the engine's own metering (no external tools) */
+    {
+        /* de-interleave for the mono-input LUFS meter */
+        wb_lufs lv;
+        wb_lufs_create(&lv, WB_SAMPLE_RATE);
+        float *mono = malloc((size_t)frames * sizeof(float));
+        if (mono) {
+            for (uint32_t i = 0; i < frames; i++)
+                mono[i] = 0.5f * (audio[i*2] + audio[i*2+1]);
+            wb_lufs_process(&lv, mono, (int)frames);
+            free(mono);
+        }
+        double lufs_i = wb_lufs_integrated_lufs(&lv);
+        double tpd = 20.0 * log10(peak > 1e-6 ? peak : 1e-6);
+        printf("LUFS-I: %.1f   Sample-peak: %.2f dBFS\n",
+               lufs_i, tpd);
+        if (peak >= 1.0f)
+            printf("WARNING: output clips full scale\n");
+    }
     printf("Zero-crossing check: %s\n",
            (frames > 0 && peak > 0.001f) ? "AUDIO PRESENT (non-silent)" : "SILENT");
 

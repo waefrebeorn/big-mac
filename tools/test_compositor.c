@@ -904,6 +904,43 @@ int main(void) {
         wb_node_destroy(red); wb_node_destroy(blue);
     }
 
+
+    /* R073 hop 67: noise dissolve */
+    {
+        wb_node *red = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 32, 32);
+        wb_node *blue = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 32, 32);
+        wb_node *dis = wb_node_transition(6, 2.0);
+        wb_transition_add(dis, red);
+        wb_transition_add(dis, blue);
+        wb_frame *f0 = wb_node_pull(dis, 0.0, 0, 0, 32, 32);
+        wb_frame *fm = wb_node_pull(dis, 1.0, 0, 0, 32, 32);
+        wb_frame *f2 = wb_node_pull(dis, 2.0, 0, 0, 32, 32);
+        CHECK(f0 && fm && f2, "dissolve: frames pulled");
+        if (f0 && fm && f2) {
+            int reds = 0, blues = 0;
+            for (int i = 0; i < 32*32; i++) {
+                if (f0->px[i].r > 0.9f) reds++;
+                if (f2->px[i].b > 0.9f) blues++;
+                fm->px[i].a = fm->px[i].a;  /* no-op keep */
+            }
+            CHECK(reds == 32*32, "dissolve: t=0 all source A");
+            CHECK(blues == 32*32, "dissolve: t=2 all source B");
+            /* midpoint: a grainy mix — count both colors present */
+            int mixr = 0, mixb = 0;
+            for (int i = 0; i < 32*32; i++) {
+                if (fm->px[i].r > 0.9f) mixr++;
+                if (fm->px[i].b > 0.9f) mixb++;
+            }
+            CHECK(mixr > 50 && mixb > 50,
+                  "dissolve: grainy mix at midpoint");
+            printf("         dissolve: mid r=%d b=%d\n", mixr, mixb);
+            wb_frame_free(f0); wb_frame_free(fm); wb_frame_free(f2);
+        }
+        wb_node_destroy(dis);
+        wb_node_destroy(red); wb_node_destroy(blue);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);

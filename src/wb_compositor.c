@@ -1124,6 +1124,17 @@ static wb_frame *trans_pull(wb_node *self, double t,
             float maxd = sqrtf(cx2*cx2 + cy2*cy2);
             if (dist < mB * maxd) { out->px[i] = pb; }
             else                  { out->px[i] = pa; }
+        } else if (tr->op == 6) {
+            /* R073 hop 67: noise dissolve — deterministic per-pixel hash
+             * offsets the local switch time, giving the classic grainy
+             * dissolve without any state. */
+            unsigned h = (unsigned)(px_i * 73856093u) ^
+                         (unsigned)(py_i * 19349663u);
+            h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+            float jitter = ((h & 0xFFFF) / 65535.0f - 0.5f) * 0.3f;
+            float th = mB + jitter;
+            if (th > 0.5f) { out->px[i] = pb; }
+            else           { out->px[i] = pa; }
         } else {
             /* R073 hop 51: slide (4) / push (5) — horizontal translation.
              * sample A at (x + mB*W), B at (x - W + mB*W); for push both

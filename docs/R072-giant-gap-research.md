@@ -106,7 +106,7 @@ every gap below is a break in one of those seven loops.
 [G43] P2 — Watch-folder auto-export (AME watch folders).  **WIRED R073: WB_WATCH_DIR 5s poll, new media auto-imports**
 [G44] P2 — Text/title overlay tool: basic lower thirds/titles with font controls  **WIRED R073: wb_captions_burn_title (drawtext) + TITLE/TBURN UI with text capture**
       (titles = table stakes in every NLE incl. free ones; we have captions only).
-[G45] P3 — GIF/social aspect-ratio export presets (9:16, 1:1 crops).
+[G45] P3 — GIF/social aspect-ratio export presets (9:16, 1:1 crops).  **WIRED R073: aspect cycle 16:9/9:16/1:1 on EXPORT row**
 
 ## G. INTEROP / RECOVER loop
 [G46] P1 — SRT import/export buttons (captions roundtrip; audit-confirmed).  **WIRED R073: .srt in scan/browser, SRT IN/OUT buttons, write->parse roundtrip test

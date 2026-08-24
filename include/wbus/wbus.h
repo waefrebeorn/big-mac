@@ -522,6 +522,11 @@ uint32_t wb_timestretch(const wb_sample *in, uint32_t frames, uint32_t chn,
                         double rate, double semitones, wb_sample **outp);
 /* G48: DAWproject-format export (core project.json body). */
 int wb_session_export_dawproject(const wb_session *s, const char *path);
+/* G20: multicam — group video clips as angles and switch live. */
+int wb_session_multicam_group(struct wb_clip_edit_table *et, int track,
+                              const int *clip_indices, int n);
+int wb_session_multicam_switch(struct wb_clip_edit_table *et, int track,
+                               int any_member, int angle);
 /* G21: waveform auto-sync — sign-correlation offset between two audio clips.
  * Positive result means clip_b must move later to align with clip_a. */
 int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,

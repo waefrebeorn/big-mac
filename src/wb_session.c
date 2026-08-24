@@ -2052,3 +2052,38 @@ int wb_session_export_dawproject(const wb_session *s, const char *path) {
     fclose(f);
     return 0;
 }
+
+/* ---- G20: multicam --------------------------------------------------------- */
+/* Group N video clips (same track, same slot region) into a multicam group.
+ * Returns the new group id (>0), or -1. Angles are the clip indices in order. */
+int wb_session_multicam_group(wb_clip_edit_table *et, int track,
+                              const int *clip_indices, int n) {
+    if (!et || !clip_indices || n < 2 || track < 0) return -1;
+    static int next_group = 1;
+    int gid = next_group++;
+    for (int i = 0; i < n; i++) {
+        wb_clip_edit *e = wb_clip_edit_get(et, track, clip_indices[i]);
+        if (!e) return -1;
+        e->mc_group = gid;
+        e->mc_angle = i;          /* angle index == position in the list */
+    }
+    return gid;
+}
+
+/* Switch the group's active angle: returns 0 on success. The caller (render
+ * path) reads mc_angle to pick which source to show; switching is just a
+ * bookkeeping write on every member of the group. */
+int wb_session_multicam_switch(wb_clip_edit_table *et, int track,
+                               int any_member, int angle) {
+    if (!et || angle < 0) return -1;
+    wb_clip_edit *ref = wb_clip_edit_get(et, track, any_member);
+    if (!ref || ref->mc_group == 0) return -1;
+    /* scan all clips on this track for group members */
+    for (uint32_t c = 0; c < 4096; c++) {
+        wb_clip_edit *e = wb_clip_edit_get(et, track, (int)c);
+        if (!e) break;                    /* table is dense up to count */
+        if (e->mc_group == ref->mc_group)
+            e->mc_angle = angle;
+    }
+    return 0;
+}

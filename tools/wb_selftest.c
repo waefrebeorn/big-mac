@@ -3673,6 +3673,32 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(ds);
     }
 
+
+    /* G20: multicam group + live switch */
+    {
+        wb_clip_edit_table *mt = wb_clip_edit_create();
+        CHECK(mt != NULL, "G20: edit table created");
+        if (mt) {
+            int angles[3] = { 0, 1, 2 };
+            int gid = wb_session_multicam_group(mt, 0, angles, 3);
+            CHECK(gid > 0, "G20: three angles grouped");
+            wb_clip_edit *e0 = wb_clip_edit_get(mt, 0, 0);
+            wb_clip_edit *e2 = wb_clip_edit_get(mt, 0, 2);
+            CHECK(e0->mc_angle == 0 && e2->mc_angle == 2 &&
+                  e0->mc_group == e2->mc_group,
+                  "G20: angle indices assigned by position");
+            CHECK(wb_session_multicam_switch(mt, 0, 1, 2) == 0,
+                  "G20: switch to angle 2 succeeds");
+            e0 = wb_clip_edit_get(mt, 0, 0);
+            e2 = wb_clip_edit_get(mt, 0, 2);
+            CHECK(e0->mc_angle == 2 && e2->mc_angle == 2,
+                  "G20: all members follow the switch");
+            CHECK(wb_session_multicam_switch(mt, 0, 1, -3) == -1,
+                  "G20: invalid angle rejected");
+            wb_clip_edit_destroy(mt);
+        }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

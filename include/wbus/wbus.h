@@ -371,6 +371,8 @@ wb_mod_matrix *wb_engine_get_mod_matrix(wb_engine *e);
 void wb_engine_get_master_meter(wb_engine *e, float *peak, float *rms);
 /* R073: output clip latch — stays set once true-peak exceeds full scale
  * until wb_engine_clear_clip_latch(). */
+/* R073 hop 39: master bus brickwall limiter toggle. */
+void wb_engine_set_master_limiter(wb_engine *e, int on);
 int  wb_engine_get_clip_latch(const wb_engine *e);
 void wb_engine_clear_clip_latch(wb_engine *e);
 /* R073 hop 15: estimate an audio clip's tempo (60..180 BPM), 0 if unsure. */

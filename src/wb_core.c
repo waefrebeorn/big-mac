@@ -23,6 +23,7 @@
 #include "wbus_modulation.h"
 #include "wbus_midifx.h"
 #include "wbus_clip_edit.h"
+#include "wbus_limiter.h"   /* R073 hop 39: master bus brickwall */
 #include "wb_internal.h"
 #include "wb_recorder.h"
 #include "wbus_lufs.h"   /* G32: live K-weighted loudness on the master */
@@ -77,6 +78,8 @@ struct wb_engine {
     float      master_lufs_st;   /* last short-term LUFS (UI-polled) */
     float      master_true_pk;   /* true-peak (0..1+ linear, UI-polled) */
     int        master_clipped;   /* R073 hop 11: clip latch (UI-cleared) */
+    int        master_limit_on;  /* R073 hop 39: master bus brickwall */
+    void      *master_lim;       /* streaming limiter instance */
     float cpu_load;
 
     /* R043 (G1/G2): clip-edit side-table (fade/offset handles). Self-contained
@@ -636,6 +639,24 @@ static void stage_mix(wb_engine *e, uint32_t n, wb_sample *out) {
     e->master_rms  = sqrtf(sumsq / (n * 2));
     /* R073 hop 11: clip latch on the instantaneous block peak — RT-safe
      * plain store, cleared by the UI via wb_engine_clear_clip_latch(). */
+    /* R073 hop 39: master bus limiter (streaming delay-line variant) —
+     * engaged per-block when toggled; keeps output under ~0.97 */
+    if (e->master_limit_on) {
+        if (!e->master_lim)
+            e->master_lim = (void*)wb_stream_limiter_create(
+                WB_SAMPLE_RATE, 3.0, 0.97f);
+        if (e->master_lim) {
+            wb_stream_limiter *slm =
+                (wb_stream_limiter*)e->master_lim;
+            for (uint32_t i = 0; i < n; i++)
+                wb_stream_limiter_frame(slm, &out[i*2]);
+            pk = 0;
+            for (uint32_t i = 0; i < n*2; i++) {
+                float a = fabsf(out[i]);
+                if (a > pk) pk = a;
+            }
+        }
+    }
     if (pk > 1.0f) e->master_clipped = 1;
     /* G32: K-weighted short-term LUFS + true peak on the live master path.
      * wb_lufs_process is fixed-cost per block (biquads + gate accumulators),
@@ -988,6 +1009,9 @@ void wb_engine_get_master_lufs(wb_engine *e, float *lufs_st, float *true_peak) {
  * clears a clip that fired one block later. */
 int  wb_engine_get_clip_latch(const wb_engine *e) {
     return e ? e->master_clipped : 0;
+}
+void wb_engine_set_master_limiter(wb_engine *e, int on) {
+    if (e) e->master_limit_on = on ? 1 : 0;
 }
 void wb_engine_clear_clip_latch(wb_engine *e) {
     if (e) e->master_clipped = 0;

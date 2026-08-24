@@ -4076,6 +4076,45 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(cs);
     }
 
+    /* R073 hop 39: RT master limiter keeps output under ceiling */
+    {
+        wb_session *ls = wb_session_create();
+        ls->bpm = 120.0; ls->length = 88200.0;
+        wb_track *lt = wb_session_add_track(ls, "hot", 0);  /* instrument */
+        lt->volume = 4.0f;
+        wb_session_add_note(lt, 0, 44100.0, 69, 127);
+        wb_engine *le = wb_engine_create();
+        wb_engine_set_session(le, ls);
+        wb_engine_seek(le, 0.0); wb_engine_play(le);
+        wb_sample lout[4096*2];
+
+        /* A/B: without the limiter the hot mix must exceed the ceiling */
+        wb_engine_render(le, lout, 4096);
+        float pk_off = 0;
+        for (uint32_t i = 0; i < 4096*2; i++) {
+            float a = fabsf(lout[i]);
+            if (a > pk_off) pk_off = a;
+        }
+        /* engage and re-render from the same position */
+        wb_engine_set_master_limiter(le, 1);
+        wb_engine_seek(le, 0.0);
+        wb_engine_render(le, lout, 4096);
+        float pk_on = 0;
+        for (uint32_t i = 0; i < 4096*2; i++) {
+            float a = fabsf(lout[i]);
+            if (a > pk_on) pk_on = a;
+        }
+        CHECK(pk_off > 0.5f,
+              "R073: hot mix actually loud before limiting");
+        CHECK(pk_on < 1.02f && pk_on >= pk_off * 0.2f,
+              "R073: master limiter keeps hot mix under ceiling");
+        printf("         R073 master: off=%.4f on=%.4f\n", pk_off, pk_on);
+        wb_engine_destroy(le);
+        wb_session_destroy(ls);
+    }
+
+
+
 
     /* R073 hop 13: sync survives very quiet recordings */
     {
@@ -4472,6 +4511,7 @@ static void test_scale_chord_step(void) {
         }
         free(qb);
     }
+
 
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }

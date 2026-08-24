@@ -2743,3 +2743,4 @@ float wb_session_true_peak(const wb_session *s, int track, int clip) {
     }
     return tpk;
 }
+

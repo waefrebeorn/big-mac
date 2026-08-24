@@ -1178,3 +1178,22 @@ int wb_engine_render_session_prog(wb_engine *e, wb_session *s, wb_sample **out,
     *frames = total;
     return 0;
 }
+
+/* G33: bounce a single track offline. Temporarily mutes all other tracks
+ * (target's mute ignored via un-mute), renders, restores mutes. */
+int wb_engine_render_track(wb_engine *e, wb_session *s, int track,
+                           wb_sample **out, uint32_t *frames) {
+    if (!s || s->length <= 0) return -1;
+    if (track < 0 || track >= (int)s->track_count) return -1;
+    int *saved = malloc(s->track_count * sizeof(int));
+    if (!saved) return -1;
+    for (uint32_t i = 0; i < s->track_count; i++) {
+        saved[i] = s->tracks[i].mute;
+        s->tracks[i].mute = ((int)i == track) ? 0 : 1;
+    }
+    int rc = wb_engine_render_session(e, s, out, frames);
+    for (uint32_t i = 0; i < s->track_count; i++)
+        s->tracks[i].mute = saved[i];
+    free(saved);
+    return rc;
+}

@@ -396,6 +396,11 @@ void wb_engine_end_edit(wb_engine *e);
 
 /* Convenience: render the whole session to an interleaved buffer (caller frees). */
 int wb_engine_render_session(wb_engine *e, wb_session *s, wb_sample **out, uint32_t *frames);
+/* G33: bounce a single track offline — temporarily mutes every other track
+ * (and the target's mute state is ignored), renders the session length,
+ * then restores the previous mute states. Returns 0; caller frees *out. */
+int wb_engine_render_track(wb_engine *e, wb_session *s, int track,
+                           wb_sample **out, uint32_t *frames);
 
 /* G38: progress/cancel-aware variant. cb (optional) is invoked between render
  * chunks with progress mapped onto [lo,hi]. Returns 1 when cancelled, -1 on

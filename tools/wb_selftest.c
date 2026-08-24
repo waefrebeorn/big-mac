@@ -3006,6 +3006,36 @@ static void test_scale_chord_step(void) {
         }
     }
 
+    /* G33: track bounce — render_track isolates one track's signal */
+    {
+        wb_session *bs = wb_session_create();
+        bs->bpm = 120.0; bs->length = 44100.0;
+        wb_track *b1 = wb_session_add_track(bs, "A", 0);
+        wb_track *b2 = wb_session_add_track(bs, "B", 0);
+        CHECK(b1 && b2, "G33: two tracks created");
+        if (b1 && b2) {
+            wb_session_add_note(b1, 0, 0.9 * WB_SAMPLE_RATE, 69, 100);  /* samples */
+            /* track B stays empty -> its solo render must be silent */
+            wb_sample *buf = NULL; uint32_t frames = 0;
+            int rc = wb_engine_render_track(NULL, bs, 0, &buf, &frames);
+            CHECK(rc == 0 && buf && frames == 44100,
+                  "G33: track bounce renders session length");
+            float peak = 0;
+            for (uint32_t i = 0; buf && i < frames * 2; i++)
+                if (fabsf(buf[i]) > peak) peak = fabsf(buf[i]);
+            CHECK(peak > 0.01f, "G33: bounced track carries its own audio");
+            free(buf); buf = NULL;
+            rc = wb_engine_render_track(NULL, bs, 1, &buf, &frames);
+            peak = 0;
+            for (uint32_t i = 0; buf && i < frames * 2; i++)
+                if (fabsf(buf[i]) > peak) peak = fabsf(buf[i]);
+            CHECK(rc == 0 && peak < 0.01f,
+                  "G33: other tracks silent in isolated bounce");
+            free(buf);
+        }
+        wb_session_destroy(bs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

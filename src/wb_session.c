@@ -2678,3 +2678,66 @@ float wb_session_normalize_loudness(wb_session *s, int track, int clip,
         cl->audio_data[i] *= g;
     return (float)gain_db;
 }
+
+/* ---- R073 hop 33: inter-sample true peak ----------------------------------- */
+/* 4x-oversampled true-peak estimate for an audio clip using a Blackman-
+ * windowed sinc (BS.1770's approach; catches inter-sample peaks that plain
+ * sample-peak misses). Returns linear peak (0..~1.2). */
+float wb_session_true_peak(const wb_session *s, int track, int clip) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1.0f;
+    const wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1.0f;
+    const wb_clip *cl = &tr->clips[clip];
+    if (!cl->audio_data || cl->audio_frames == 0) return -1.0f;
+    uint32_t ch = cl->audio_channels > 0 ? cl->audio_channels : 1;
+
+    /* coarse scan: only frames near local maxima need oversampling */
+    float spk = 0;
+    for (uint32_t i = 0; i < cl->audio_frames; i++)
+        for (uint32_t c = 0; c < ch; c++) {
+            float v = fabsf(cl->audio_data[i * ch + c]);
+            if (v > spk) spk = v;
+        }
+    if (spk < 1e-6f) return 0.0f;
+
+    /* sinc table: 8 taps/side, 64 sub-phases (enough for peak estimation) */
+    #define TP_PHASES 64
+    #define TP_TAPS   8
+    static float tp_tab[TP_PHASES][TP_TAPS*2];
+    static int tp_ready = 0;
+    if (!tp_ready) {
+        for (int p = 0; p < TP_PHASES; p++) {
+            double t = (double)p / TP_PHASES;
+            for (int k = -TP_TAPS; k < TP_TAPS; k++) {
+                double x = (double)k + t;
+                double s = fabs(x) < 1e-9 ? 1.0
+                           : sin(M_PI*x)/(M_PI*x);
+                double w = 0.42 + 0.5*cos(M_PI*x/TP_TAPS)
+                                + 0.08*cos(2*M_PI*x/TP_TAPS);
+                tp_tab[p][k + TP_TAPS] = (float)(s * w);
+            }
+        }
+        tp_ready = 1;
+    }
+
+    float tpk = spk;
+    for (uint32_t i = TP_TAPS; i + TP_TAPS < cl->audio_frames; i++) {
+        /* only resample around samples within 20% of the sample peak */
+        float v0 = fabsf(cl->audio_data[i * ch]);
+        if (v0 < spk * 0.8f) continue;
+        for (int p = 1; p < TP_PHASES; p += 8) {     /* 8 sub-points */
+            double pos = (double)i + (double)p / TP_PHASES;
+            uint32_t i0 = (uint32_t)pos;
+            if (i0 + TP_TAPS >= cl->audio_frames) break;
+            int ph = (int)((pos - i0) * TP_PHASES);
+            const float *tap = tp_tab[ph];
+            double acc = 0;
+            for (int k = -TP_TAPS; k < TP_TAPS; k++)
+                acc += cl->audio_data[(long)(i0 + k) * ch]
+                       * tap[k + TP_TAPS];
+            float av = fabsf((float)acc);
+            if (av > tpk) tpk = av;
+        }
+    }
+    return tpk;
+}

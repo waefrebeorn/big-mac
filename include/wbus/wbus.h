@@ -400,6 +400,8 @@ float wb_session_normalize(wb_session *s, int track, int clip,
  * target with a true-peak guard. Returns gain in dB, or -999 on error. */
 float wb_session_normalize_loudness(wb_session *s, int track, int clip,
                                     double target_lufs);
+/* R073 hop 33: 4x-oversampled inter-sample true peak of a clip. */
+float wb_session_true_peak(const wb_session *s, int track, int clip);
 /* G32: live K-weighted readings from the master path. lufs_st = short-term
  * LUFS (smoothed, 0.0 = silence/unset), true_peak = linear true peak
  * (0..1+, slow-release hold). Either pointer may be NULL. */

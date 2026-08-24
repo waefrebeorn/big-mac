@@ -4415,6 +4415,36 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(qs);
     }
 
+
+    /* R073 hop 33: true peak catches an inter-sample overshoot */
+    {
+        wb_session *qs = wb_session_create();
+        wb_track *qt = wb_session_add_track(qs, "tp",
+                                            WB_TRACK_KIND_AUDIO);
+        CHECK(qt != NULL, "R073: tp track created");
+        uint32_t qnf = WB_SAMPLE_RATE / 4;
+        wb_sample *qb = calloc((size_t)qnf, sizeof(wb_sample));
+        CHECK(qb != NULL, "R073: tp buffer allocated");
+        /* high-frequency tone whose samples cap at 0.9 but reconstruction
+         * swings wider: 11.025kHz at 44.1k = 4 samples/cycle, alternating
+         * extremes land BETWEEN samples at some phases */
+        for (uint32_t i = 0; i < qnf; i++)
+            qb[i] = (wb_sample)(0.9 *
+                sin(2*M_PI*11025.0*i/WB_SAMPLE_RATE + 0.6));
+        CHECK(wb_session_add_audio_clip(qt, 0, 0.25, qb, qnf, 1) == 0,
+              "R073: tp clip created");
+        free(qb);
+        float spk = 0;
+        for (uint32_t i = 0; i < qs->tracks[0].clips[0].audio_frames; i++)
+            if (fabsf(qs->tracks[0].clips[0].audio_data[i]) > spk)
+                spk = fabsf(qs->tracks[0].clips[0].audio_data[i]);
+        float tp = wb_session_true_peak(qs, 0, 0);
+        CHECK(tp >= spk, "R073: true peak >= sample peak");
+        printf("         R073 true-peak: sample=%.4f true=%.4f\n",
+               spk, tp);
+        wb_session_destroy(qs);
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

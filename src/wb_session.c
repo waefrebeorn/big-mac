@@ -13,6 +13,7 @@
 #include "wbus.h"
 #include "wbus_video.h"
 #include "wbus/wbus_clip_edit.h"
+#include "wbus/wbus_midi.h"   /* G82: wb_scale_snap */
 
 /* ---- create ------------------------------------------------------------- */
 wb_session *wb_session_create(void) {
@@ -1639,3 +1640,52 @@ int wb_articulation_keyswitch(int art_id) {
     return g_articulations[art_id].keyswitch;
 }
 int wb_articulation_count(void) { return WB_ARTICULATION_N; }
+
+/* ---- G82: chord track ---------------------------------------------------- */
+int wb_session_add_chord(wb_session *s, double pos, int root, int type) {
+    if (!s || s->chord_count >= 64) return -1;
+    if (root < 0 || root > 11) return -1;
+    if (type < 0 || type > 4) return -1;
+    wb_chord_ev *e = &s->chords[s->chord_count++];
+    e->pos = pos; e->root = root; e->type = type;
+    /* keep sorted by position */
+    for (int i = s->chord_count - 1; i > 0; i--) {
+        if (s->chords[i].pos < s->chords[i-1].pos) {
+            wb_chord_ev t = s->chords[i];
+            s->chords[i] = s->chords[i-1];
+            s->chords[i-1] = t;
+        } else break;
+    }
+    return s->chord_count - 1;
+}
+void wb_session_clear_chords(wb_session *s) { if (s) s->chord_count = 0; }
+int wb_session_chord_at(const wb_session *s, double pos, int *root, int *type) {
+    if (!s || s->chord_count == 0) return -1;
+    int best = -1;
+    for (uint32_t i = 0; i < s->chord_count; i++)
+        if (s->chords[i].pos <= pos) best = (int)i;
+        else break;
+    if (best < 0) return -1;
+    if (root) *root = s->chords[best].root;
+    if (type) *type = s->chords[best].type;
+    return best;
+}
+
+/* G82: harmonic transformation — snap every note of a MIDI clip into the
+ * chord sounding at that note's position (diatonic to the chord's scale). */
+int wb_session_snap_to_chords(wb_session *s, int track, int clip) {
+    if (!s || track < 0 || track >= (int)s->track_count) return -1;
+    wb_track *tr = &s->tracks[track];
+    if ((uint32_t)clip >= tr->clip_count) return -1;
+    wb_clip *cl = &tr->clips[clip];
+    if (cl->type != 0 || !cl->notes) return -1;
+    if (s->chord_count == 0) return 0;
+    int n = 0;
+    for (uint32_t k = 0; k < cl->note_count; k++, n++) {
+        double abs_pos = cl->start + cl->notes[k].start;
+        int root, type;
+        if (wb_session_chord_at(s, abs_pos, &root, &type) < 0) continue;
+        cl->notes[k].pitch = wb_scale_snap(root, type, cl->notes[k].pitch);
+    }
+    return n;
+}

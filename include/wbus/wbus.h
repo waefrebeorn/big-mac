@@ -178,6 +178,13 @@ typedef struct wb_bin_entry {
     int      color;          /* G68: label slot 0..7 (0 = none) for bin views */
 } wb_bin_entry;
 
+/* G82: one chord event on the chord track. */
+typedef struct wb_chord_ev {
+    double pos;        /* sample position */
+    int    root;       /* 0..11 */
+    int    type;       /* 0..4, same table as the scale tools */
+} wb_chord_ev;
+
 /* ---- session (the editable model) ------------------------------------- */
 typedef struct wb_session {
     char      name[128];
@@ -192,6 +199,10 @@ typedef struct wb_session {
     /* R022: arrangement markers */
     uint32_t  marker_count;
     wb_marker markers[64];
+    /* G82: chord track — harmonic grid. Each chord holds from its `pos`
+     * until the next chord. root 0..11, type 0..4 (same scale table). */
+    uint32_t   chord_count;
+    wb_chord_ev chords[64];
     /* G89: swing amount, fraction of a 16th note delayed on odd steps
      * (Roger Linn MPC spec: 50% = straight .. 75%; stored 0..0.6 as the
      * DELAY FRACTION, i.e. 0.25 == MPC 75%). 0 = straight. */
@@ -463,6 +474,14 @@ void wb_session_sort_bin(wb_session *s, int mode);
  * 0 = all silent (clip removed), -1 error. */
 int  wb_session_strip_silence(wb_session *s, int track, int clip,
                               float thresh, double min_sec);
+/* G82: chord track — add/clear chords; resolve the chord at a position.
+ * Returns the new chord index / count / -1. */
+int         wb_session_add_chord(wb_session *s, double pos, int root, int type);
+void        wb_session_clear_chords(wb_session *s);
+int         wb_session_chord_at(const wb_session *s, double pos,
+                                int *root, int *type);
+/* G82: snap a MIDI clip's notes into whichever chord sounds at each note. */
+int  wb_session_snap_to_chords(wb_session *s, int track, int clip);
 /* G83: MIDI transformations — 0 humanize, 1 randomize-velocities,
  * 2 arpeggiate-up, 3 strum. Returns notes touched or -1. */
 int  wb_session_transform_notes(wb_session *s, int track, int clip, int mode);

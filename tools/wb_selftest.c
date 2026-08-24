@@ -3199,6 +3199,41 @@ static void test_scale_chord_step(void) {
           "G84: set_articulation validates ids");
     wb_session_destroy(as);
 
+
+    /* G82: chord track — add, resolve at position, snap notes */
+    {
+        wb_session *hs = wb_session_create();
+        wb_track *htr = wb_session_add_track(hs, "harm", 0);
+        CHECK(htr != NULL, "G82: track created");
+        if (htr) {
+            CHECK(wb_session_add_chord(hs, 0, 0, 0) >= 0 &&
+                  wb_session_add_chord(hs, 2*WB_SAMPLE_RATE, 7, 0) >= 0,
+                  "G82: two chords added (C major -> G major)");
+            int root, type;
+            CHECK(wb_session_chord_at(hs, 1*WB_SAMPLE_RATE, &root, &type) == 0 &&
+                  root == 0 && type == 0,
+                  "G82: chord at 1s resolves to C major");
+            CHECK(wb_session_chord_at(hs, 3*WB_SAMPLE_RATE, &root, &type) == 1 &&
+                  root == 7,
+                  "G82: chord at 3s resolves to G major");
+            /* F#4 is out of both scales; snap should move it into key */
+            wb_session_add_note(htr, 1*WB_SAMPLE_RATE, 44100.0, 66, 100);
+            int touched = wb_session_snap_to_chords(hs, 0, 0);
+            CHECK(touched == 1 &&
+                  wb_scale_contains(0, 0, htr->clips[0].notes[0].pitch),
+                  "G82: off-chord note snapped into the sounding chord");
+            /* persistence round-trip */
+            wb_session_save(hs, "/tmp/g82.wbus");
+            wb_session_destroy(hs);
+            wb_session *l = wb_session_load("/tmp/g82.wbus");
+            CHECK(l && l->chord_count == 2 &&
+                  l->chords[1].root == 7,
+                  "G82: chord track round-trips");
+            remove("/tmp/g82.wbus");
+            if (l) wb_session_destroy(l);
+        } else { remove("/tmp/g82.wbus"); }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

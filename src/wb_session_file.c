@@ -139,6 +139,11 @@ int wb_session_save(const wb_session *s, const char *path) {
     for (uint32_t b = 0; b < s->bin_count; b++)
         fprintf(f, "bin %d %.6f %s\n", s->bin_entries[b].kind, s->bin_entries[b].duration,
                 s->bin_entries[b].path);
+    /* G82: chord track */
+    for (uint32_t i = 0; i < s->chord_count; i++)
+        fprintf(f, "chord %.3f %d %d\n",
+                s->chords[i].pos / WB_SAMPLE_RATE,
+                s->chords[i].root, s->chords[i].type);
     /* G68: per-bin-entry color labels (separate lines so old files load) */
     for (uint32_t b = 0; b < s->bin_count; b++)
         if (s->bin_entries[b].color > 0)
@@ -317,6 +322,13 @@ wb_session *wb_session_load(const char *path) {
                     e->offline = (access(bpath, F_OK) != 0) ? 1 : 0;  /* G70 */
                 }
             }
+            continue;
+        }
+        /* G82: chord track ("chord <sec> <root> <type>") */
+        if (strcmp(tok,"chord")==0) {
+            double sec = 0; int cr = 0, ct = 0;
+            if (fscanf(ts.f, "%lf %d %d", &sec, &cr, &ct) == 3)
+                wb_session_add_chord(s, sec * WB_SAMPLE_RATE, cr, ct);
             continue;
         }
         /* G68: bin color labels ("bin_color <index> <slot>") */

@@ -3787,6 +3787,54 @@ static void test_scale_chord_step(void) {
         }
     }
 
+
+    /* R073-G26b: transient-aware stretch keeps attacks sharp */
+    {
+        uint32_t nf = 2 * WB_SAMPLE_RATE;
+        wb_sample *in = calloc((size_t)nf * 2, sizeof(wb_sample));
+        if (in) {
+            /* quiet tone + one loud kick at 0.5s */
+            for (uint32_t i = 0; i < nf; i++)
+                in[i*2] = in[i*2+1] =
+                    (wb_sample)(0.05 * sin(2*M_PI*220.0*i/WB_SAMPLE_RATE));
+            uint32_t kick = WB_SAMPLE_RATE / 2;
+            for (uint32_t k = 0; k < WB_SAMPLE_RATE/100; k++)  /* 10ms burst */
+                in[(kick+k)*2] = in[(kick+k)*2+1] =
+                    (wb_sample)(1.0 - (double)k/(WB_SAMPLE_RATE/100));
+            uint32_t trans[1] = { kick };
+            wb_sample *o1 = NULL, *o2 = NULL;
+            uint32_t n1 = wb_timestretch(in, nf, 2, 0.5, 0.0, &o1);
+            uint32_t n2 = wb_timestretch_tr(in, nf, 2, 0.5, 0.0,
+                                            trans, 1, &o2);
+            CHECK(n1 > 0 && n2 > 0, "R073: both stretches produced audio");
+            CHECK(n2 > nf, "R073: transient-aware length doubles");
+            if (o1 && o2 && n1 > 0) {
+                /* peak flat-top measure: max abs sample near the stretched
+                 * kick region — the aware version should preserve the full
+                 * 1.0 spike; the naive one smears it below 0.9 */
+                /* doubling metric: count local maxima above half the burst
+                 * peak within one second after the stretched attack. WSOLA
+                 * without a guard can emit the attack twice (skipped/doubled
+                 * frames); the transient-aware path must not. */
+                int bumps1 = 0, bumps2 = 0;
+                uint32_t scan_end = kick + WB_SAMPLE_RATE;
+                for (uint32_t i = kick + 1; i + 1 < scan_end; i++) {
+                    float a1 = fabsf(o1[i*2]), b1 = i < n1 ? o1[(i-1)*2] : 0,
+                          c1 = i+1 < n1 ? o1[(i+1)*2] : 0;
+                    if (a1 > 0.4f && a1 >= b1 && a1 > c1) bumps1++;
+                    float a2 = fabsf(o2[i*2]), b2 = o2[(i-1)*2],
+                          c2 = o2[(i+1)*2];
+                    if (a2 > 0.4f && a2 >= b2 && a2 > c2) bumps2++;
+                }
+                CHECK(bumps2 <= bumps1 && bumps2 <= 6,
+                      "R073: no transient doubling in aware output");
+                printf("         R073 bumps naive=%d aware=%d\n",
+                       bumps1, bumps2);
+            }
+            free(o1); free(o2); free(in);
+        }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

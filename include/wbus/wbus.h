@@ -525,6 +525,12 @@ int wb_session_detect_transients(const wb_session *s, int track, int clip,
  * the caller. Returns output frame count, or 0 on error. */
 uint32_t wb_timestretch(const wb_sample *in, uint32_t frames, uint32_t chn,
                         double rate, double semitones, wb_sample **outp);
+/* R073-G26b: same, with input transient positions (from the G27 detector) —
+ * WSOLA avoids splicing across them so attacks stay sharp. */
+uint32_t wb_timestretch_tr(const wb_sample *in, uint32_t frames, uint32_t chn,
+                           double rate, double semitones,
+                           const uint32_t *trans, uint32_t ntrans,
+                           wb_sample **outp);
 /* G48: DAWproject-format export (core project.json body). */
 int wb_session_export_dawproject(const wb_session *s, const char *path);
 /* G20: multicam — group video clips as angles and switch live. */

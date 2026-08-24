@@ -32,7 +32,10 @@ static float *mono_of(const wb_sample *in, uint32_t n, uint32_t chn) {
 /* WSOLA core: stretch mono input by `rate` into a grown buffer.
  * Returns output length, or 0 on error. *outp must be freed. */
 static uint32_t wsola(const float *in, uint32_t nin, double rate,
+                      const uint32_t *trans, uint32_t ntrans,
                       float **outp) {
+    /* R073-G26b: transient guard — a candidate window straddling a transient
+     * would double or skip it; such candidates are skipped by the search. */
     if (!in || !outp || nin < TS_FRAME * 2 || rate <= 0.0) return 0;
     /* nominal read hop: consume rate× fewer/more source samples per hop */
     uint32_t read_hop = (uint32_t)(TS_HOP * rate);
@@ -65,11 +68,27 @@ static uint32_t wsola(const float *in, uint32_t nin, double rate,
          * tones stay phase-coherent across the splice. */
         int best_d = 0;
         float best_e = -1e30f;
-        for (int d = -(int)search; d <= (int)search; d += 2) {
+        /* R073-G26b (MDPI TSM review §4.3): when this frame's window contains
+         * a transient, lock to nominal (d=0) so the attack is neither doubled
+         * by a shifted copy nor skipped; the search then runs normally. */
+        int locked = 0;
+        for (uint32_t t = 0; t < ntrans && !locked; t++)
+            if (trans[t] >= src_pos && trans[t] < src_pos + TS_FRAME)
+                locked = 1;
+        for (int d = locked ? 0 : -(int)search;
+             d <= (locked ? 0 : (int)search); d += 2) {
             long q = (long)src_pos + d;
             if (q < 0 || q + TS_FRAME >= (long)nin) continue;
             float e = 0;
-            if (have_anchor) {
+            if (!ntrans && have_anchor) {
+                for (uint32_t k = 0; k < TS_HOP; k++)
+                    e += in[q + k] * anchor[k];
+            } else if (have_anchor) {
+                int straddles = 0;
+                for (uint32_t t = 0; t < ntrans; t++)
+                    if (trans[t] > q - TS_FRAME && trans[t] < q + 2*TS_HOP)
+                        { straddles = 1; break; }
+                if (straddles) continue;
                 for (uint32_t k = 0; k < TS_HOP; k++)
                     e += in[q + k] * anchor[k];
             } else {
@@ -108,8 +127,10 @@ static uint32_t wsola(const float *in, uint32_t nin, double rate,
 /* Public API: stretch/pitch an interleaved stereo clip into a new buffer.
  * rate: time factor (>1 faster). semitones: pitch shift after stretching.
  * Returns output frame count, *outp owned by caller. 0 on error. */
-uint32_t wb_timestretch(const wb_sample *in, uint32_t frames, uint32_t chn,
-                        double rate, double semitones, wb_sample **outp) {
+uint32_t wb_timestretch_tr(const wb_sample *in, uint32_t frames,
+                           uint32_t chn, double rate, double semitones,
+                           const uint32_t *trans, uint32_t ntrans,
+                           wb_sample **outp) {
     if (!in || !outp || frames == 0 || chn == 0 ||
         rate <= 0.01 || rate > 16.0) return 0;
     if (fabs(semitones) > 24.0) return 0;
@@ -124,14 +145,14 @@ uint32_t wb_timestretch(const wb_sample *in, uint32_t frames, uint32_t chn,
     float *stretched = NULL;
     uint32_t ns = 0;
     if (fabs(semitones) < 0.001) {
-        ns = wsola(mono, frames, rate, &stretched);
+        ns = wsola(mono, frames, rate * resamp, trans, ntrans, &stretched);;
         free(mono);
         if (!ns) return 0;
         resamp = 1.0;
     } else {
         /* after resample-by-resamp the length divides by resamp, so pre-
          * stretch by 1/resamp relative to the target rate to land on it */
-        ns = wsola(mono, frames, rate / resamp, &stretched);
+        ns = wsola(mono, frames, rate / resamp, NULL, 0, &stretched);
         free(mono);
         if (!ns) return 0;
     }
@@ -152,4 +173,11 @@ uint32_t wb_timestretch(const wb_sample *in, uint32_t frames, uint32_t chn,
     free(stretched);
     *outp = out;
     return n_out;
+}
+
+/* Compat: stretch without explicit transients (detector-free callers). */
+uint32_t wb_timestretch(const wb_sample *in, uint32_t frames, uint32_t chn,
+                        double rate, double semitones, wb_sample **outp) {
+    return wb_timestretch_tr(in, frames, chn, rate, semitones,
+                             NULL, 0, outp);
 }

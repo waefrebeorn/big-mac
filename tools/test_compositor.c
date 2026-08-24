@@ -748,6 +748,31 @@ int main(void) {
         wb_node_destroy(gr); wb_node_destroy(src);
     }
 
+
+    /* R073 hop 58: typewriter text animation */
+    {
+        wb_node *txt = wb_node_source_text("HELLO", 3,
+                                           1.0f, 1.0f, 1.0f, 1.0f, 96, 32);
+        CHECK(txt != NULL, "typer: node created");
+        wb_node_source_text_anim(txt, 1, 2.0);   /* typewriter over 2s */
+        wb_frame *early = wb_node_pull(txt, 0.25, 0, 0, 96, 32);
+        wb_frame *late  = wb_node_pull(txt, 1.75, 0, 0, 96, 32);
+        CHECK(early && late, "typer: frames pulled");
+        if (early && late) {
+            int lit_e = 0, lit_l = 0;
+            for (int i = 0; i < 96*32; i++) {
+                if (early->px[i].a > 0.5f) lit_e++;
+                if (late->px[i].a > 0.5f) lit_l++;
+            }
+            CHECK(lit_l > lit_e * 2,
+                  "typer: more glyphs visible at t=1.75 than t=0.25");
+            printf("         typer: early=%d late=%d\n", lit_e, lit_l);
+            wb_frame_free(early); wb_frame_free(late);
+        }
+        wb_node_destroy(txt);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

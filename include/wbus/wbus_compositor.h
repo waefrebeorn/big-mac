@@ -164,6 +164,8 @@ wb_node *wb_node_source_anim(struct wb_anim *anim, int w, int h);
 wb_node *wb_node_source_text(const char *text, int scale,
                              float r, float g, float b, float a,
                              int w, int h);
+/* R073 hop 58: set the text animation preset on a text source node. */
+void wb_node_source_text_anim(wb_node *text_node, int mode, double dur);
 
 /* R073 hop 49: transitions — op 0 = crossfade, op 1 = dip-to-black.
  * Two inputs (A, B); mixes across `duration_secs` starting at t=0.

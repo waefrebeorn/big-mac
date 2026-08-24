@@ -2,6 +2,7 @@
  * node-graph compositor (R013 D1/D3, R016 S2). */
 
 #include <stdio.h>
+#include "wbus/wbus_anim.h"
 #include <stdlib.h>
 #include <math.h>
 #include "wbus/wbus.h"
@@ -434,6 +435,54 @@ int main(void) {
         }
         wb_param_track_free(bt);
         wb_node_destroy(key); wb_node_destroy(src);
+    }
+
+    /* R073 hop 43: CGI source node feeds the compositor */
+    {
+        wb_anim *an = wb_anim_create(64, 64);
+        CHECK(an != NULL, "cgisrc: anim created");
+        if (an) {
+            /* a spinning shaded cube so frames carry real content */
+            wb_mesh *cube = wb_mesh_box(8, 8, 8, 255, 160, 60);
+            CHECK(cube != NULL, "cgisrc: cube mesh built");
+            int obj = -1;
+            if (cube) {
+                obj = wb_anim_add_object(an, cube, 255, 160, 60);
+                wb_anim_set_camera(an, 0.0f, 0.0f, 5.0f);
+                wb_anim_key(an, obj, 0.0,
+                            0, 0, -2, 0.0f, 0.0f, 0.0f, 1.0f);
+                wb_anim_key(an, obj, 2.0,
+                            0, 0, -2, 0.6f, 1.5708f, 0.4f, 1.0f);
+                /* NOTE: anim does not own the mesh — freed after pulls */
+            }
+            wb_node *src = wb_node_source_anim(an, 64, 64);
+            CHECK(src != NULL, "cgisrc: node created");
+            wb_frame *f0 = src ? wb_node_pull(src, 0.0, 0, 0, 64, 64)
+                               : NULL;
+            CHECK(f0 != NULL, "cgisrc: t=0 frame pulled");
+            /* sum brightness at two times; a rotating shaded cube changes */
+            double b0 = 0, b1 = 0;
+            if (f0) {
+                for (int i = 0; i < 64*64; i++)
+                    b0 += f0->px[i].r + f0->px[i].g + f0->px[i].b;
+                wb_frame_free(f0);
+            }
+            wb_frame *f1 = src ? wb_node_pull(src, 1.0, 0, 0, 64, 64)
+                               : NULL;
+            if (f1) {
+                for (int i = 0; i < 64*64; i++)
+                    b1 += f1->px[i].r + f1->px[i].g + f1->px[i].b;
+                wb_frame_free(f1);
+            }
+            CHECK(b0 > 0.0 || b1 > 0.0,
+                  "cgisrc: rendered frames carry content");
+            CHECK(fabs(b1 - b0) > 1e-3,
+                  "cgisrc: animation changes the frame over time");
+            printf("         cgisrc: b0=%.1f b1=%.1f\n", b0, b1);
+            wb_node_destroy(src);
+            wb_anim_free(an);
+            wb_mesh_free(cube);
+        }
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);

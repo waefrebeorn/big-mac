@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include "wbus/wbus_anim.h"   /* R073 hop 43: CGI source */
 
 /* ---- G1: global quality-of-service dial (0..1) ----------------------- */
 static double g_quality = 1.0;   /* default full quality */
@@ -858,4 +859,39 @@ void wb_frame_grade(wb_frame *f, float lift, float gamma, float gain,
         if (b < 0) b = 0; if (b > 1) b = 1;
         p->r = r; p->g = g; p->b = b;
     }
+}
+
+/* ---- R073 hop 43: CGI SOURCE (wb_anim scene as a compositor producer) ---- */
+typedef struct { wb_anim *anim; int w, h; } src_anim_t;
+static wb_frame *src_anim_pull(wb_node *self, double t,
+                               int rx, int ry, int rw, int rh, int phase) {
+    (void)phase;
+    src_anim_t *d = self->user;
+    if (!d || !d->anim) return NULL;
+    int w = d->w, h = d->h;
+    wb_frame *f = wb_frame_alloc(w, h);
+    if (!f) return NULL;
+    uint8_t *buf = malloc((size_t)w * h * 4);
+    if (!buf) { wb_frame_free(f); return NULL; }
+    wb_anim_render_frame(d->anim, t, buf);
+    for (int i = 0; i < w*h; i++) {
+        f->px[i].r = buf[i*4]   / 255.0f;
+        f->px[i].g = buf[i*4+1] / 255.0f;
+        f->px[i].b = buf[i*4+2] / 255.0f;
+        f->px[i].a = buf[i*4+3] / 255.0f;
+    }
+    free(buf);
+    f->roi_x = rx; f->roi_y = ry; f->roi_w = rw; f->roi_h = rh;
+    return f;
+}
+wb_node *wb_node_source_anim(wb_anim *anim, int w, int h) {
+    wb_node *n = wb_node_create(WB_NODE_SOURCE, "src_anim");
+    if (!n) return NULL;
+    src_anim_t *s = calloc(1, sizeof(*s));
+    s->anim = anim;
+    s->w = w > 0 ? w : 320;
+    s->h = h > 0 ? h : 240;
+    n->user = s;
+    n->pull = src_anim_pull;
+    return n;
 }

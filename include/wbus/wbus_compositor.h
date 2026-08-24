@@ -155,6 +155,11 @@ int wb_node_cache_stats(const wb_node *n, int *hits, int *count);
  * color producer for now (deterministic, testable). */
 wb_node *wb_node_source_color(float r, float g, float b, float a, int w, int h);
 
+/* R073 hop 43: CGI source — renders a wb_anim 3D scene at time t into the
+ * node graph (Blender-lite compositing input). The anim is NOT owned. */
+struct wb_anim;
+wb_node *wb_node_source_anim(struct wb_anim *anim, int w, int h);
+
 /* EFFECT: applies a simple op over its single input.
  * op: 0 = identity(bypass), 1 = brightness*gain (gain is keyframable
  *      via param "gain"), 2 = invert-alpha matte */

@@ -243,6 +243,52 @@ static wb_frame *eff_pull(wb_node *self, double t,
             else if (e->op == 2) { /* invert alpha matte */
                 p->a = 1.0f - p->a;
             }
+            else if (e->op == 4) {
+                /* R073 hop 42: gaussian blur — two passes of a 3-tap box
+                 * (H+V, repeated) approximates a gaussian; radius from the
+                 * keyframable "blur" param (0..~8). Operates on the RoI. */
+                float rad = wb_node_param_value(self, "blur", t);
+                if (rad <= 0.0f) rad = gain;
+                int r = (int)(rad * 3.0f);
+                if (r < 1) { /* identity when radius < 1 */ }
+                else {
+                    int W = in->w, H = in->h;
+                    wb_frame *tmp = wb_frame_alloc(W, H);
+                    if (tmp) {
+                        for (int pass = 0; pass < 2; pass++) {
+                            wb_frame *srcf = (pass == 0) ? in : tmp;
+                            wb_frame *dstf = (pass == 0) ? tmp : in;
+                            /* horizontal */
+                            for (int y = ry; y < ry + rh; y++)
+                                for (int x = rx; x < rx + rw; x++) {
+                                    float ar=0,ag=0,ab=0,aa=0; int n=0;
+                                    for (int k = -r; k <= r; k++) {
+                                        int xx = x + k;
+                                        if (xx < 0 || xx >= W) continue;
+                                        wb_px *q=&srcf->px[y*W+xx];
+                                        ar+=q->r; ag+=q->g; ab+=q->b; aa+=q->a; n++;
+                                    }
+                                    wb_px *d=&dstf->px[y*W+x];
+                                    d->r=ar/n; d->g=ag/n; d->b=ab/n; d->a=aa/n;
+                                }
+                            /* vertical */
+                            for (int y = ry; y < ry + rh; y++)
+                                for (int x = rx; x < rx + rw; x++) {
+                                    float ar=0,ag=0,ab=0,aa=0; int n=0;
+                                    for (int k = -r; k <= r; k++) {
+                                        int yy = y + k;
+                                        if (yy < 0 || yy >= H) continue;
+                                        wb_px *q=&srcf->px[yy*W+x];
+                                        ar+=q->r; ag+=q->g; ab+=q->b; aa+=q->a; n++;
+                                    }
+                                    wb_px *d=&dstf->px[y*W+x];
+                                    d->r=ar/n; d->g=ag/n; d->b=ab/n; d->a=aa/n;
+                                }
+                        }
+                        wb_frame_free(tmp);
+                    }
+                }
+            }
             else if (e->op == 3) {
                 /* R073 hop 41: chroma key — green-screen removal.
                  * keyed when green dominates red+blue beyond tolerance;

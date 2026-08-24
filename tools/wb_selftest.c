@@ -23,6 +23,8 @@
 #include "wbus_export_job.h"  /* Wave1 G38 */
 #include "wbus_delivery.h"    /* Wave2 G52 */
 #include "wbus/wbus_clip_edit.h" /* Wave2 G14/G23/G64 */
+#include "wbus_captions.h"    /* G46 SRT roundtrip */
+#include "wbus_transcript.h"  /* G46 */
 
 static int failures = 0;
 static int checks = 0;
@@ -2821,6 +2823,19 @@ static void test_scale_chord_step(void) {
         wb_engine_set_insert_sidechain(NULL, 1, 0, nxt); /* NULL-engine safe? */
     }
     wb_session_destroy(s);
+
+    /* G46: SRT roundtrip — write from text, parse back, count lines */
+    {
+        const char *p = "/tmp/bigmac_g46_roundtrip.srt";
+        int wr = wb_captions_write_srt(p,
+            "Hello from the Big Mac captions roundtrip test.", 6000);
+        CHECK(wr == 0, "G46: write_srt succeeds");
+        wb_transcript *tr = wb_transcript_from_srt(p);
+        CHECK(tr != NULL && wb_transcript_count(tr) > 0,
+              "G46: written SRT parses back into transcript lines");
+        if (tr) wb_transcript_free(tr);
+        unlink(p);
+    }
 
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }

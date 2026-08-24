@@ -26,7 +26,8 @@ static int ext_is(const char *path, const char *ext) {
 int wb_import_is_media_path(const char *path) {
     if (!path) return 0;
     return ext_is(path, ".mp4") || ext_is(path, ".mov") || ext_is(path, ".wav") ||
-           ext_is(path, ".aiff") || ext_is(path, ".mp3") || ext_is(path, ".m4a");
+           ext_is(path, ".aiff") || ext_is(path, ".mp3") || ext_is(path, ".m4a") ||
+           ext_is(path, ".srt");   /* G46: captions roundtrip */
 }
 
 static int cmp_paths(const void *a, const void *b) {

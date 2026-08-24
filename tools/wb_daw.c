@@ -1682,6 +1682,11 @@ static void draw_action_bar(app *a) {
         if (tab == 6) { /* CAPTIONS: delivery master (normalize + chapters) */
             ui_button(a->ren, BTN_ACT3, bx+3*(bw+6), by, bw/2-3, bh, "DELIVER", 0);
             ui_button(a->ren, BTN_WS4+100, bx+3*(bw+6)+bw/2+3, by, bw/2-3, bh, "CHAP", 0);
+            /* G46: SRT roundtrip buttons */
+            int sx = bx+4*(bw+6);
+            ui_button(a->ren, 9101, sx, by, bw/2-3, bh, "SRT OUT",
+                      a->vid_captions_ready);
+            ui_button(a->ren, 9102, sx+(bw/2+3), by, bw/2-3, bh, "SRT IN", 0);
         }
         if (tab == 7) { /* EXPORT: codec choice + perf passthrough */
             ui_button(a->ren, BTN_ACT3, bx+3*(bw+6), by, bw, bh,
@@ -1741,6 +1746,19 @@ static void browser_import(app *a, const char *path) {
     size_t pl = strlen(path);
     int is_video = (pl > 4 && (!strcasecmp(path+pl-4, ".mp4") ||
                                !strcasecmp(path+pl-4, ".mov")));
+    /* G46: SRT import — load captions into the video editor context */
+    if (pl > 4 && !strcasecmp(path+pl-4, ".srt")) {
+        snprintf(a->vid_srt, sizeof(a->vid_srt), "%s", path);
+        if (a->vid_tr) wb_transcript_free(a->vid_tr);
+        a->vid_tr = wb_transcript_from_srt(path);
+        a->tr_sel0 = a->tr_sel1 = 0;
+        a->vid_captions_ready = a->vid_tr != NULL;
+        snprintf(a->last_status, sizeof(a->last_status),
+                 "SRT LOADED: %d lines", a->vid_tr ? wb_transcript_count(a->vid_tr) : 0);
+        printf("srt-import: %s (%d lines)\n", path,
+               a->vid_tr ? wb_transcript_count(a->vid_tr) : 0);
+        return;
+    }
     daw_checkpoint(a);
     if (is_video) {
         if (video_import(a, path) == 0)
@@ -3058,6 +3076,40 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                     }
                     break;
                 }
+                case 9101: {  /* G46: SRT OUT — write current captions beside the source */
+                    if (a->vid_captions_ready && a->vid_srt[0]) {
+                        char outp[600];
+                        if (a->vid_source[0]) {
+                            snprintf(outp, sizeof(outp), "%.500s", a->vid_source);
+                            char *dot = strrchr(outp, '.');
+                            if (dot) *dot = 0;
+                            strlcat(outp, ".srt", sizeof(outp));
+                        } else {
+                            snprintf(outp, sizeof(outp), "/tmp/bigmac_export.srt");
+                        }
+                        FILE *fi = fopen(a->vid_srt, "rb"), *fo = fopen(outp, "wb");
+                        if (fi && fo) {
+                            char cp[4096]; size_t nr;
+                            while ((nr = fread(cp, 1, sizeof(cp), fi)) > 0)
+                                fwrite(cp, 1, nr, fo);
+                            snprintf(a->last_status, sizeof(a->last_status),
+                                     "SRT SAVED: %.44s", outp);
+                            printf("srt-export: %s -> %s\n", a->vid_srt, outp);
+                        } else {
+                            snprintf(a->last_status, sizeof(a->last_status),
+                                     "SRT SAVE FAILED");
+                        }
+                        if (fi) fclose(fi);
+                        if (fo) fclose(fo);
+                    } else {
+                        snprintf(a->last_status, sizeof(a->last_status),
+                                 "SRT OUT: no captions yet (run CAPTIONS)");
+                    }
+                    break;
+                }
+                case 9102:    /* G46: SRT IN — open browser (routes .srt files) */
+                    a->browser_open = 1;
+                    break;
                 case BTN_OVERVIEW:   /* R040: begin scroll-drag on the overview strip */
                     a->ov_drag = 1;
                     ov_scroll_to(a, b.x);

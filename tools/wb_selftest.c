@@ -3296,6 +3296,17 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(cs);
     }
 
+
+    /* G34: plugin isolation counters */
+    {
+        wb_engine *pe = wb_engine_create();
+        CHECK(wb_engine_vst3_faults(pe) == 0,
+              "G34: clean session has zero quarantined plugins");
+        wb_engine_destroy(pe);
+        /* NULL safety */
+        CHECK(wb_engine_vst3_faults(NULL) == 0, "G34: NULL engine safe");
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

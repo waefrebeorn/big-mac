@@ -86,6 +86,9 @@ struct wb_engine {
     pthread_mutex_t process_lock;
     int   lock_initialized;
     uint64_t xruns;
+    /* G34: plugin crash isolation */
+    int  vst3_quarantine[WB_MAX_TRACKS][WB_MAX_INSERT_SLOTS];
+    int  vst3_faults;
 
     /* ---- MIDI recording (one recorder arm per track; -1 = disarmed) ---- */
     wb_recorder *recorders[WB_MAX_TRACKS];
@@ -510,15 +513,31 @@ static void stage_effects(wb_engine *e, uint32_t frames) {
                  * holding a VST3 plugin; the plugin name follows the prefix. */
                 const char *vname = id + 5;
                 void *vinst = wb_vst3_slot_get((int)t, s);
+                if (e->vst3_quarantine[(int)t][s]) break;  /* G34: bypassed */
                 if (vinst && vname && *vname) {
                     wb_sample dryL[WB_MAX_BLOCK], dryR[WB_MAX_BLOCK];
-                    if (w < 1.0f) {
-                        memcpy(dryL, tr->bufL, frames * sizeof(wb_sample));
-                        memcpy(dryR, tr->bufR, frames * sizeof(wb_sample));
-                    }
+                    /* G34: keep the dry signal regardless of wet — quarantine
+                     * needs it to restore audio on a fault. */
+                    memcpy(dryL, tr->bufL, frames * sizeof(wb_sample));
+                    memcpy(dryR, tr->bufR, frames * sizeof(wb_sample));
                     int rc = wb_vst3_process(vinst, tr->bufL, tr->bufR,
                                              tr->bufL, tr->bufR, frames);
-                    (void)rc;
+                    /* G34: crash isolation — sanitize plugin output. A VST3
+                     * emitting NaN/Inf or failing to process is QUARANTINED
+                     * (bypassed for the rest of the session) instead of
+                     * poisoning the mix; the counter is user-visible. */
+                    int bad = (rc != 0);
+                    for (uint32_t i = 0; i < frames && !bad; i++) {
+                        float l = tr->bufL[i], r = tr->bufR[i];
+                        if (isnan(l) || isnan(r) || isinf(l) || isinf(r)) bad = 1;
+                    }
+                    if (bad) {
+                        e->vst3_quarantine[(int)t][s] = 1;
+                        e->vst3_faults++;
+                        memcpy(tr->bufL, dryL, frames * sizeof(wb_sample));
+                        memcpy(tr->bufR, dryR, frames * sizeof(wb_sample));
+                        continue;
+                    }
                     if (w < 1.0f) {
                         for (uint32_t i = 0; i < frames; i++) {
                             tr->bufL[i] = dryL[i] * (1.0f - w) + tr->bufL[i] * w;
@@ -1246,3 +1265,6 @@ int wb_engine_invalidate_render_cache(void) {
     remove("/tmp/bigmac_cache.meta");
     return 0;
 }
+
+/* G34: quarantine counter accessor */
+int wb_engine_vst3_faults(wb_engine *e) { return e ? e->vst3_faults : 0; }

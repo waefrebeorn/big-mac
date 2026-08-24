@@ -408,6 +408,8 @@ float wb_engine_cpu_load(wb_engine *e);
  * the render callback could not take the process lock (a non-RT thread was
  * mid-edit) and had to drop a block rather than block the audio thread. */
 uint64_t wb_engine_xruns(wb_engine *e);
+/* G34: number of VST3 plugins quarantined for emitting bad output. */
+int wb_engine_vst3_faults(wb_engine *e);
 
 /* Begin/end a non-RT edit (session structure change). render() try-locks
  * this; if it's held at block time, render counts an Xrun and returns

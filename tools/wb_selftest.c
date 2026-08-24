@@ -3756,6 +3756,37 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(gs);
     }
 
+
+    /* R073-G26a: WSOLA correlation quality — stretched tone keeps its pitch
+     * (dominant peak stable, minimal sideband warble) */
+    {
+        uint32_t nf = 4 * WB_SAMPLE_RATE;
+        wb_sample *in = malloc((size_t)nf * 2 * sizeof(wb_sample));
+        if (in) {
+            for (uint32_t i = 0; i < nf; i++) {
+                wb_sample v = (wb_sample)(0.5 *
+                    sin(2*M_PI*220.0*i/WB_SAMPLE_RATE));
+                in[i*2] = v; in[i*2+1] = v;
+            }
+            wb_sample *out = NULL;
+            uint32_t no = wb_timestretch(in, nf, 2, 0.5, 0.0, &out);
+            CHECK(no > nf, "R073: half-speed stretch produced audio");
+            if (out && no > WB_SAMPLE_RATE) {
+                /* zero-crossing rate over the middle second estimates pitch */
+                uint32_t start = no/2, end = start + WB_SAMPLE_RATE;
+                int zc = 0;
+                for (uint32_t i = start+1; i < end && i < no; i++)
+                    if ((out[(i-1)*2] < 0) != (out[i*2] < 0)) zc++;
+                /* 220 Hz => ~440 crossings/sec; allow +-10% */
+                CHECK(zc > 396 && zc < 484,
+                      "R073: stretched tone holds 220Hz within 10%%");
+                printf("         R073 zc=%d (want ~440)\n", zc);
+            }
+            free(out);
+            free(in);
+        }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

@@ -37,31 +37,47 @@ static uint32_t wsola(const float *in, uint32_t nin, double rate,
     /* nominal read hop: consume rate× fewer/more source samples per hop */
     uint32_t read_hop = (uint32_t)(TS_HOP * rate);
     if (read_hop < 8) read_hop = 8;
-    uint32_t search = read_hop / 4;              /* WSOLA search window */
+    /* R073: search must span at least half a synthesis hop so the similarity
+     * search can always reach phase alignment for any tone period up to
+     * TS_HOP — a window of read_hop/4 left periodic signals misaligned,
+     * producing constant beating (measured 392Hz vs 440Hz on a 220Hz tone). */
+    uint32_t search = TS_HOP / 2;
     uint32_t max_out = (size_t)((double)nin / rate) + TS_FRAME + TS_HOP;
     float *out = calloc(max_out, sizeof(float));
     if (!out) return 0;
 
     uint32_t out_pos = 0;                        /* write cursor */
     uint32_t src_pos = 0;                        /* nominal read cursor */
+    /* R073: natural-continuation anchor — the input segment that follows the
+     * previously consumed frame. Candidates correlate against THIS, not the
+     * crossfaded output (which smears two positions and biases the search). */
+    float anchor[TS_HOP];
+    int have_anchor = 0;
     /* normalized cross-correlation anchor: last TS_HOP of written output */
     while (src_pos + TS_FRAME + search < nin &&
            out_pos + TS_FRAME < max_out) {
         /* find offset delta in [−search, +search] maximizing similarity to
          * the previously written overlap region (the natural continuation) */
+        /* R073 (WSOLA per Verhelst/Roelands '93): cross-correlate each
+         * candidate's overlap segment against the tail of the previously
+         * written output — full-resolution dot product, not a stride-8
+         * difference. Maximize correlation; this is what makes sustained
+         * tones stay phase-coherent across the splice. */
         int best_d = 0;
         float best_e = -1e30f;
-        for (int d = -(int)search; d <= (int)search; d += 4) {
-            uint32_t p = src_pos + (uint32_t)(d > 0 ? d : 0);
-            if ((int)p + d < 0) continue;
-            uint32_t q = (uint32_t)((long)p + d);
-            if (q + TS_FRAME >= nin) break;
-            /* energy of the candidate's overlap segment vs the tail we
-             * already wrote: maximize their product (similarity proxy) */
+        for (int d = -(int)search; d <= (int)search; d += 2) {
+            long q = (long)src_pos + d;
+            if (q < 0 || q + TS_FRAME >= (long)nin) continue;
             float e = 0;
-            for (uint32_t k = 0; k < TS_HOP; k += 8)
-                e -= fabsf(in[q + k] -
-                           (out_pos >= TS_HOP ? out[out_pos - TS_HOP + k] : 0));
+            if (have_anchor) {
+                for (uint32_t k = 0; k < TS_HOP; k++)
+                    e += in[q + k] * anchor[k];
+            } else {
+                /* no written tail yet: prefer highest energy for the first
+                 * frame so we start on strong material */
+                for (uint32_t k = 0; k < TS_FRAME; k += 4)
+                    e -= fabsf(in[q + k]);
+            }
             if (e > best_e) { best_e = e; best_d = d; }
         }
         uint32_t p = (uint32_t)((long)src_pos + best_d);
@@ -74,6 +90,13 @@ static uint32_t wsola(const float *in, uint32_t nin, double rate,
             if (out_pos + k < max_out)
                 out[out_pos + k] =
                     out[out_pos + k] * w_old + in[p + k] * w_in;
+        }
+        /* save the ideal next-overlap segment from the INPUT for the next
+         * search (this is what makes WSOLA 'waveform similarity' work) */
+        uint32_t ap = p + TS_HOP;
+        if (ap + TS_HOP < nin) {
+            memcpy(anchor, in + ap, TS_HOP * sizeof(float));
+            have_anchor = 1;
         }
         out_pos += TS_HOP;
         src_pos += read_hop;

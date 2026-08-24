@@ -5253,7 +5253,30 @@ static void handle_key(app *a, SDL_Keycode k) {
             }
         }
         break;
-    case SDLK_x:  /* split clip at playhead (EDIT tab) */
+    case SDLK_x:  /* split clip at playhead (EDIT tab = video; ARRANGE = audio) */
+        if (a->tab == 0 && a->session && a->selected_track >= 0 &&
+            a->selected_track < (int)a->session->track_count) {
+            /* R073 hop 30: pop-free audio split via the zc-snapping op */
+            double phs = a->t.song_pos / WB_SAMPLE_RATE;
+            int st = a->selected_track;
+            for (uint32_t ci = 0; ci < a->session->tracks[st].clip_count;
+                 ci++) {
+                wb_clip *acl = &a->session->tracks[st].clips[ci];
+                double s0 = acl->start / WB_SAMPLE_RATE;
+                double s1 = s0 + acl->length;
+                if (acl->type != 1 || !acl->audio_data ||
+                    phs <= s0 + 0.01 || phs >= s1 - 0.01)
+                    continue;
+                if (wb_session_split_audio_clip(a->session, st,
+                                                (int)ci, phs - s0) == 0)
+                    printf("split: audio clip %u at %.2fs (pop-free)\n",
+                           ci, phs);
+                else
+                    printf("split: audio clip %u failed\n", ci);
+                break;
+            }
+            break;
+        }
         if (a->tab == 5 && a->vid_has_clip) {
             double ph = a->t.song_pos / WB_SAMPLE_RATE;
             if (ph > a->vid_tl_start && ph < a->vid_tl_end) {

@@ -34,7 +34,7 @@ every gap below is a break in one of those seven loops.
       actions tracked per edit).
 [G09] P1 WIRED(track rename/delete/reorder/rec-arm in gutter) — Track management: rename, delete, reorder (drag), rec-arm button,
       height resize (audit-confirmed missing).
-[G10] P1 — Snap toggle + snap-to-markers/grid (FL scale/snap highlighting).
+[G10] P1 — Snap toggle + snap-to-markers/grid (FL scale/snap highlighting).  **WIRED R073: snap_pos() grid+marker quantize wired into clip move + scrub-seek (scale-highlight covered by G80)**
 [G11] P2 — Project templates + recent-files list + new-project dialog
       (Reaper templates, Cakewalk dialog threads).
 [G12] P2 — Autosave + crash recovery copies (Premiere auto-save folder/.bak).

@@ -9,6 +9,8 @@
 #include "wbus/wbus.h"
 #include "wbus/wbus_param_track.h"
 #include "wbus/wbus_compositor.h"
+#include "wbus/wbus_cgi_bands.h"
+#include "wbus/wbus_mesh.h"
 
 static int failures = 0, checks = 0;
 #define CHECK(c, m) do { checks++; if (c) printf("  [PASS] %s\n", m); \
@@ -1015,6 +1017,66 @@ int main(void) {
         wb_node_destroy(xf); wb_node_destroy(src);
     }
 
+
+    /* R073 hop 70: end-to-end composition — every node family in one graph */
+    {
+        /* scene: band-keyed spheres */
+        wb_anim *an = wb_anim_create(64, 64);
+        CHECK(an != NULL, "e2e: anim created");
+        uint32_t qnf = WB_SAMPLE_RATE;
+        wb_sample *qb = malloc((size_t)qnf * sizeof(wb_sample));
+        CHECK(qb != NULL, "e2e: audio allocated");
+        for (int w2 = 0; w2 < 8; w2++) {         /* alternating bands */
+            double f = (w2 % 2 == 0) ? 100.0 : 4000.0;
+            uint32_t s0 = (uint32_t)((double)w2 / 8 * qnf);
+            uint32_t s1 = (uint32_t)((double)(w2+1) / 8 * qnf);
+            for (uint32_t i = s0; i < s1 && i < qnf; i++)
+                qb[i] = (wb_sample)(0.5 *
+                    sin(2*M_PI*f*i/WB_SAMPLE_RATE));
+        }
+        wb_mesh *meshes[3] = {0,0,0};
+        int vrc = an ? wb_cgi_visualizer_build(an, qb, qnf, 1, 1.0,
+                                               1.0f, 0.6f, meshes)
+                     : -1;
+        free(qb);
+        CHECK(vrc == 0, "e2e: visualizer built");
+
+        /* graph: cgi -> blur -> vignette -> composite-over-red bg */
+        wb_node *cgi   = an ? wb_node_source_anim(an, 64, 64) : NULL;
+        wb_node *bg    = wb_node_source_color(0.2f, 0.2f, 0.25f, 1.0f,
+                                              64, 64);
+        wb_node *blur  = cgi ? wb_node_effect(4, 1.0f) : NULL;  /* radius 1 */
+        if (blur && cgi) blur->inputs[0] = cgi;
+        wb_node *vig   = blur ? wb_node_effect(6, 0.4f) : NULL;
+        if (vig && blur) vig->inputs[0] = blur;
+        wb_node *comp  = wb_node_composite();
+        if (comp) { wb_composite_add(comp, bg); if (vig) wb_composite_add(comp, vig); }
+        wb_frame *final_ = comp ? wb_node_pull(comp, 0.5, 0, 0, 64, 64)
+                                : NULL;
+        CHECK(final_ != NULL, "e2e: full graph pulled");
+        if (final_) {
+            float lit = 0;
+            for (int y = 0; y < 64; y++)
+                for (int x = 0; x < 64; x++)
+                    lit += final_->px[y*final_->w + x].r
+                         + final_->px[y*final_->w + x].g
+                         + final_->px[y*final_->w + x].b;
+            CHECK(lit > 500.0f,
+                  "e2e: composited frame carries the whole chain");
+            printf("         e2e brightness=%.1f\n", lit);
+            wb_frame_free(final_);
+        }
+        if (comp) wb_node_destroy(comp);
+        if (vig) wb_node_destroy(vig);
+        if (blur) wb_node_destroy(blur);
+        if (bg) wb_node_destroy(bg);
+        if (cgi) wb_node_destroy(cgi);
+        for (int i = 0; i < 3; i++)
+            if (meshes[i]) wb_mesh_free(meshes[i]);
+        if (an) wb_anim_free(an);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);

@@ -393,17 +393,28 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 float wr = wb_node_param_value(self, "win_r", t);
                 float wsel = 1.0f;
                 if (wr > 0.0f) {
-                    float nx = ((float)x + 0.5f) / rw
+                    float nx = ((float)x + 0.5f) / in->w
                              - wb_node_param_value(self, "win_cx", t);
-                    float ny = ((float)y + 0.5f) / rh
+                    float ny = ((float)y + 0.5f) / in->h
                              - wb_node_param_value(self, "win_cy", t);
                     float ws = wb_node_param_value(self, "win_soft", t);
                     if (ws <= 0.0f) ws = 0.15f;
-                    float dist = sqrtf(nx*nx + ny*ny);
+                    /* R073 hop 78: win_shape 1 = rect (Chebyshev) */
+                    float dist;
+                    if (wb_node_param_value(self, "win_shape", t) > 0.5f)
+                        dist = fmaxf(fabsf(nx), fabsf(ny));
+                    else
+                        dist = sqrtf(nx*nx + ny*ny);
                     wsel = 1.0f - (dist - wr) / ws;
                     if (wsel < 0.0f) wsel = 0.0f;
                     if (wsel > 1.0f) wsel = 1.0f;
-                    if (wsel <= 0.0f) break;   /* outside window: skip */
+                    if (x == 32 && y == 32)
+                        fprintf(stderr, "D78: nx=%.3f ny=%.3f wr=%.2f "
+                                "ws=%.2f wsel=%.2f\n", nx, ny, wr, ws,
+                                wsel);
+                    /* R073 hop 78 fix: wsel<=0 must NOT break the pixel
+                     * loop — fall through; sel multiplies to 0 below so
+                     * outside-window pixels pass through unchanged. */
                 }
                 float mx = p->r > p->g ? (p->r > p->b ? p->r : p->b)
                                        : (p->g > p->b ? p->g : p->b);

@@ -4288,6 +4288,7 @@ int main(int argc, char **argv) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); return 1;
     }
+    SDL_EventState(SDL_DROPFILE, SDL_ENABLE);   /* G03: Finder drag-drop */
     app *a = calloc(1, sizeof(*a));
     a->selected_track = -1;
     a->dragging_clip = -1;
@@ -4505,6 +4506,13 @@ int main(int argc, char **argv) {
             else if (ev.type==SDL_MOUSEWHEEL) handle_wheel(a, ev.wheel);
             else if (ev.type==SDL_MOUSEMOTION) handle_motion(a, ev.motion);
             else if (ev.type==SDL_MOUSEBUTTONDOWN) handle_mouse(a, ev.button);
+            else if (ev.type==SDL_DROPFILE) {   /* G03: Finder -> timeline */
+                char *dp = ev.drop.file;
+                if (dp && dp[0]) {
+                    browser_import(a, dp);
+                }
+                if (dp) SDL_free(dp);
+            }
             else if (ev.type==SDL_MOUSEBUTTONUP) { a->param_drag = -1; a->vel_drag_track = -1; a->ov_drag = 0; a->cgi_dragging = 0; a->handle_drag = -1; a->vel_drag_step = -1; a->dragging_fader = -1; }
         }
         render(a);

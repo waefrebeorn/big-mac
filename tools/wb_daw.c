@@ -4916,6 +4916,28 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_l:
+        if (ctrl && (SDL_GetModState() & KMOD_SHIFT)) {
+            /* R073 hop 32: Shift+Ctrl+L = loudness-normalize the selected
+             * track's first audio clip to -16 LUFS (streaming standard) */
+            if (a->session && a->selected_track >= 0 &&
+                a->selected_track < (int)a->session->track_count) {
+                for (uint32_t ci = 0;
+                     ci < a->session->tracks[a->selected_track].clip_count;
+                     ci++) {
+                    wb_clip *ncl =
+                        &a->session->tracks[a->selected_track].clips[ci];
+                    if (ncl->type != 1 || !ncl->audio_data) continue;
+                    float gdb = wb_session_normalize_loudness(
+                        a->session, a->selected_track, (int)ci, -16.0);
+                    snprintf(a->last_status,
+                             sizeof(a->last_status),
+                             "LOUDNESS %+.1f dB", gdb);
+                    printf("loudnorm: clip %u %+ .1f dB\n", ci, gdb);
+                    break;
+                }
+            }
+            break;
+        }
         if (ctrl) {  /* G35: Ctrl+L arms MIDI learn; repeat cycles the target */
             static const char *lt[] = { "MASTER VOL", "TRACK VOL", "TEMPO",
                                         "INSERT P0" };

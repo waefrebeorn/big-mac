@@ -1068,8 +1068,18 @@ static wb_frame *trans_pull(wb_node *self, double t,
     if (u < 0) u = 0; if (u > 1) u = 1;
     float mB = (float)u;
 
+    /* R073 hop 68: map dissolve pulls its map frame up front */
+    wb_frame *mapf = NULL;
+    if (tr->op == 7) {
+        if (self->n_inputs < 3 || !self->inputs[2]) {
+            wb_frame_free(a); wb_frame_free(b); return NULL;
+        }
+        mapf = wb_node_pull(self->inputs[2], t, rx, ry, rw, rh);
+        if (!mapf) { wb_frame_free(a); wb_frame_free(b); return NULL; }
+    }
+
     wb_frame *out = wb_frame_alloc(a->w, a->h);
-    if (!out) return NULL;
+    if (!out) { wb_frame_free(a); wb_frame_free(b); return NULL; }
     out->roi_x = rx; out->roi_y = ry; out->roi_w = rw; out->roi_h = rh;
     for (int i = 0; i < a->w * a->h; i++) {
         wb_px pa = a->px[i], pb = b->px[i];
@@ -1124,6 +1134,13 @@ static wb_frame *trans_pull(wb_node *self, double t,
             float maxd = sqrtf(cx2*cx2 + cy2*cy2);
             if (dist < mB * maxd) { out->px[i] = pb; }
             else                  { out->px[i] = pa; }
+        } else if (tr->op == 7) {
+            /* R073 hop 68: map dissolve — map input's Rec.709 luma is the
+             * per-pixel threshold (Photoshop gradient-wipe technique). */
+            float lum = 0.2126f*mapf->px[i].r + 0.7152f*mapf->px[i].g
+                      + 0.0722f*mapf->px[i].b;
+            if (mB > lum) out->px[i] = pb;
+            else          out->px[i] = pa;
         } else if (tr->op == 6) {
             /* R073 hop 67: noise dissolve — deterministic per-pixel hash
              * offsets the local switch time, giving the classic grainy

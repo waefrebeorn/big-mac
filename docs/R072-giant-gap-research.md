@@ -157,7 +157,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
       we already have WCAG-AA contrast (R029) — extend to focus/motion.
 
 ### NLE timeline additions
-[G63] P1 — Draggable transitions between clips with dynamic re-linking when
+[G63] P1 — Draggable transitions between clips with dynamic re-linking when  **WIRED R073: wb_session_update_transitions re-links facing fades on adjacency, clamps to shorter clip**
       clips move (Shotcut's #1 complaint is non-dynamic crossfades breaking).
 [G64] P2 WIRED(crossfade curve types linear/equal-power/smoothstep) — Crossfade curve types: equal-power / constant-power / +3dB choice
       (engine has equal-gain linear only; Resolve offers all three).

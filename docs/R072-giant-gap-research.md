@@ -86,7 +86,7 @@ every gap below is a break in one of those seven loops.
       normalize exists offline but no live meter).
 [G33] P2 — Track freeze/bounce-in-place for CPU (Ardour/Logic freeze; user  **WIRED R073: wb_engine_render_track isolated offline bounce (mute-swap + restore), gate-verified**
       directive list already flags FREEZE button — still open).
-[G34] P2 — Plugin sandboxing / crash isolation (Bitwig crash protection; a bad
+[G34] P2 — Plugin sandboxing / crash isolation (Bitwig crash protection; a bad  **WIRED R073: VST3 output sanitization + quarantine on NaN/Inf/process failure, fault counter exposed**
       VST3 kills our whole process today).
 [G35] P2 — MIDI learn: map hardware knobs to any param (universal expectation).  **WIRED R073: Ctrl+L learn arm + target cycle, CC dispatch to master/track vol, tempo, insert param**
 [G36] P3 — Score/notation view (Cubase 14 Dorico-engine score editor trend).

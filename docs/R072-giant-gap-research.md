@@ -133,7 +133,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
 
 ### Delivery loop additions
 [G52] P1 WIRED(export delivery presets YOUTUBE/NETFLIX/BROADCAST/PODCAST) — Export presets: user-saved + platform presets (Resolve/ME ship them).
-[G53] P2 — Batch render matrix: per-region/marker wildcard naming, multiple
+[G53] P2 — Batch render matrix: per-region/marker wildcard naming, multiple  **WIRED R073: shift+EXPORT batch per SECTION marker, $region-style naming, sequential pump**
       simultaneous outputs per job (Reaper $region wildcards; Resolve multi-codec).
 [G54] P2 — Watch-folder auto-render (AME model; pairs with G43).
 [G55] P1 WIRED(named loudness profiles EBU/A85/NETFLIX/YT/PODCAST) — Named loudness profiles: EBU R128 -23/-1dBTP, ATSC A/85 -24 LKFS,

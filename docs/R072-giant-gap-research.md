@@ -167,7 +167,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
       toggle) — keyboard-only placement is currently ambiguous.
 [G67] P2 — Basic color correction: Lift/Gamma/Gain wheels + waveform scope
       (even exposure fixes matter; Kdenlive outclasses minimal editors here).
-[G68] P2 — Metadata columns/sorting + clip color labels in the bin (editors
+[G68] P2 — Metadata columns/sorting + clip color labels in the bin (editors  **WIRED R073: bin color labels round-trip + wb_session_sort_bin (name/kind/duration)**
       "spend as much time looking for clips as editing").
 [G69] P1 WIRED(multiple timelines wb_project container) — Multiple timelines/sequences per project (every NLE has many; one
       timeline limits any real edit).

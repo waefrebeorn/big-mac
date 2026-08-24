@@ -179,7 +179,8 @@ typedef struct app {
 
     /* R024: VU ballistics — displayed meter lags the raw peak slightly */
     float meter_disp[WB_MAX_TRACKS];
-    float master_meter_disp;   /* R028: master bus VU ballistics */
+    float master_meter_disp;
+    SDL_Rect over_rect;   /* R073: OVER clip-indicator hit area */   /* R028: master bus VU ballistics */
 
     /* tabbed view (R006/R007: KEYS / PAD / STEP / SESSION)
      * video editor tabs (R009: MEDIA / EDIT / CAPTIONS / EXPORT) */
@@ -1447,6 +1448,17 @@ static void draw_mixer(app *a) {
         else if (mdb > -6.0f) setc(a->ren, 220, 200, 60);
         else                  setc(a->ren, 80, 200, 110);
         SDL_RenderFillRect(a->ren, &mfill);
+        /* R073 hop 12: OVER clip indicator — red latch above the meter;
+         * clicking it clears the engine latch (visible control per gap
+         * doctrine). Store rect for hit-testing. */
+        a->over_rect = (SDL_Rect){ mxk-4, fy_top-30, mw+8, 14 };
+        if (wb_engine_get_clip_latch(a->engine)) {
+            SDL_Rect orr = a->over_rect;
+            setc(a->ren, 200, 40, 40);
+            SDL_RenderFillRect(a->ren, &orr);
+            wb_ui_draw_text(a->ren, orr.x+3, orr.y+2, "OVER", 1,
+                            235, 235, 235);
+        }
         /* 0 dB line marker */
         int zy = fy_bot - (int)(1.0 * fader_h);
         setc(a->ren, 90, 90, 90); SDL_RenderDrawLine(a->ren, mxk-2, zy, mxk+mw+2, zy);
@@ -4408,6 +4420,18 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                        hedge == 0 ? "in" : "out");
                 return;
             }
+        }
+        /* R073 hop 12: click the OVER indicator to clear the clip latch
+         * (mixer is visible on ARRANGE and mixer-bearing tabs) */
+        if (a->over_rect.w > 0 && b.x >= a->over_rect.x &&
+            b.x < a->over_rect.x + a->over_rect.w &&
+            b.y >= a->over_rect.y &&
+            b.y < a->over_rect.y + a->over_rect.h) {
+            if (wb_engine_get_clip_latch(a->engine)) {
+                wb_engine_clear_clip_latch(a->engine);
+                printf("clip latch cleared\n");
+            }
+            return;
         }
         /* R035: PAD / STEP / SESSION are distinct performance views */
         if (a->tab == 1) { pad_click(a, b.x, b.y); return; }

@@ -1089,20 +1089,33 @@ static wb_frame *trans_pull(wb_node *self, double t,
             out->px[i].b = pa.b*kA + pb.b*kB;
             out->px[i].a = pa.a*kA + pb.a*kB;
         } else if (tr->op == 2) {
-            /* R073 hop 50/64/65: linear wipe — dir 0 L->R, 1 R->L,
-             * 2 T->B, 3 B->T */
-            int in_b;
+            /* R073 hop 50/64/65/66: linear wipe — dir 0 L->R, 1 R->L,
+             * 2 T->B, 3 B->T; feathered boundary via smoothstep over an
+             * 8%-of-frame band (hop 66). */
+            float pos, span;
             if (tr->dir <= 1) {
                 float edge = mB * (float)a->w;
-                in_b = tr->dir == 0 ? (px_i < edge)
-                                    : (px_i >= a->w - edge);
+                pos = tr->dir == 0 ? (float)px_i
+                                   : (float)(a->w - px_i);
+                span = (float)a->w;
+                /* distance behind the boundary, positive = B side */
+                pos = edge - pos;
             } else {
                 float edge = mB * (float)a->h;
-                in_b = tr->dir == 2 ? (py_i < edge)
-                                    : (py_i >= a->h - edge);
+                pos = tr->dir == 2 ? (float)py_i
+                                   : (float)(a->h - py_i);
+                span = (float)a->h;
+                pos = edge - pos;
             }
-            if (in_b) { out->px[i] = pb; }
-            else      { out->px[i] = pa; }
+            float feather = span * 0.08f;
+            float u = pos / (feather > 1.0f ? feather : 1.0f);
+            /* smoothstep: 0 = fully A, 1 = fully B */
+            u = u < 0 ? 0 : (u > 1 ? 1 : u);
+            float sB = u * u * (3 - 2 * u);
+            out->px[i].r = pa.r*(1-sB) + pb.r*sB;
+            out->px[i].g = pa.g*(1-sB) + pb.g*sB;
+            out->px[i].b = pa.b*(1-sB) + pb.b*sB;
+            out->px[i].a = pa.a*(1-sB) + pb.a*sB;
         } else if (tr->op == 3) {
             /* iris: circle reveals B from center outward */
             float cx2 = a->w * 0.5f, cy2 = a->h * 0.5f;

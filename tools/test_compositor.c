@@ -871,6 +871,40 @@ int main(void) {
         wb_node_destroy(red); wb_node_destroy(blue);
     }
 
+
+    /* R073 hop 66: feathered wipe — soft gradient band at the boundary */
+    {
+        wb_node *red = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *blue = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *wipe = wb_node_transition(2, 2.0);
+        wb_transition_add(wipe, red);
+        wb_transition_add(wipe, blue);
+        wb_frame *fm = wb_node_pull(wipe, 1.0, 0, 0, 64, 64);
+        CHECK(fm != NULL, "feather: midpoint pulled");
+        if (fm) {
+            /* boundary at x=32; sample deep-A (x=10), boundary (x=32),
+             * deep-B (x=54) */
+            float rA = fm->px[32*64+10].r, bA = fm->px[32*64+10].b;
+            float rB = fm->px[32*64+54].r, bB = fm->px[32*64+54].b;
+            float rM = fm->px[32*64+28].r, bM = fm->px[32*64+28].b;
+            /* inside the feather band [edge-5, edge] */
+            int solidA = rA > 0.9f && bA < 0.1f;
+            int solidB = bB > 0.9f && rB < 0.1f;
+            float b26 = fm->px[32*64+26].b;
+            float b30 = fm->px[32*64+30].b;
+            /* B sits left of the boundary: blue must DECREASE as x rises
+             * through the feather band [edge-feather, edge] */
+            CHECK(b26 > bM && bM > b30,
+                  "feather: monotonic smoothstep gradient across band");
+            printf("         feather: b26=%.2f b28=%.2f b30=%.2f\n",
+                   b26, bM, b30);
+            wb_frame_free(fm);
+        }
+        wb_node_destroy(wipe);
+        wb_node_destroy(red); wb_node_destroy(blue);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);

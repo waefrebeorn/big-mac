@@ -1775,6 +1775,7 @@ static void draw_action_bar(app *a) {
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "CLEAR", 0);
         ui_button(a->ren, BTN_ACT1, bx+bw+6,  by, bw, bh, "COMMIT", 0);
         ui_button(a->ren, BTN_ACT2, bx+2*(bw+6), by, bw, bh, "CAPTURE", 0); /* G93 */
+        ui_button(a->ren, BTN_ACT3, bx+3*(bw+6), by, bw, bh, "FILL", 0);    /* G91: shift=4th alt=rand */
     } else if (tab == 3) {  /* SESSION */
         ui_button(a->ren, BTN_ACT0, bx,        by, bw, bh, "STOP ALL", 0);
         ui_button(a->ren, BTN_ACT1, bx+bw+6,   by, bw, bh,
@@ -3016,6 +3017,24 @@ static void handle_action(app *a, int act) {
             step_commit_to_clip(a);
         } else if (act == 2) {  /* G93 CAPTURE */
             daw_capture(a);
+        } else if (act == 3) {  /* G91: step-fill — shift = every 4th, plain = every 2nd, alt = random */
+            int ti = a->selected_track;
+            if (ti >= 0) {
+                SDL_Keymod mod = SDL_GetModState();
+                int row = 0;   /* fill with the root row pitch (C4 lane) */
+                if (mod & KMOD_ALT) {
+                    for (int s = 0; s < 16; s++)
+                        a->step_pitch[ti][s] = (rand() % 3 == 0) ? 60 - (rand() % 8) : -1;
+                    printf("step: random fill (track %d)\n", ti);
+                } else {
+                    int stride = (mod & KMOD_SHIFT) ? 4 : 2;
+                    for (int s = 0; s < 16; s += stride)
+                        a->step_pitch[ti][s] = 60 - row;
+                    printf("step: filled every %dth (track %d)\n", stride, ti);
+                }
+                snprintf(a->last_status, sizeof a->last_status,
+                         "STEP FILL (track %d)", ti);
+            }
         }
     } else {  /* video tabs 4..7 */
         if (act == 0) {  /* IMPORT demo */

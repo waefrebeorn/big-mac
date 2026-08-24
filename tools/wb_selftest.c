@@ -14,6 +14,9 @@
 #include "wbus.h"
 #include "wbus_lufs.h"
 #include "wbus_limiter.h"
+#include "wbus_cgi_react.h"
+#include "wbus_anim.h"
+#include "wbus_mesh.h"
 #include "wbus_midi.h"
 #include "wbus_modulation.h"
 #include "wbus_midifx.h"
@@ -4577,6 +4580,40 @@ static void test_scale_chord_step(void) {
         wb_clip_edit_destroy(et);
     }
 
+
+    /* R073 hop 55: audio-reactive CGI pulse */
+    {
+        wb_anim *an = wb_anim_create(64, 64);
+        CHECK(an != NULL, "R073: react anim created");
+        if (an) {
+            wb_mesh *cube = wb_mesh_box(8, 8, 8, 200, 120, 255);
+            int obj = cube ? wb_anim_add_object(an, cube,
+                                                200, 120, 255) : -1;
+            CHECK(obj >= 0, "R073: react object added");
+            /* audio: alternating loud/quiet windows */
+            uint32_t qnf = WB_SAMPLE_RATE;
+            wb_sample *qb = malloc((size_t)qnf * sizeof(wb_sample));
+            CHECK(qb != NULL, "R073: react buffer allocated");
+            for (int w2 = 0; w2 < 16; w2++) {
+                float amp = (w2 % 2 == 0) ? 0.8f : 0.1f;
+                uint32_t s0 = (uint32_t)((double)w2 / 16 * qnf);
+                uint32_t s1 = (uint32_t)((double)(w2+1) / 16 * qnf);
+                for (uint32_t i = s0; i < s1 && i < qnf; i++)
+                    qb[i] = (wb_sample)(amp *
+                        sin(2*M_PI*220.0*i/WB_SAMPLE_RATE));
+            }
+            int wrote = wb_cgi_audio_pulse(an, obj, qb, qnf, 1, 2.0,
+                                           1.0f, 0.8f);
+            free(qb);
+            CHECK(wrote > 0, "R073: pulse keys written");
+            /* render at a loud window vs quiet window: scale difference
+             * shows up as brightness/coverage change */
+            wb_mesh_free(cube);
+        }
+        wb_anim_free(an);
+    }
+
+    printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
     printf("\n%d checks, %d failures\n", checks, failures);
 }
 

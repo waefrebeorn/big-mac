@@ -5203,9 +5203,25 @@ static void handle_key(app *a, SDL_Keycode k) {
                         tcl->audio_data = nst;
                         tcl->audio_frames = nn;
                         tcl->length = (double)nn / WB_SAMPLE_RATE;
+                        /* R073 hop 20: snap the warped clip's start so its
+                         * first downbeat sits on a project beat */
                         double cbpm_show =
                             wb_session_estimate_bpm(a->session,
                                 a->selected_track, (int)ci);
+                        if (cbpm_show > 10.0) {
+                            double phs = wb_session_beat_phase(
+                                a->session, a->selected_track,
+                                (int)ci, cbpm_show);
+                            if (phs >= 0) {
+                                double beat = 60.0 / a->session->bpm;
+                                double s0 = (double)tcl->start /
+                                            WB_SAMPLE_RATE - phs;
+                                double snapped = floor(s0 / beat + 0.5)
+                                                 * beat + phs;
+                                if (snapped < 0) snapped = 0;
+                                tcl->start = snapped * WB_SAMPLE_RATE;
+                            }
+                        }
                         printf("stretch: clip %u -> %.2fs (%.2fx, "
                                "%d transients, est %.1f BPM)\n",
                                ci, tcl->length, rate, nth, cbpm_show);

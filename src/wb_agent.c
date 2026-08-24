@@ -22,6 +22,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include "wbus/wbus_cgi_bands.h"   /* R073 hop 63 */
 
 static char *trim(char *s) {
     while (*s == ' ' || *s == '\t') s++;
@@ -230,6 +231,41 @@ static int cgi_command(wb_session *s, wb_engine *e,
         }
         wb_assets_close(lib);
         return 0;
+    }
+    if (strcmp(cmd, "cgi-visualizer") == 0 || strcmp(cmd, "cgi-viz") == 0) {
+        /* R073 hop 63: cgi-visualizer <track> <clip> [base] [amount]
+         * builds a bass/mid/high sphere scene keyed to the audio clip's
+         * bands — the music-video backbone in one command. */
+        cgi_ensure();
+        if (!g_cgi) return -1;
+        int trk = atoi(tok((char**)&rest));
+        int clp = atoi(tok((char**)&rest));
+        float base = rest ? atof(tok((char**)&rest)) : 1.0f; if (!base) base = 1.0f;
+        float amt  = rest && rest[0] ? atof(tok((char**)&rest)) : 0.8f;
+        if (trk < 0 || !s || trk >= (int)s->track_count) {
+            fprintf(stderr, "cgi-viz: bad track %d\n", trk);
+            return -1;
+        }
+        wb_track *vt = &s->tracks[trk];
+        if ((uint32_t)clp >= vt->clip_count || !vt->clips[clp].audio_data) {
+            fprintf(stderr, "cgi-viz: no audio clip %d on track %d\n",
+                    clp, trk);
+            return -1;
+        }
+        wb_mesh *meshes[3] = {0,0,0};
+        int rc = wb_cgi_visualizer_build(g_cgi,
+                                         vt->clips[clp].audio_data,
+                                         vt->clips[clp].audio_frames,
+                                         vt->clips[clp].audio_channels > 0
+                                            ? vt->clips[clp].audio_channels : 1,
+                                         vt->clips[clp].length /
+                                            (double)WB_SAMPLE_RATE * 4.0,
+                                         base, amt, meshes);
+        for (int i2 = 0; i2 < 3; i2++)
+            if (meshes[i2]) wb_anim_add_object(g_cgi, meshes[i2],
+                                               255,255,255); /* keep alive */
+        printf("cgi: visualizer rc=%d\n", rc);
+        return rc;
     }
     if (strcmp(cmd, "cgi-render") == 0) {
         /* cgi-render <out.mp4> <start> <dur> */

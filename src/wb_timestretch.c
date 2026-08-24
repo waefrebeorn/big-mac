@@ -130,12 +130,18 @@ static uint32_t wsola(const float *in, uint32_t nin, double rate,
             float w_in  = k < TS_HOP && out_pos + k > 0
                           ? (float)k / TS_HOP : 1.0f;
             float w_old = 1.0f - w_in;
+            /* R073 hop 6: power-COLA normalization — a linear crossfade dips
+             * energy mid-splice (w²+(1-w)² < 1); dividing by the summed
+             * weight energy keeps loudness flat across every splice. */
+            float wnorm = sqrtf(w_in * w_in + w_old * w_old);
+            if (wnorm < 1e-6f) wnorm = 1.0f;
             double sp = (double)p + (double)k * pitch;
             uint32_t s0 = (uint32_t)sp;
             if (s0 + 1 >= nin || out_pos + k >= max_out) break;
             float f = (float)(sp - (double)s0);
             float v = in[s0] * (1.0f - f) + in[s0 + 1] * f;
-            out[out_pos + k] = out[out_pos + k] * w_old + v * w_in;
+            out[out_pos + k] =
+                (out[out_pos + k] * w_old + v * w_in) / wnorm;
         }
         /* save the ideal next-overlap segment from the INPUT for the next
          * search (this is what makes WSOLA 'waveform similarity' work) */

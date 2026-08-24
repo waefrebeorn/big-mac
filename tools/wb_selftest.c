@@ -3944,6 +3944,44 @@ static void test_scale_chord_step(void) {
         wb_session_destroy(ss);   /* session owns the clip buffers */
     }
 
+
+    /* R073 hop 6: loudness flatness across splices (power COLA) */
+    {
+        uint32_t nf = 4 * WB_SAMPLE_RATE;
+        wb_sample *in = malloc((size_t)nf * 2 * sizeof(wb_sample));
+        if (in) {
+            for (uint32_t i = 0; i < nf; i++) {
+                wb_sample v = (wb_sample)(0.5 *
+                    sin(2*M_PI*220.0*i/WB_SAMPLE_RATE));
+                in[i*2] = v; in[i*2+1] = v;
+            }
+            wb_sample *out = NULL;
+            uint32_t no = wb_timestretch(in, nf, 2, 0.5, 0.0, &out);
+            CHECK(no > WB_SAMPLE_RATE, "R073: COLA stretch produced audio");
+            if (out && no > 2*WB_SAMPLE_RATE) {
+                /* RMS over sliding 10ms windows in the middle second */
+                float worst = 0, least = 1e9f;
+                uint32_t W = WB_SAMPLE_RATE / 100;
+                for (uint32_t s0i = no/2; s0i + W < no/2 + WB_SAMPLE_RATE;
+                     s0i += W/2) {
+                    double sum = 0;
+                    for (uint32_t i = s0i; i < s0i + W; i++) {
+                        float x2 = (float)((double)out[i*2] * out[i*2]);
+                        sum += x2;
+                    }
+                    float rms = sqrtf((float)(sum / W));
+                    if (rms > worst) worst = rms;
+                    if (rms < least && rms > 0.001f) least = rms;
+                }
+                CHECK(worst / least < 1.20f,
+                      "R073: loudness flat across splices (power COLA)");
+                printf("         R073 rms flatness=%.3f (worst=%.4f "
+                       "least=%.4f)\n", worst/least, worst, least);
+            }
+            free(out); free(in);
+        }
+    }
+
     printf("  -- G80/G81/G87/G88 scale/chord/step checks done\n");
 }
 

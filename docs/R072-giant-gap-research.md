@@ -165,7 +165,7 @@ Premiere metadata panel, packafoma Premiere wishlist.
       blind today; show outgoing/incoming frames at the edit point.
 [G66] P2 WIRED(drop modes OVERWRITE/INSERT cycle O) — Insert/overwrite/append/connect drop modes (FCP Q/W/E; Premiere
       toggle) — keyboard-only placement is currently ambiguous.
-[G67] P2 — Basic color correction: Lift/Gamma/Gain wheels + waveform scope
+[G67] P2 — Basic color correction: Lift/Gamma/Gain wheels + waveform scope  **WIRED R073: wb_frame_grade lift/gamma/gain + exposure/saturation, 5 math gate checks**
       (even exposure fixes matter; Kdenlive outclasses minimal editors here).
 [G68] P2 — Metadata columns/sorting + clip color labels in the bin (editors  **WIRED R073: bin color labels round-trip + wb_session_sort_bin (name/kind/duration)**
       "spend as much time looking for clips as editing").

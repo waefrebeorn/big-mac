@@ -652,6 +652,45 @@ int main(void) {
         wb_node_destroy(red); wb_node_destroy(blue);
     }
 
+
+    /* R073 hop 50: wipe + iris */
+    {
+        wb_node *red = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 32, 32);
+        wb_node *blue = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 32, 32);
+        wb_node *wipe = wb_node_transition(2, 2.0);
+        wb_transition_add(wipe, red);   /* A */
+        wb_transition_add(wipe, blue);  /* B sweeps L->R */
+        wb_frame *fm = wb_node_pull(wipe, 1.0, 0, 0, 32, 32);  /* midpoint */
+        CHECK(fm != NULL, "wipe: midpoint pulled");
+        if (fm) {
+            /* left half should be blue (B), right half red (A) */
+            int bl = fm->px[16*32+4].b > 0.8f && fm->px[16*32+4].r < 0.2f;
+            int rr = fm->px[16*32+28].r > 0.8f && fm->px[16*32+28].b < 0.2f;
+            CHECK(bl && rr, "wipe: L->R boundary splits mid-frame");
+            printf("         wipe: left-blue=%d right-red=%d\n", bl, rr);
+            wb_frame_free(fm);
+        }
+        wb_node_destroy(wipe);
+
+        wb_node *iris = wb_node_transition(3, 2.0);
+        wb_transition_add(iris, red);
+        wb_transition_add(iris, blue);
+        wb_frame *fi = wb_node_pull(iris, 1.0, 0, 0, 32, 32);
+        CHECK(fi != NULL, "iris: midpoint pulled");
+        if (fi) {
+            /* at mB=0.5 the iris radius covers ~half the corner distance:
+             * center is B, far corners still A */
+            int cb = fi->px[16*32+16].b > 0.8f;   /* true frame center */
+            int cr = fi->px[2*32+2].r > 0.8f;
+            CHECK(cb && cr,
+                  "iris: center revealed, corners still source A");
+            printf("         iris: center-B=%d corner-A=%d\n", cb, cr);
+            wb_frame_free(fi);
+        }
+        wb_node_destroy(iris);
+        wb_node_destroy(red); wb_node_destroy(blue);
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

@@ -1014,13 +1014,14 @@ static wb_frame *trans_pull(wb_node *self, double t,
     out->roi_x = rx; out->roi_y = ry; out->roi_w = rw; out->roi_h = rh;
     for (int i = 0; i < a->w * a->h; i++) {
         wb_px pa = a->px[i], pb = b->px[i];
+        int px_i = i % a->w, py_i = i / a->w;
         if (tr->op == 0) {
             /* crossfade: linear blend A -> B */
             out->px[i].r = pa.r*(1-mB) + pb.r*mB;
             out->px[i].g = pa.g*(1-mB) + pb.g*mB;
             out->px[i].b = pa.b*(1-mB) + pb.b*mB;
             out->px[i].a = pa.a*(1-mB) + pb.a*mB;
-        } else {
+        } else if (tr->op == 1) {
             /* dip-to-black: fade A to black in first half, B up in second */
             float kA = mB < 0.5f ? (1.0f - mB*2.0f) : 0.0f;
             float kB = mB >= 0.5f ? (mB - 0.5f)*2.0f : 0.0f;
@@ -1028,6 +1029,19 @@ static wb_frame *trans_pull(wb_node *self, double t,
             out->px[i].g = pa.g*kA + pb.g*kB;
             out->px[i].b = pa.b*kA + pb.b*kB;
             out->px[i].a = pa.a*kA + pb.a*kB;
+        } else if (tr->op == 2) {
+            /* R073 hop 50: linear wipe — vertical boundary sweeps L->R */
+            float edge = mB * (float)a->w;
+            if (px_i < edge) { out->px[i] = pb; }
+            else             { out->px[i] = pa; }
+        } else if (tr->op == 3) {
+            /* R073 hop 50: iris — circle reveals B from center outward */
+            float cx2 = a->w * 0.5f, cy2 = a->h * 0.5f;
+            float dx = px_i - cx2, dy = py_i - cy2;
+            float dist = sqrtf(dx*dx + dy*dy);
+            float maxd = sqrtf(cx2*cx2 + cy2*cy2);
+            if (dist < mB * maxd) { out->px[i] = pb; }
+            else                  { out->px[i] = pa; }
         }
     }
     wb_frame_free(a); wb_frame_free(b);

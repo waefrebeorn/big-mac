@@ -844,6 +844,34 @@ int main(void) {
         wb_node_destroy(red); wb_node_destroy(blue);
     }
 
+
+    /* R073 hop 65: vertical wipe T->B */
+    {
+        wb_node *red = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 32, 32);
+        wb_node *blue = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 32, 32);
+        wb_node *wipe = wb_node_transition(2, 2.0);
+        wb_transition_add(wipe, red);
+        wb_transition_add(wipe, blue);
+        wb_transition_dir(wipe, 2);              /* T->B */
+        wb_frame *fm = wb_node_pull(wipe, 1.0, 0, 0, 32, 32);
+        CHECK(fm != NULL, "vwipe: midpoint pulled");
+        if (fm) {
+            /* top half B, bottom half A */
+            int tb = fm->px[4*32+16].b > 0.8f;
+            int ba = fm->px[28*32+16].r > 0.8f;
+            CHECK(tb && ba,
+                  "vwipe: top-B bottom-A at midpoint");
+            printf("         vwipe: top-B=%d bottom-A=%d "
+                   "(px[28][16]=(%.2f,%.2f,%.2f))\n",
+                   tb, ba, fm->px[28*32+16].r,
+                   fm->px[28*32+16].g, fm->px[28*32+16].b);
+            wb_frame_free(fm);
+        }
+        wb_node_destroy(wipe);
+        wb_node_destroy(red); wb_node_destroy(blue);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);

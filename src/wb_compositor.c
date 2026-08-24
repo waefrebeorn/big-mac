@@ -1089,10 +1089,18 @@ static wb_frame *trans_pull(wb_node *self, double t,
             out->px[i].b = pa.b*kA + pb.b*kB;
             out->px[i].a = pa.a*kA + pb.a*kB;
         } else if (tr->op == 2) {
-            /* R073 hop 50/64: linear wipe — boundary sweeps per direction */
-            float edge = mB * (float)a->w;
-            int in_b = tr->dir == 0 ? (px_i < edge)
+            /* R073 hop 50/64/65: linear wipe — dir 0 L->R, 1 R->L,
+             * 2 T->B, 3 B->T */
+            int in_b;
+            if (tr->dir <= 1) {
+                float edge = mB * (float)a->w;
+                in_b = tr->dir == 0 ? (px_i < edge)
                                     : (px_i >= a->w - edge);
+            } else {
+                float edge = mB * (float)a->h;
+                in_b = tr->dir == 2 ? (py_i < edge)
+                                    : (py_i >= a->h - edge);
+            }
             if (in_b) { out->px[i] = pb; }
             else      { out->px[i] = pa; }
         } else if (tr->op == 3) {
@@ -1163,6 +1171,6 @@ void wb_transition_dir(wb_node *trans, int dir) {
     if (!trans) return;
     {
         trans_t *tr = (trans_t*)trans->user;
-        if (tr) tr->dir = dir ? 1 : 0;
+        if (tr) tr->dir = dir;   /* hop 65: full range 0..3 */
     }
 }

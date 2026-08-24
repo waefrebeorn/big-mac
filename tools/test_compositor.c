@@ -1066,26 +1066,39 @@ int main(void) {
             printf("         e2e brightness=%.1f\n", lit);
             wb_frame_free(final_);
         }
-        if (comp) wb_node_destroy(comp);
-        if (vig) wb_node_destroy(vig);
-        if (blur) wb_node_destroy(blur);
-        if (bg) wb_node_destroy(bg);
+        /* R073 hop 70 note: composite OWNS its children (see node_destroy),
+         * so destroying comp frees bg + the whole vig chain. Only the CGI
+         * source (effect-owned semantics) needs an explicit destroy. */
         if (cgi) wb_node_destroy(cgi);
+        if (comp) wb_node_destroy(comp);
         for (int i = 0; i < 3; i++)
             if (meshes[i]) wb_mesh_free(meshes[i]);
         if (an) wb_anim_free(an);
     }
 
-    printf("\n%d checks, %d failures\n", checks, failures);
-    printf("\n%d checks, %d failures\n", checks, failures);
-    printf("\n%d checks, %d failures\n", checks, failures);
-    printf("\n%d checks, %d failures\n", checks, failures);
-    printf("\n%d checks, %d failures\n", checks, failures);
-    printf("\n%d checks, %d failures\n", checks, failures);
-    printf("\n%d checks, %d failures\n", checks, failures);
-    printf("\n%d checks, %d failures\n", checks, failures);
-    printf("\n%d checks, %d failures\n", checks, failures);
-    printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 71: spill suppression — green-tinted skin loses the tint */
+    {
+        wb_node *src = wb_node_source_color(0.6f, 0.65f, 0.5f, 1.0f,
+                                            32, 32);
+        wb_node *key = wb_node_effect(3, 0.3f);   /* key tol 0.3 */
+        key->inputs[0] = src;
+        wb_frame *f = key ? wb_node_pull(key, 0.0, 0, 0, 32, 32) : NULL;
+        CHECK(f != NULL, "spill: pulled");
+        if (f) {
+            wb_px p = f->px[100];
+            /* gdom = 0.8 - 0.55 = 0.25 < 0.3 -> kept with alpha ~1
+             * after suppression green should drop toward max(r,b)=0.6 */
+            /* expect full alpha and green pulled to ~0.625 */
+            CHECK(p.a > 0.9f && p.g < 0.65f && p.g > 0.60f,
+                  "spill: green clamped toward max(r,b), pixel kept");
+            printf("         spill: kept px=(%.2f,%.2f,%.2f) a=%.2f\n",
+                   p.r, p.g, p.b, p.a);
+            wb_frame_free(f);
+        }
+        wb_node_destroy(key); wb_node_destroy(src);
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

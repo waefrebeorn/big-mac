@@ -373,6 +373,16 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 if (gdom >= tol)       p->a = 0.0f;
                 else if (gdom > tol*0.5f)
                     p->a *= 1.0f - (gdom - tol*0.5f) / (tol*0.5f);
+                /* R073 hop 71: spill suppression — on kept pixels, clamp
+                 * green toward max(r,b) so reflected green light no longer
+                 * tints the foreground (classic "green limit"). */
+                if (p->a > 0.0f && p->g > p->r && p->g > p->b) {
+                    float lim = p->r > p->b ? p->r : p->b;
+                    float spill = wb_node_param_value(self,
+                                                      "spill", t);
+                    if (spill <= 0.0f) spill = 0.5f;   /* default half */
+                    p->g = p->g - (p->g - lim) * spill;
+                }
             }
         }
     return in;

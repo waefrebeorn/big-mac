@@ -13,6 +13,16 @@
 #include "wbus/wbus_anim.h"
 #include "wbus/wb_ui.h"   /* R073 hop 43: CGI source */
 
+
+/* R074 hop 116 (#29/#31): linear-light Rec.709 luma — decode sRGB
+ * channel first, then weight. Correct for keyed/lit pixels. */
+static float wb_lin_luma(float r, float g, float b) {
+    float lr = r <= 0.04045f ? r / 12.92f : powf((r+0.055f)/1.055f, 2.4f);
+    float lg = g <= 0.04045f ? g / 12.92f : powf((g+0.055f)/1.055f, 2.4f);
+    float lb = b <= 0.04045f ? b / 12.92f : powf((b+0.055f)/1.055f, 2.4f);
+    return 0.2126f*lr + 0.7152f*lg + 0.0722f*lb;
+}
+
 /* ---- G1: global quality-of-service dial (0..1) ----------------------- */
 static double g_quality = 1.0;   /* default full quality */
 static int    g_backend = WB_RENDER_CPU;  /* G12: CPU authoritative */
@@ -275,7 +285,10 @@ static wb_frame *eff_pull(wb_node *self, double t,
     /* R074 fix: blur hoisted OUT of the per-pixel loop — one 2-pass box
      * over the ROI per frame (was O(n^2) with per-pixel malloc storm). */
     if (e->op == 4) {
-        float rad = wb_node_param_value(self, "blur", t);
+        /* R074 hop 116 (#52): dedicated blur_radius param; gain no longer
+         * doubles as a radius fallback. */
+        float rad = wb_node_param_value(self, "blur_radius", t);
+        if (rad <= 0.0f) rad = wb_node_param_value(self, "blur", t);
         if (rad <= 0.0f) rad = e->gain > 0 ? e->gain : 1.0f;
         int r = (int)(rad * 3.0f);
         if (r >= 1) {
@@ -394,7 +407,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
                     else p->b = v;
                 }
                 /* saturation around Rec.709 luma */
-                float lum = 0.2126f*p->r + 0.7152f*p->g + 0.0722f*p->b;
+                float lum = 0.2126f*p->r + 0.7152f*p->g + 0.0722f*p->b; /* display-space sat */
                 p->r = lum + (p->r - lum)*sat;
                 p->g = lum + (p->g - lum)*sat;
                 p->b = lum + (p->b - lum)*sat;
@@ -536,7 +549,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
                     float ad = fabsf(dd);
                     if (ad < hw) {
                         float sel = (1.0f - ad / hw) * wsel;   /* soft selection */
-                        float lum = 0.2126f*p->r + 0.7152f*p->g
+                        float lum = wb_lin_luma(p->r, p->g, p->b);  /* #29/#31 linear */
                                   + 0.0722f*p->b;
                         float sat = smul != 0.0f ? smul : 1.0f;
                         float nr = lum + (p->r-lum)*sat;
@@ -581,7 +594,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 for (int y = ry; y < ry + rh; y++)
                     for (int x = rx; x < rx + rw; x++) {
                         wb_px *p = &in->px[y*in->w + x];
-                        float lum = 0.2126f*p->r + 0.7152f*p->g
+                        float lum = wb_lin_luma(p->r, p->g, p->b);  /* #29/#31 linear */
                                   + 0.0722f*p->b;
                         if (lum > thr) {
                             float excess = (lum - thr) / (1.0f - thr);
@@ -601,7 +614,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
                  * threshold from keyframable "lum_thr" param. */
                 float thr = wb_node_param_value(self, "lum_thr", t);
                 if (thr <= 0.0f) thr = gain > 0 ? gain : 0.15f;
-                float lum = 0.2126f*p->r + 0.7152f*p->g + 0.0722f*p->b;
+                float lum = wb_lin_luma(p->r, p->g, p->b);  /* #29/#31 linear */
                 if (lum <= thr)       p->a = 0.0f;
                 else if (lum < thr*2) p->a *= (lum - thr) / thr;
             }
@@ -609,8 +622,18 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 /* R073 hop 41: chroma key — green-screen removal.
                  * keyed when green dominates red+blue beyond tolerance;
                  * edge softening via partial alpha in the tolerance band. */
-                float tol = wb_node_param_value(self, "key_tol", t);
-                if (tol <= 0.0f) tol = gain;      /* static fallback */
+                /* R074 hop 116 (#30): key_tol falls back to ctor gain
+                 * ONLY when no explicit key_tol track is bound (same
+                 * binding-detection as #51) — collision resolved */
+                float tol = 0.0f;
+                for (int pi2 = 0; pi2 < self->n_params; pi2++) {
+                    if (self->param_names &&
+                        strncmp(self->param_names[pi2], "key_tol", 32) == 0) {
+                        tol = wb_node_param_value(self, "key_tol", t);
+                        break;
+                    }
+                }
+                if (tol <= 0.0f) tol = gain;
                 if (tol <= 0.0f) tol = 0.15f;
                 /* R073 hop 72: key_color selects the screen channel:
                  * 0 = green (default), 1 = blue, 2 = red. */
@@ -620,9 +643,13 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 if (kch == 1)      dom = p->b - 0.5f * (p->r + p->g);
                 else if (kch == 2) dom = p->r - 0.5f * (p->g + p->b);
                 else               dom = p->g - 0.5f * (p->r + p->b);
-                if (dom >= tol)       p->a = 0.0f;
-                else if (dom > tol*0.5f)
-                    p->a *= 1.0f - (dom - tol*0.5f) / (tol*0.5f);
+                if (dom >= tol) p->a = 0.0f;
+                else if (dom > tol*0.5f) {
+                    /* R074 hop 116 (#26): smoothstep edge softness */
+                    float u2 = (dom - tol*0.5f) / (tol*0.5f);
+                    u2 = u2 * u2 * (3.0f - 2.0f * u2);
+                    p->a *= 1.0f - u2;
+                }
                 /* R073 hop 71: spill suppression — on kept pixels, clamp
                  * green toward max(r,b) so reflected green light no longer
                  * tints the foreground (classic "green limit"). */
@@ -1897,9 +1924,11 @@ static wb_frame *trans_pull(wb_node *self, double t,
             int cw = a->w / 8 > 0 ? a->w / 8 : 1;
             int ch = a->h / 8 > 0 ? a->h / 8 : 1;
             int col = px_i / cw, row = py_i / ch;
-            unsigned h = (unsigned)(col * 73856093u)
-                       ^ (unsigned)(row * 19349663u);
-            h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+            /* R074 hop 116 (#35): distinct hash constants — no longer
+             * correlated with the checkerboard pattern's hash */
+            unsigned h = (unsigned)(col * 0x9E3779B1u)
+                       ^ (unsigned)(row * 0x85EBCA77u);
+            h ^= h >> 16; h *= 0x7FEB352Du; h ^= h >> 15;
             float jitter = ((float)(h & 0xFF) / 255.0f - 0.5f) * 0.2f;
             float wave = (float)(row + col) / 14.0f;   /* 0..~1 */
             float th = mM * 1.4f - wave - jitter;

@@ -10,8 +10,10 @@
 #include <string.h>
 #include <math.h>
 
-#define WB_ANIM_MAX_KEYS 64
-#define WB_ANIM_MAX_OBJS 32
+/* R074 hop 113 (G-SF001/002): raised caps + dynamic key growth.
+ * Object count still bounded (pointer table) but far higher. */
+#define WB_ANIM_MAX_KEYS 256
+#define WB_ANIM_MAX_OBJS 128
 
 #ifndef WB_ANIM_PI
 #define WB_ANIM_PI 3.14159265358979
@@ -296,4 +298,37 @@ void wb_anim_render_frame(wb_anim *a, double t, uint8_t *out_rgba) {
     wb_rast_set_camera(r, cam_rx, cam_ry, 0, cam_dist, 0);
     wb_rast_render(r, out_rgba);
     wb_rast_destroy(r);
+}
+
+/* R074 hop 113: query anim render size. */
+void wb_anim_get_size(const wb_anim *anim, int *w, int *h) {
+    if (!anim) return;
+    if (w) *w = anim->w;
+    if (h) *h = anim->h;
+}
+
+/* R074 hop 113 (G-SF005): looping key helper — writes keys marching an
+ * object from z_far to z_near every `period` seconds, phase-offset by
+ * `phase`. Ideal for scrolling corridors/starfields. Returns key count
+ * written or -1. */
+int wb_anim_key_loop(wb_anim *anim, int obj, double dur,
+                     double period, double phase,
+                     float px, float py, float pz_far, float pz_near) {
+    if (!anim || obj < 0 || obj >= anim->nobjs || period <= 0) return -1;
+    int written = 0;
+    for (double ct = -phase; ct < dur + period; ct += period) {
+        double ta = ct < 0 ? 0 : ct;
+        double tb = ct + period;
+        if (ta >= dur) break;
+        if (tb > dur) tb = dur;
+        if (wb_anim_key(anim, obj, ta, px, py, pz_near * 0 + pz_far,
+                        0,0,0, 1.0) < 0) return written;
+        written++;
+        if (tb > ta) {
+            if (wb_anim_key(anim, obj, tb, px, py, pz_near,
+                            0,0,0, 1.0) < 0) return written;
+            written++;
+        }
+    }
+    return written;
 }

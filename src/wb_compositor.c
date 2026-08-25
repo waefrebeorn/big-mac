@@ -1351,6 +1351,13 @@ wb_node *wb_node_source_text(const char *text, int scale,
     return n;
 }
 
+/* R074 hop 113 (G-SF050): set a text node's pixel position. */
+void wb_node_source_text_pos(wb_node *n, int x, int y) {
+    if (!n || !n->user) return;
+    src_text_t *s = n->user;
+    s->x = x; s->y = y;
+}
+
 /* ---- R074 hop 111: SCENE source (gradient + moving band) -------------- */
 typedef struct {
     int w, h;
@@ -1452,6 +1459,54 @@ wb_node *wb_node_source_frame(int w, int h, uint8_t *rgba) {
     n->pull = src_frame_pull;
     n->free = src_frame_free;
     wb_node_set_format(n, w, h);
+    return n;
+}
+
+
+
+
+/* ---- R074 hop 113 (G-SF030/031): DITHER node — SNES ordered dither ---- */
+typedef struct { int levels; } wb_dither_t;
+
+static wb_frame *dither_pull(wb_node *self, double t,
+                             int rx, int ry, int rw, int rh, int phase) {
+    (void)t; (void)phase;
+    if (!self->inputs || !self->inputs[0]) return NULL;
+    wb_frame *in = wb_node_pull(self->inputs[0], t, rx, ry, rw, rh);
+    if (!in) return NULL;
+    wb_dither_t *d = self->user;
+    int lv = d->levels > 1 ? d->levels : 6;
+    float step = 1.0f / (float)(lv - 1);
+    static const float bayer[4][4] = {
+        { 0,8,2,10}, {12,4,14,6}, {3,11,1,9}, {15,7,13,5}
+    };
+    for (int y = in->roi_y; y < in->roi_y + in->roi_h; y++) {
+        for (int x = in->roi_x; x < in->roi_x + in->roi_w; x++) {
+            wb_px *q = &in->px[y * in->w + x];
+            float th = (bayer[y & 3][x & 3] / 16.0f - 0.5f) * step;
+            q->r = floorf((q->r + th) / step + 0.5f) * step;
+            if (q->r < 0) q->r = 0; else if (q->r > 1) q->r = 1;
+            q->g = floorf((q->g + th) / step + 0.5f) * step;
+            if (q->g < 0) q->g = 0; else if (q->g > 1) q->g = 1;
+            q->b = floorf((q->b + th) / step + 0.5f) * step;
+            if (q->b < 0) q->b = 0; else if (q->b > 1) q->b = 1;
+        }
+    }
+    return in;
+}
+static void dither_free(wb_node *n) { free(n->user); }
+
+wb_node *wb_node_effect_dither(int levels) {
+    wb_node *n = wb_node_create(WB_NODE_EFFECT, "dither");
+    if (!n) return NULL;
+    wb_dither_t *d = calloc(1, sizeof(*d));
+    if (!d) { wb_node_destroy(n); return NULL; }
+    d->levels = levels;
+    n->user = d;
+    n->pull = dither_pull;
+    n->free = dither_free;
+    n->n_inputs = 1;
+    n->inputs = calloc(1, sizeof(wb_node *));
     return n;
 }
 

@@ -123,12 +123,7 @@ static int sf_render_loop(wb_anim *an, wb_node *comp, uint8_t *rgba,
         memset(rgba, 0, (size_t)w * h * 4);   /* transparent for comp */
         wb_anim_render_frame(an, tt, rgba);
         /* R074: HUD drawn straight onto the CGI frame */
-        char hud[32];
-        snprintf(hud, sizeof hud, "SCORE %06d", 100 * k);
-        wb_ui_text_to_rgba(hud, 2, 1.0f,1.0f,1.0f,1.0f,
-                           (wb_px*)rgba, w, h, w-160, 12);
-        wb_ui_text_to_rgba("FOX", 2, 0.4f,0.8f,1.0f,1.0f,
-                           (wb_px*)rgba, w, h, 16, 12);
+        /* HUD now via compositor text nodes — nothing here */
         wb_frame *f = wb_node_pull(comp, tt, 0, 0, w, h);
         if (!f) continue;
         /* downscale-check not needed: comp RoD = max(bg,frame) = w,h */
@@ -217,9 +212,11 @@ int wb_render_starfox(const char *mp4) {
         wb_anim_key_ease(an, oe, t0,
                          lane_x[e], lane_y[e], -120.0f,
                          0,0,0, 1.5f, 0);
+        /* G-SF fix: rings stop at z=-14 (in front of camera) instead of
+         * flying through it; shrink as they arrive */
         wb_anim_key_ease(an, oe, t0 + 1.6,
-                         (float)(lane_x[e] % 7), lane_y[e]*0.3f, 6.0f,
-                         0, (float)e*0.7f, 0, 0.6f, 0);
+                         lane_x[e]*0.25f, lane_y[e]*0.25f, -14.0f,
+                         0, (float)e*0.7f, 0, 0.45f, 1);
     }
 
     /* corridor floor strips scrolling toward camera (Mode-7 vibe):
@@ -238,7 +235,7 @@ int wb_render_starfox(const char *mp4) {
             if (tb > DUR) tb = DUR;
             double z0 = -160.0 - (ct < 0 ? -ct : 0) * 60.0;
             wb_anim_key_ease(an, os_, ta,
-                             0, -2.5f, (float)(-150.0),
+                             0, -2.5f, (float)(-80.0),
                              0,0,0, 1.0, 0);
             wb_anim_key_ease(an, os_, tb,
                              0, -2.5f, (float)(4.0),
@@ -274,13 +271,38 @@ int wb_render_starfox(const char *mp4) {
     wb_node *bg = wb_node_source_scene(0.01f,0.01f,0.05f,
                                        0.05f,0.03f,0.15f,
                                        1, 0.05f, SF_W, SF_H);
-    wb_node *sfframe = wb_node_source_frame(SF_W, SF_H, rgba);
     wb_node *comp = wb_node_composite();
-    if (!bg || !sfframe || !comp) return 1;
+    if (!bg || !comp) return 1;
     wb_composite_add(comp, bg);      /* bottom: space */
+#ifdef SF_USE_FRAME_SRC
+    wb_node *sfframe = wb_node_source_frame(SF_W, SF_H, rgba);
+    if (!sfframe) return 1;
     wb_composite_add(comp, sfframe); /* middle: CGI */
+#else
+    /* R074 hop 113: direct anim->node bridge (G-SF047) */
+    wb_node *sfframe = wb_node_source_anim(an, SF_W, SF_H);
+    if (!sfframe) { fprintf(stderr, "sf: anim bridge failed\n"); return 1; }
+    wb_composite_add(comp, sfframe);
+    /* HUD via text nodes (G-SF050) */
+    {
+        wb_node *t_fox = wb_node_source_text("FOX", 2,
+                                             0.4f, 0.8f, 1.0f, 1.0f,
+                                             SF_W, SF_H);
+        wb_node *t_sc  = wb_node_source_text("SCORE", 2,
+                                             1.0f, 1.0f, 1.0f, 1.0f,
+                                             SF_W, SF_H);
+        if (t_fox) { wb_node_source_text_pos(t_fox, 16, 14);
+                     wb_composite_add(comp, t_fox); }
+        if (t_sc)  { wb_node_source_text_pos(t_sc, SF_W-130, 14);
+                     wb_composite_add(comp, t_sc); }
+    }
+    /* SNES crunch on top (G-SF030/031) */
+#endif
 
-    return sf_render_loop(an, comp, rgba, mp4, DUR, 15, SF_W, SF_H);
+    wb_node *dth = wb_node_effect_dither(6);
+    if (!dth) return 1;
+    dth->inputs[0] = comp;
+    return sf_render_loop(an, dth, rgba, mp4, DUR, 15, SF_W, SF_H);
 }
 
 int main(int argc, char **argv) {

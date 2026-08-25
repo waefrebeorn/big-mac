@@ -164,6 +164,9 @@ wb_node *wb_node_source_color(float r, float g, float b, float a, int w, int h);
 struct wb_anim;
 wb_node *wb_node_source_anim(struct wb_anim *anim, int w, int h);
 
+/* R074 hop 113 (G-SF030/031): SNES ordered-dither + palette quantize. */
+wb_node *wb_node_effect_dither(int levels);
+
 /* R074 hop 111: scene source — smoothstep gradient (vertical or radial)
  * with a moving light sweep. Colors are top/bottom endpoints. */
 wb_node *wb_node_source_scene(float r0, float g0, float b0,
@@ -181,6 +184,8 @@ wb_node *wb_node_source_text(const char *text, int scale,
                              int w, int h);
 /* R073 hop 58: set the text animation preset on a text source node. */
 void wb_node_source_text_anim(wb_node *text_node, int mode, double dur);
+/* R074 hop 113: position a text node in pixels. */
+void wb_node_source_text_pos(wb_node *text_node, int x, int y);
 
 /* R073 hop 49: transitions — op 0 = crossfade, op 1 = dip-to-black.
  * Two inputs (A, B); mixes across `duration_secs` starting at t=0.

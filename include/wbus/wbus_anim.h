@@ -71,3 +71,8 @@ int  wb_anim_object_count(const wb_anim *a);
 #endif
 
 #endif /* WUBUS_WBUS_ANIM_H */
+
+/* R074 hop 113: looping corridor keys (G-SF005). */
+int wb_anim_key_loop(wb_anim *a, int obj, double dur,
+                     double period, double phase,
+                     float px, float py, float pz_far, float pz_near);

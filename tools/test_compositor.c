@@ -1970,6 +1970,49 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 101: PPM frame export */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 32, 32);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 32, 32);
+        wb_node *tr = wb_transition_preset(1, 2.0);
+        CHECK(tr != NULL, "ppm: preset built");
+        if (tr) {
+            wb_transition_add(tr, ga);
+            wb_transition_add(tr, gb);
+            wb_frame *f = wb_node_pull(tr, 1.0, 0, 0, 32, 32);
+            CHECK(f != NULL && wb_frame_write_ppm(f,
+                  "/tmp/bigmac_hop101.ppm") == 0,
+                  "ppm: frame written");
+            if (f) wb_frame_free(f);
+        }
+        /* verify file on disk */
+        FILE *fp = fopen("/tmp/bigmac_hop101.ppm", "rb");
+        CHECK(fp != NULL, "ppm: file readable");
+        if (fp) {
+            char magic[3] = {0};
+            int w = 0, h = 0, maxv = 0;
+            fscanf(fp, "%2s %d %d %d", magic, &w, &h, &maxv);
+            CHECK(magic[0]=='P' && magic[1]=='6' && w==32 && h==32
+                  && maxv==255, "ppm: header correct");
+            fseek(fp, 0, SEEK_END);
+            long sz = ftell(fp);
+            long expect = 11 + (long)w * h * 3;   /* hdr ~11B + RGB */
+            CHECK(sz >= expect && sz < expect + 8,
+                  "ppm: payload size sane");
+            fseek(fp, -3, SEEK_END);   /* last pixel = bottom-right */
+            unsigned char px[3];
+            fread(px, 1, 3, fp);
+            fclose(fp);
+            printf("         ppm: %dx%d, last px=(%u,%u,%u)\n",
+                   w, h, px[0], px[1], px[2]);
+        }
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

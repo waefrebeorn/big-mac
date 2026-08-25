@@ -1256,6 +1256,22 @@ wb_node *wb_node_source_text(const char *text, int scale,
     return n;
 }
 
+/* R073 hop 101: write a frame as a binary PPM (P6) image. */
+int wb_frame_write_ppm(const wb_frame *f, const char *path) {
+    if (!f || !path || f->w <= 0 || f->h <= 0) return -1;
+    FILE *fp = fopen(path, "wb");
+    if (!fp) return -1;
+    fprintf(fp, "P6\n%d %d\n255\n", f->w, f->h);
+    for (int i = 0; i < f->w * f->h; i++) {
+        unsigned char r = (unsigned char)(f->px[i].r * 255.0f + 0.5f);
+        unsigned char g = (unsigned char)(f->px[i].g * 255.0f + 0.5f);
+        unsigned char b = (unsigned char)(f->px[i].b * 255.0f + 0.5f);
+        fwrite(&r, 1, 1, fp); fwrite(&g, 1, 1, fp); fwrite(&b, 1, 1, fp);
+    }
+    fclose(fp);
+    return 0;
+}
+
 /* ---- R073 hop 49: TRANSITION (crossfade / dip-to-black) --------------------- */
 typedef struct { int op; double dur; int dir; } trans_t;
 /* dir: 0 = L->R / T->B (forward), 1 = reversed */

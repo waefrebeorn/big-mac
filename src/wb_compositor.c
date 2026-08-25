@@ -1278,8 +1278,19 @@ int wb_frame_write_ppm(const wb_frame *f, const char *path) {
 
 /* R073 hop 104: render a transition graph to an mp4 via the vendored
  * ffmpeg binary (image2 demuxer over a temp PPM sequence). */
+int wb_compositor_export_mp4_audio(wb_node *trans, const char *mp4_path,
+                                   const char *wav_path,
+                                   double dur, int fps, int w, int h);
+/* R073 hop 104/105: graph -> mp4; optional wav muxed as AAC. */
 int wb_compositor_export_mp4(wb_node *trans, const char *mp4_path,
                              double dur, int fps, int w, int h) {
+    return wb_compositor_export_mp4_audio(trans, mp4_path, NULL,
+                                          dur, fps, w, h);
+}
+
+int wb_compositor_export_mp4_audio(wb_node *trans, const char *mp4_path,
+                                   const char *wav_path,
+                                   double dur, int fps, int w, int h) {
     if (!trans || !mp4_path || dur <= 0 || fps <= 0) return -1;
     char dir[256];
     snprintf(dir, sizeof dir, "/tmp/bigmac_cseq_%d", (int)getpid());
@@ -1296,12 +1307,22 @@ int wb_compositor_export_mp4(wb_node *trans, const char *mp4_path,
         wb_frame_free(f);
         if (wr != 0) return -1;
     }
-    char cmd[1024];
-    snprintf(cmd, sizeof cmd,
-        "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
-        "-f image2 -framerate %d -i '%s/f_%%05d.ppm' "
-        "-c:v libx264 -pix_fmt yuv420p '%s'",
-        fps, dir, mp4_path);
+    char cmd[1536];
+    if (wav_path) {
+        snprintf(cmd, sizeof cmd,
+            "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
+            "-f image2 -framerate %d -i '%s/f_%%05d.ppm' "
+            "-i '%s' -c:a aac -b:a 192k -shortest "
+            "-map 0:v:0 -map 1:a:0 "
+            "-c:v libx264 -pix_fmt yuv420p '%s'",
+            fps, dir, wav_path, mp4_path);
+    } else {
+        snprintf(cmd, sizeof cmd,
+            "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
+            "-f image2 -framerate %d -i '%s/f_%%05d.ppm' "
+            "-c:v libx264 -pix_fmt yuv420p '%s'",
+            fps, dir, mp4_path);
+    }
     int rc = system(cmd);
     /* clean temp frames */
     for (int kk = 0; kk < nframes; kk++) {

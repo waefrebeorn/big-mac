@@ -177,6 +177,10 @@ int wb_frame_write_ppm(const wb_frame *f, const char *path);
 /* R073 hop 104: render a transition graph to an mp4 (H.264) file. */
 int wb_compositor_export_mp4(wb_node *trans, const char *mp4_path,
                              double dur, int fps, int w, int h);
+/* R073 hop 105: same, with a WAV muxed as AAC audio track. */
+int wb_compositor_export_mp4_audio(wb_node *trans, const char *mp4_path,
+                                   const char *wav_path,
+                                   double dur, int fps, int w, int h);
 
 /* R073 hop 96: transition style presets — one call builds a configured
  * transition. 0=MusicVideo (crossfade, tight feather), 1=News (fast

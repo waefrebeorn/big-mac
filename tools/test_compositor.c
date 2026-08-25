@@ -2079,6 +2079,50 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 105: mp4 with muxed AAC audio */
+    {
+        /* 1s 440Hz stereo sine WAV */
+        uint32_t nf = WB_SAMPLE_RATE;
+        wb_sample *buf = malloc(nf * 2 * sizeof(wb_sample));
+        CHECK(buf != NULL, "mux: wav buf");
+        if (buf) {
+            for (uint32_t i = 0; i < nf; i++) {
+                float v = sinf(2.0f*3.14159265f*440.0f*i/WB_SAMPLE_RATE)
+                        * 0.4f;
+                buf[i*2] = (wb_sample)v;
+                buf[i*2+1] = (wb_sample)v;
+            }
+            CHECK(wb_wav_write_pcm16("/tmp/bigmac_hop105.wav",
+                  buf, nf, 2, WB_SAMPLE_RATE) == 0,
+                  "mux: wav written");
+            free(buf);
+            wb_node *ga = wb_node_source_color(1,0,0,1,64,64);
+            wb_node *gb = wb_node_source_color(0,0,1,1,64,64);
+            wb_node *tr = wb_transition_preset(0, 2.0);
+            if (tr) {
+                wb_transition_add(tr, ga);
+                wb_transition_add(tr, gb);
+                remove("/tmp/bigmac_hop105.mp4");
+                int rc = wb_compositor_export_mp4_audio(tr,
+                        "/tmp/bigmac_hop105.mp4",
+                        "/tmp/bigmac_hop105.wav", 1.0, 8, 64, 64);
+                CHECK(rc == 0, "mux: exported with audio");
+                FILE *fp = fopen("/tmp/bigmac_hop105.mp4", "rb");
+                CHECK(fp != NULL, "mux: file exists");
+                if (fp) {
+                    fseek(fp, 0, SEEK_END);
+                    printf("         mux: %ld bytes\n", ftell(fp));
+                    fclose(fp);
+                }
+                wb_node_destroy(tr);
+            }
+            if (ga) wb_node_destroy(ga);
+            if (gb) wb_node_destroy(gb);
+        }
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

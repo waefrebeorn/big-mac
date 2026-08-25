@@ -42,6 +42,8 @@ param bus (`wb_node_add_param`). Gate: `build/wb_test_compositor`.
 | 14 | Zoom-blur — 5-tap radial zoom punch peaking at midpoint; A out, B in |
 - Cut-on-beat: `wb_session_snap_to_beat(t, bpm)` snaps any transition
   midpoint to the session's nearest beat (pairs with the hop-15 estimator)
+- Batch beat-snapped transitions: `wb_session_batch_transitions_beat`
+  places crossfades at every cut with midpoints riding the BPM grid
 - R073 hop 83: the third (map) input is optional for ALL transition ops —
   its Rec.709 luma modulates per-pixel progress (luma-masked crossfade,
   wipe, iris, slide, push, noise dissolve); op 7 keeps hard threshold. |

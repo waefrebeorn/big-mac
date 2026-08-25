@@ -16,11 +16,32 @@
 
 /* R074 hop 116 (#29/#31): linear-light Rec.709 luma — decode sRGB
  * channel first, then weight. Correct for keyed/lit pixels. */
+/* R074 hop 136 (#45): 256-entry sRGB-decode lookup table — replaces
+ * per-pixel powf in the hot grade/key paths. */
+static float srgb_lut[256];
+static int srgb_lut_ready = 0;
+static void srgb_lut_init(void) {
+    if (srgb_lut_ready) return;
+    for (int i = 0; i < 256; i++) {
+        float v = (float)i / 255.0f;
+        srgb_lut[i] = v <= 0.04045f
+            ? v / 12.92f
+            : powf((v + 0.055f) / 1.055f, 2.4f);
+    }
+    srgb_lut_ready = 1;
+}
+/* linear-light value for a display-encoded byte-ish float in [0,1] */
+static inline float wb_lin_channel(float v) {
+    if (!srgb_lut_ready) srgb_lut_init();
+    int idx = (int)(v * 255.0f + 0.5f);
+    if (idx < 0) idx = 0;
+    if (idx > 255) idx = 255;
+    return srgb_lut[idx];
+}
+
 static float wb_lin_luma(float r, float g, float b) {
-    float lr = r <= 0.04045f ? r / 12.92f : powf((r+0.055f)/1.055f, 2.4f);
-    float lg = g <= 0.04045f ? g / 12.92f : powf((g+0.055f)/1.055f, 2.4f);
-    float lb = b <= 0.04045f ? b / 12.92f : powf((b+0.055f)/1.055f, 2.4f);
-    return 0.2126f*lr + 0.7152f*lg + 0.0722f*lb;
+    return 0.2126f*wb_lin_channel(r) + 0.7152f*wb_lin_channel(g)
+         + 0.0722f*wb_lin_channel(b);
 }
 
 /* ---- G1: global quality-of-service dial (0..1) ----------------------- */

@@ -2,6 +2,10 @@
  * Pure C11. Recursive pull with identity skip + edge cache (LRU). */
 
 #include "wbus/wbus_compositor.h"
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -1270,6 +1274,43 @@ int wb_frame_write_ppm(const wb_frame *f, const char *path) {
     }
     fclose(fp);
     return 0;
+}
+
+/* R073 hop 104: render a transition graph to an mp4 via the vendored
+ * ffmpeg binary (image2 demuxer over a temp PPM sequence). */
+int wb_compositor_export_mp4(wb_node *trans, const char *mp4_path,
+                             double dur, int fps, int w, int h) {
+    if (!trans || !mp4_path || dur <= 0 || fps <= 0) return -1;
+    char dir[256];
+    snprintf(dir, sizeof dir, "/tmp/bigmac_cseq_%d", (int)getpid());
+    /* crude mkdir -p equivalent: single level under /tmp */
+    if (mkdir(dir, 0755) != 0 && errno != EEXIST) return -1;
+    int nframes = (int)(dur * fps);
+    for (int kk = 0; kk < nframes; kk++) {
+        double tt = (double)kk / fps;
+        wb_frame *f = wb_node_pull(trans, tt, 0, 0, w, h);
+        if (!f) return -1;
+        char p[512];
+        snprintf(p, sizeof p, "%s/f_%05d.ppm", dir, kk);
+        int wr = wb_frame_write_ppm(f, p);
+        wb_frame_free(f);
+        if (wr != 0) return -1;
+    }
+    char cmd[1024];
+    snprintf(cmd, sizeof cmd,
+        "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
+        "-f image2 -framerate %d -i '%s/f_%%05d.ppm' "
+        "-c:v libx264 -pix_fmt yuv420p '%s'",
+        fps, dir, mp4_path);
+    int rc = system(cmd);
+    /* clean temp frames */
+    for (int kk = 0; kk < nframes; kk++) {
+        char p[512];
+        snprintf(p, sizeof p, "%s/f_%05d.ppm", dir, kk);
+        remove(p);
+    }
+    rmdir(dir);
+    return rc == 0 ? 0 : -1;
 }
 
 /* ---- R073 hop 49: TRANSITION (crossfade / dip-to-black) --------------------- */

@@ -2049,6 +2049,36 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 104: mp4 export via ffmpeg */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *tr = wb_transition_preset(0, 2.0);
+        CHECK(tr != NULL, "mp4: preset built");
+        if (tr) {
+            wb_transition_add(tr, ga);
+            wb_transition_add(tr, gb);
+            remove("/tmp/bigmac_hop104.mp4");
+            int rc = wb_compositor_export_mp4(tr,
+                    "/tmp/bigmac_hop104.mp4", 1.0, 8, 64, 64);
+            CHECK(rc == 0, "mp4: exported");
+            FILE *fp = fopen("/tmp/bigmac_hop104.mp4", "rb");
+            CHECK(fp != NULL, "mp4: file exists");
+            if (fp) {
+                fseek(fp, 0, SEEK_END);
+                long sz = ftell(fp);
+                fclose(fp);
+                CHECK(sz > 1024, "mp4: non-trivial size");
+                printf("         mp4: %ld bytes\n", sz);
+            }
+            wb_node_destroy(tr);
+        }
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

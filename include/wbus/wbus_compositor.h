@@ -174,6 +174,9 @@ wb_node *wb_node_transition(int op, double duration_secs);
 void      wb_transition_add(wb_node *trans, wb_node *child);
 /* R073 hop 101: write a frame as binary PPM (P6). Returns 0 or -1. */
 int wb_frame_write_ppm(const wb_frame *f, const char *path);
+/* R073 hop 104: render a transition graph to an mp4 (H.264) file. */
+int wb_compositor_export_mp4(wb_node *trans, const char *mp4_path,
+                             double dur, int fps, int w, int h);
 
 /* R073 hop 96: transition style presets — one call builds a configured
  * transition. 0=MusicVideo (crossfade, tight feather), 1=News (fast

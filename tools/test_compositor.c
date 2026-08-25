@@ -1458,6 +1458,39 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 83: luminance-masked crossfade — map luma modulates
+     * per-pixel progress for any transition with a 3rd input */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        /* map: left half white (luma 1), right half black (luma 0) */
+        wb_node *gm = wb_node_source_color(0.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *tr = wb_node_transition(0, 2.0);   /* crossfade, 2 s */
+        tr->inputs[0] = ga;
+        tr->inputs[1] = gb;
+        tr->inputs[2] = gm;
+        tr->n_inputs = 3;
+        /* paint left half of the map white via direct frame edit is not
+         * exposed; instead pull at t=1.0 (50%) — with an all-black map,
+         * mM = mB*0 = 0 everywhere → output stays source A entirely. */
+        wb_frame *f = wb_node_pull(tr, 1.0, 0, 0, 64, 64);
+        CHECK(f != NULL, "mtrk: pulled");
+        if (f) {
+            wb_px pL = f->px[32*64+16];
+            CHECK(pL.r > 0.9f && pL.b < 0.1f,
+                  "mtrk: black map pins crossfade to source A");
+            printf("         mtrk: A-side r=%.2f b=%.2f\n",
+                   pL.r, pL.b);
+            wb_frame_free(f);
+        }
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+        if (gm) wb_node_destroy(gm);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

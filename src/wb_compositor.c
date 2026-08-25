@@ -1277,14 +1277,15 @@ static wb_frame *trans_pull(wb_node *self, double t,
     if (u < 0) u = 0; if (u > 1) u = 1;
     float mB = (float)u;
 
-    /* R073 hop 68: map dissolve pulls its map frame up front */
+    /* R073 hop 68/83: map input. Required (3rd input) for op 7; optional
+     * for any other transition — when present it modulates the per-pixel
+     * progress spatially by the map's Rec.709 luma (masked transition). */
     wb_frame *mapf = NULL;
-    if (tr->op == 7) {
-        if (self->n_inputs < 3 || !self->inputs[2]) {
-            wb_frame_free(a); wb_frame_free(b); return NULL;
-        }
+    if (self->n_inputs >= 3 && self->inputs[2]) {
         mapf = wb_node_pull(self->inputs[2], t, rx, ry, rw, rh);
         if (!mapf) { wb_frame_free(a); wb_frame_free(b); return NULL; }
+    } else if (tr->op == 7) {
+        wb_frame_free(a); wb_frame_free(b); return NULL;
     }
 
     wb_frame *out = wb_frame_alloc(a->w, a->h);
@@ -1293,16 +1294,24 @@ static wb_frame *trans_pull(wb_node *self, double t,
     for (int i = 0; i < a->w * a->h; i++) {
         wb_px pa = a->px[i], pb = b->px[i];
         int px_i = i % a->w, py_i = i / a->w;
+        /* R073 hop 83: masked transition — map luma modulates the
+         * per-pixel progress for all ops except 7 (which thresholds). */
+        float mM = mB;
+        if (mapf && tr->op != 7) {
+            float lum = 0.2126f*mapf->px[i].r + 0.7152f*mapf->px[i].g
+                      + 0.0722f*mapf->px[i].b;
+            mM = mB * lum;
+        }
         if (tr->op == 0) {
             /* crossfade: linear blend A -> B */
-            out->px[i].r = pa.r*(1-mB) + pb.r*mB;
-            out->px[i].g = pa.g*(1-mB) + pb.g*mB;
-            out->px[i].b = pa.b*(1-mB) + pb.b*mB;
-            out->px[i].a = pa.a*(1-mB) + pb.a*mB;
+            out->px[i].r = pa.r*(1-mM) + pb.r*mM;
+            out->px[i].g = pa.g*(1-mM) + pb.g*mM;
+            out->px[i].b = pa.b*(1-mM) + pb.b*mM;
+            out->px[i].a = pa.a*(1-mM) + pb.a*mM;
         } else if (tr->op == 1) {
             /* dip-to-black: fade A to black in first half, B up in second */
-            float kA = mB < 0.5f ? (1.0f - mB*2.0f) : 0.0f;
-            float kB = mB >= 0.5f ? (mB - 0.5f)*2.0f : 0.0f;
+            float kA = mM < 0.5f ? (1.0f - mM*2.0f) : 0.0f;
+            float kB = mM >= 0.5f ? (mM - 0.5f)*2.0f : 0.0f;
             out->px[i].r = pa.r*kA + pb.r*kB;
             out->px[i].g = pa.g*kA + pb.g*kB;
             out->px[i].b = pa.b*kA + pb.b*kB;
@@ -1313,14 +1322,14 @@ static wb_frame *trans_pull(wb_node *self, double t,
              * 8%-of-frame band (hop 66). */
             float pos, span;
             if (tr->dir <= 1) {
-                float edge = mB * (float)a->w;
+                float edge = mM * (float)a->w;
                 pos = tr->dir == 0 ? (float)px_i
                                    : (float)(a->w - px_i);
                 span = (float)a->w;
                 /* distance behind the boundary, positive = B side */
                 pos = edge - pos;
             } else {
-                float edge = mB * (float)a->h;
+                float edge = mM * (float)a->h;
                 pos = tr->dir == 2 ? (float)py_i
                                    : (float)(a->h - py_i);
                 span = (float)a->h;
@@ -1341,7 +1350,7 @@ static wb_frame *trans_pull(wb_node *self, double t,
             float dx = px_i - cx2, dy = py_i - cy2;
             float dist = sqrtf(dx*dx + dy*dy);
             float maxd = sqrtf(cx2*cx2 + cy2*cy2);
-            if (dist < mB * maxd) { out->px[i] = pb; }
+            if (dist < mM * maxd) { out->px[i] = pb; }
             else                  { out->px[i] = pa; }
         } else if (tr->op == 7) {
             /* R073 hop 68: map dissolve — map input's Rec.709 luma is the
@@ -1358,14 +1367,14 @@ static wb_frame *trans_pull(wb_node *self, double t,
                          (unsigned)(py_i * 19349663u);
             h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
             float jitter = ((h & 0xFFFF) / 65535.0f - 0.5f) * 0.3f;
-            float th = mB + jitter;
+            float th = mM + jitter;
             if (th > 0.5f) { out->px[i] = pb; }
             else           { out->px[i] = pa; }
         } else {
             /* R073 hop 51: slide (4) / push (5) — horizontal translation.
              * sample A at (x + mB*W), B at (x - W + mB*W); for push both
              * translate together, for slide B overlays a stationary A. */
-            int sx = (int)(mB * a->w);
+            int sx = (int)(mM * a->w);
             if (tr->op == 5) {          /* push: both move */
                 int ax = px_i + a->w - sx;      /* A sliding right-out */
                 int bx = px_i - sx;             /* B entering from left */

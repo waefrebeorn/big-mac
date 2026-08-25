@@ -20,6 +20,7 @@
 #include "wbus/wbus_mesh.h"
 #include "wbus/wbus_anim.h"
 #include "wbus/wbus_smf.h"
+#include "wbus/wbus_sf2.h"
 #include "wbus/wb_ui.h"
 #include "wbus/wbus_limiter.h"
 
@@ -465,6 +466,30 @@ int main(int argc, char **argv) {
             printf("roundtrip %s\n", ok ? "PASS" : "FAIL");
             wb_smf_free(sm);
             return ok ? 0 : 1;
+        }
+    }
+
+    /* R074 hop 127 (G-SF062): --sf2check FILE */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--sf2check") == 0 && i+1 < argc) {
+            wb_sf2 *sf = wb_sf2_load(argv[i+1]);
+            if (!sf) { printf("SF2 parse FAIL\n"); return 1; }
+            printf("SF2 OK: %d presets\n", wb_sf2_preset_count(sf));
+            for (int k = 0; k < wb_sf2_preset_count(sf) && k < 4; k++)
+                printf("  preset %d: %s\n", k, wb_sf2_preset_name(sf, k));
+            wb_sample buf[44100*2];
+            memset(buf, 0, sizeof buf);
+            uint32_t n = wb_sf2_render_note(sf, 0, 60, 0.5, 44100,
+                                            buf, 100);
+            float peak = 0;
+            for (uint32_t q = 0; q < n*2; q++) {
+                float v = buf[q] < 0 ? -buf[q] : buf[q];
+                if (v > peak) peak = v;
+            }
+            printf("render_note: %u frames, peak %.3f -> %s\n",
+                   n, peak, peak > 0.05f ? "PASS" : "FAIL");
+            wb_sf2_free(sf);
+            return peak > 0.05f ? 0 : 1;
         }
     }
 

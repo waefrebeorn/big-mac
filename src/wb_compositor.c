@@ -67,8 +67,13 @@ void wb_frame_free(wb_frame *f) {
 }
 
 int wb_roi_clip(int w, int h, int *rx, int *ry, int *rw, int *rh) {
+    /* R074 hop 132 (#70): harden against degenerate inputs — reject
+     * non-positive frame sizes and negative dims up front. */
+    if (w <= 0 || h <= 0) { *rw = 0; *rh = 0; return 0; }
+    if (*rw < 0 || *rh < 0) { *rw = 0; *rh = 0; return 0; }
     if (*rx < 0) { *rw += *rx; *rx = 0; }
     if (*ry < 0) { *rh += *ry; *ry = 0; }
+    if (*rx >= w || *ry >= h) { *rw = 0; *rh = 0; return 0; }
     if (*rx + *rw > w) *rw = w - *rx;
     if (*ry + *rh > h) *rh = h - *ry;
     if (*rw <= 0 || *rh <= 0) { *rw = 0; *rh = 0; return 0; }
@@ -2137,8 +2142,14 @@ static wb_frame *trans_pull(wb_node *self, double t,
              * radius passes them. Ring softness via grad_feather. */
             float feath = wb_node_param_value(self, "grad_feather", t);
             if (feath <= 0.0f) feath = 0.05f;
-            float dxn = px_i - a->w * 0.5f;
-            float dyn = py_i - a->h * 0.5f;
+            /* R074 hop 132 (#59): movable clock center via
+             * keyframable "wipe_cx"/"wipe_cy" (normalized). */
+            float ccx = wb_node_param_value(self, "wipe_cx", t);
+            float ccy = wb_node_param_value(self, "wipe_cy", t);
+            if (ccx <= 0.0f) ccx = 0.5f;
+            if (ccy <= 0.0f) ccy = 0.5f;
+            float dxn = px_i - a->w * ccx;
+            float dyn = py_i - a->h * ccy;
             float dist = sqrtf(dxn*dxn + dyn*dyn);
             float maxd = 0.5f * sqrtf((float)(a->w*a->w + a->h*a->h));
             /* two rings for the ripple look: primary + echo */

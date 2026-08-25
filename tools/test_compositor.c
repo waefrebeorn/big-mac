@@ -1387,6 +1387,43 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 81: rotated power window (win_rot degrees) */
+    {
+        wb_node *src = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        struct { const char *n; float v; } ps[] = {
+            {"hue_c", 0.0f}, {"hue_w", 30.0f}, {"sec_sat", 0.2f},
+            {"win_r", 0.25f}, {"win_shape", 1.0f},
+            {"win_cx", 0.5f}, {"win_cy", 0.5f},
+            {"win_rot", 45.0f},
+        };
+        wb_node *cv = wb_node_effect(11, 0.0f);
+        for (unsigned k = 0; k < sizeof ps / sizeof ps[0]; k++) {
+            wb_param_track *tp = wb_param_track_create();
+            wb_param_track_set(tp, 0.0, ps[k].v, WB_KF_HOLD);
+            wb_node_add_param(cv, ps[k].n, tp);
+        }
+        cv->inputs[0] = src;
+        wb_frame *f = cv ? wb_node_pull(cv, 0.0, 0, 0, 64, 64) : NULL;
+        CHECK(f != NULL, "wrot: pulled");
+        if (f) {
+            /* diag point (nx,ny)=(+.22,-.22): inside unrotated rect,
+             * outside when rotated 45deg (becomes (.311,0)) */
+            int qx = (int)((0.5f + 0.22f) * 64);
+            int qy = (int)((0.5f - 0.22f) * 64);
+            float rQ = f->px[qy*64+qx].r;
+            /* unrotated rect would fully cover it (r=0.37); rotation
+             * pushes it into the soft band (partial correction) */
+            CHECK(rQ > 0.5f && rQ < 0.9f,
+                  "wrot: 45deg rotation weakens corner coverage");
+            printf("         wrot: diag-r=%.2f\n", rQ);
+            wb_frame_free(f);
+        }
+        if (cv) wb_node_destroy(cv);
+        if (src) wb_node_destroy(src);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

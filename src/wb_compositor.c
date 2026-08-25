@@ -402,6 +402,17 @@ static wb_frame *eff_pull(wb_node *self, double t,
                     /* R073 hop 79: win_shape 1=rect, 2=ellipse, else circle */
                     float wsh = wb_node_param_value(self,
                                                     "win_shape", t);
+                    /* R073 hop 81: win_rot rotates the window about its
+                     * center — rotate the SAMPLE into window space. */
+                    float wrot = wb_node_param_value(self,
+                                                     "win_rot", t);
+                    if (wrot != 0.0f) {
+                        float ang = wrot * 3.14159265f / 180.0f;
+                        float ca = cosf(ang), sa = sinf(ang);
+                        float rxo = nx * ca + ny * sa;
+                        float ryo = -nx * sa + ny * ca;
+                        nx = rxo; ny = ryo;
+                    }
                     float dist;
                     if (wsh > 1.5f) {
                         /* R073 hop 80: anisotropic ellipse — win_rx/win_ry

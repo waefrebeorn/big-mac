@@ -1900,6 +1900,31 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 99: ripple dissolve (op 18) */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *tr = wb_node_transition(18, 2.0);
+        wb_transition_add(tr, ga);
+        wb_transition_add(tr, gb);
+        wb_frame *m = wb_node_pull(tr, 1.0, 0, 0, 64, 64);
+        CHECK(m != NULL, "rip: pulled mid");
+        if (m) {
+            wb_px ctr = m->px[32*64+32];    /* dist 0 -> flipped */
+            wb_px cor = m->px[2*64+2];      /* far -> pending */
+            CHECK(ctr.b > 0.9f, "rip: center flips first");
+            CHECK(cor.r > 0.9f, "rip: far corner still A at half");
+            printf("         rip: ctr b=%.2f | cor r=%.2f\n",
+                   ctr.b, cor.r);
+            wb_frame_free(m);
+        }
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

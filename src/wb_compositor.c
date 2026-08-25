@@ -1387,6 +1387,26 @@ static wb_frame *trans_pull(wb_node *self, double t,
                 if (bx >= 0 && bx < a->w) out->px[i] = pb;
                 else                      out->px[i] = pa;
             }
+        } else if (tr->op == 18) {
+            /* R073 hop 99: ripple dissolve — a circular wave expands
+             * from the frame center; pixels flip A->B as the ripple
+             * radius passes them. Ring softness via grad_feather. */
+            float feath = wb_node_param_value(self, "grad_feather", t);
+            if (feath <= 0.0f) feath = 0.05f;
+            float dxn = px_i - a->w * 0.5f;
+            float dyn = py_i - a->h * 0.5f;
+            float dist = sqrtf(dxn*dxn + dyn*dyn);
+            float maxd = 0.5f * sqrtf((float)(a->w*a->w + a->h*a->h));
+            /* two rings for the ripple look: primary + echo */
+            float k1 = (mM * maxd - dist) / feath + 0.5f;
+            float d2 = fabsf(dist - mM * maxd - maxd * 0.15f);
+            float k2 = (feath - d2) / feath + 0.5f;
+            float k = k1 > k2 ? k1 : k2;
+            if (k < 0) k = 0; if (k > 1) k = 1;
+            out->px[i].r = pa.r*(1-k) + pb.r*k;
+            out->px[i].g = pa.g*(1-k) + pb.g*k;
+            out->px[i].b = pa.b*(1-k) + pb.b*k;
+            out->px[i].a = pa.a*(1-k) + pb.a*k;
         } else if (tr->op == 17) {
             /* R073 hop 98: split-flap grid dissolve — 8x8 cells flip
              * A->B in a diagonal wave (row+col) with per-cell hash

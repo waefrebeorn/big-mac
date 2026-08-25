@@ -46,7 +46,8 @@ param bus (`wb_node_add_param`). Gate: `build/wb_test_compositor`.
 | 18 | Ripple dissolve — circular wave + echo ring expands from center |
 - Hop 100 milestone: end-to-end graph (preset transition -> windowed
   HSL secondary) pulled and verified as one chain.
-- Frame export: `wb_frame_write_ppm` writes binary P6 images.
+- Frame export: `wb_frame_write_ppm` writes binary P6 images. Numbered sequences
+  (frame_0000.ppm...) render transition timelines for external encoders.
 - Cut-on-beat: `wb_session_snap_to_beat(t, bpm)` snaps any transition
   midpoint to the session's nearest beat (pairs with the hop-15 estimator)
 - Batch beat-snapped transitions: `wb_session_batch_transitions_beat`

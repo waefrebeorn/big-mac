@@ -71,7 +71,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 
 ## D. Audio / music (61-78)
 61. G-SF061 No SMF (.mid) file loader **[FIXED]**
-62. G-SF062 No SF2 soundfont loader/player
+62. G-SF062 No SF2 soundfont loader/player **[FIXED]**
 63. G-SF063 Soundtrack synthesized in Python outside the engine — engine should render its own demo audio
 64. G-SF064 No FM synthesis voice (SNES-y timbres are limited with subtractive)
 65. G-SF065 No sample-rate decimation/bitcrush unit for chiptune crunch

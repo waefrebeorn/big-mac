@@ -2310,6 +2310,86 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+    /* ---- R074 hop 128 (#84-86): coverage gaps ------------------- */
+    {
+        /* #84: ROI < frame — pull a sub-rectangle from a color source */
+        wb_node *src = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 32, 32);
+        if (src) {
+            wb_frame *roi = wb_node_pull(src, 0.0, 4, 4, 8, 8);
+            CHECK(roi != NULL, "roi: partial pull returns frame");
+            if (roi) {
+                int ok = 1;
+                for (int y = roi->roi_y; y < roi->roi_y + roi->roi_h && ok; y++)
+                    for (int x = roi->roi_x; x < roi->roi_x + roi->roi_w && ok; x++) {
+                        wb_px *p = &roi->px[y*roi->w + x];
+                        if (p->r < 0.9f) ok = 0;
+                    }
+                CHECK(ok, "roi: region carries the red fill");
+                wb_frame_free(roi);
+            }
+            /* #85: size-mismatched transition inputs (crash class) */
+            wb_node *big = wb_node_source_color(0, 1, 0, 1.0f, 64, 64);
+            wb_node *small = wb_node_source_color(0, 0, 1, 1.0f, 16, 16);
+            wb_node *tr = wb_node_transition(0, 0.5);   /* crossfade */
+            if (big && small && tr) {
+                tr->inputs = realloc(tr->inputs,
+                                     (tr->n_inputs+1)*sizeof(wb_node*));
+                tr->inputs[tr->n_inputs++] = big;
+                tr->inputs = realloc(tr->inputs,
+                                     (tr->n_inputs+1)*sizeof(wb_node*));
+                tr->inputs[tr->n_inputs++] = small;
+                wb_frame *mf = wb_node_pull(tr, 0.25, 0, 0, 32, 32);
+                CHECK(mf != NULL, "mismatch: mixed-size transition survives");
+                if (mf) wb_frame_free(mf);
+            }
+            if (tr) wb_node_destroy(tr);
+            if (big) wb_node_destroy(big);
+            if (small) wb_node_destroy(small);
+            /* scaler node smoke test (#10 verification) */
+            wb_node *sc = wb_node_effect_scaler(16, 8);
+            if (sc) {
+                sc->inputs[0] = src;
+                wb_frame *sf2r = wb_node_pull(sc, 0.0, 0, 0, 16, 8);
+                printf("         scaler: got %dx%d\n",
+                       sf2r ? sf2r->w : -1, sf2r ? sf2r->h : -1);
+                CHECK(sf2r != NULL && sf2r->w == 16 && sf2r->h == 8,
+                      "scaler: resizes to requested format");
+                if (sf2r) wb_frame_free(sf2r);
+                free(sc->inputs);
+                free(sc);
+            }
+            wb_node_destroy(src);
+        }
+        /* #86: PPM roundtrip via wb_frame_write_ppm + manual re-read */
+        {
+            wb_frame *f = wb_frame_alloc(4, 4);
+            CHECK(f != NULL, "ppm: alloc");
+            if (f) {
+                for (int i = 0; i < 16; i++) {
+                    f->px[i].r = (i % 4) / 4.0f + 0.1f;
+                    f->px[i].g = 0.5f;
+                    f->px[i].b = 0.9f;
+                    f->px[i].a = 1.0f;
+                }
+                f->roi_x = 0; f->roi_y = 0; f->roi_w = 4; f->roi_h = 4;
+                const char *path = "/tmp/ppm_rt.ppm";
+                int wrc = wb_frame_write_ppm(f, path);
+                CHECK(wrc == 0, "ppm: write");
+                FILE *fp = fopen(path, "rb");
+                CHECK(fp != NULL, "ppm: reopen");
+                if (fp) {
+                    char magic[3] = {0};
+                    int w = 0, h = 0, maxv = 0;
+                    fscanf(fp, "%2s %d %d %d", magic, &w, &h, &maxv);
+                    CHECK(strcmp(magic, "P6") == 0 && w == 4 && h == 4,
+                          "ppm: roundtrip header");
+                    fclose(fp);
+                }
+                wb_frame_free(f);
+            }
+        }
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

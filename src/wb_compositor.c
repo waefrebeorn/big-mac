@@ -1647,10 +1647,14 @@ wb_node *wb_node_effect_dither(int levels) {
 typedef struct { int out_w, out_h; } scaler_t;
 
 static wb_frame *scaler_pull(wb_node *self, double t,
-                             int rx, int ry, int rw, int rh) {
-    (void)rx; (void)ry; (void)rw; (void)rh;
+                             int rx, int ry, int rw, int rh, int phase) {
+    (void)rx; (void)ry; (void)rw; (void)rh; (void)phase;
     if (!self->inputs || !self->inputs[0]) return NULL;
-    wb_frame *in = wb_node_pull(self->inputs[0], t, -1, -1, -1, -1);
+    /* G-SF048: resolve the input's format for a full-frame pull */
+    int iw = 0, ih = 0;
+    node_resolve_format(self->inputs[0], &iw, &ih);
+    if (iw <= 0 || ih <= 0) { iw = 64; ih = 64; }
+    wb_frame *in = wb_node_pull(self->inputs[0], t, 0, 0, iw, ih);
     if (!in) return NULL;
     int W = in->roi_w, H = in->roi_h;
     int OW = ((scaler_t*)self->user)->out_w;
@@ -1714,7 +1718,8 @@ typedef struct {
 } pres_t;
 
 static wb_frame *pres_pull(wb_node *self, double t,
-                           int rx, int ry, int rw, int rh) {
+                           int rx, int ry, int rw, int rh, int phase) {
+    (void)phase;
     (void)rx; (void)ry;
     if (!self->inputs || !self->inputs[0]) return NULL;
     wb_frame *in = wb_node_pull(self->inputs[0], t, -1,-1,-1,-1);
@@ -1787,7 +1792,8 @@ wb_node *wb_node_effect_chromatic(float offset_px) {
 typedef struct { float horizon; float scale; double scroll; } m7_t;
 
 static wb_frame *m7_pull(wb_node *self, double t,
-                         int rx, int ry, int rw, int rh) {
+                         int rx, int ry, int rw, int rh, int phase) {
+    (void)phase;
     (void)rx; (void)ry;
     if (!self->inputs || !self->inputs[0]) return NULL;
     wb_frame *in = wb_node_pull(self->inputs[0], t, -1,-1,-1,-1);

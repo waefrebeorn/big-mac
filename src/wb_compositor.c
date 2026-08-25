@@ -1416,6 +1416,45 @@ wb_node *wb_node_source_scene(float r0, float g0, float b0,
     return n;
 }
 
+
+/* ---- R074 hop 112: FRAME source (external RGBA buffer) ---------------- */
+typedef struct {
+    int w, h;
+    uint8_t *rgba;        /* w*h*4, caller-owned and updated */
+} src_frame_t;
+
+static wb_frame *src_frame_pull(wb_node *self, double t,
+                                int rx, int ry, int rw, int rh, int phase) {
+    (void)t; (void)phase; (void)rx; (void)ry; (void)rw; (void)rh;
+    src_frame_t *s = self->user;
+    if (!s || !s->rgba) return NULL;
+    wb_frame *f = wb_frame_alloc(s->w, s->h);
+    if (!f) return NULL;
+    for (int i = 0; i < s->w * s->h; i++) {
+        wb_px *q = &f->px[i];
+        q->r = s->rgba[i*4+0] / 255.0f;
+        q->g = s->rgba[i*4+1] / 255.0f;
+        q->b = s->rgba[i*4+2] / 255.0f;
+        q->a = s->rgba[i*4+3] / 255.0f;
+    }
+    f->roi_x = 0; f->roi_y = 0; f->roi_w = s->w; f->roi_h = s->h;
+    return f;
+}
+static void src_frame_free(wb_node *n) { free(n->user); }
+
+wb_node *wb_node_source_frame(int w, int h, uint8_t *rgba) {
+    wb_node *n = wb_node_create(WB_NODE_SOURCE, "src_frame");
+    if (!n) return NULL;
+    src_frame_t *s = calloc(1, sizeof(*s));
+    if (!s) { wb_node_destroy(n); return NULL; }
+    s->w = w; s->h = h; s->rgba = rgba;
+    n->user = s;
+    n->pull = src_frame_pull;
+    n->free = src_frame_free;
+    wb_node_set_format(n, w, h);
+    return n;
+}
+
 /* R073 hop 101: write a frame as a binary PPM (P6) image. */
 int wb_frame_write_ppm(const wb_frame *f, const char *path) {
     if (!f || !path || f->w <= 0 || f->h <= 0) return -1;

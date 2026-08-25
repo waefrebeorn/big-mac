@@ -17,6 +17,9 @@
 #include "wb_internal.h"
 #include "wbus/wbus_lufs.h"
 #include "wbus/wbus_compositor.h"
+#include "wbus/wbus_mesh.h"
+#include "wbus/wbus_anim.h"
+#include "wbus/wb_ui.h"
 #include "wbus/wbus_limiter.h"
 
 /* R074 hop 110: showcase renderer — full demo at 640x360. */
@@ -104,6 +107,182 @@ int wb_render_showcase(const char *mp4) {
     return rc == 0 ? 0 : 1;
 }
 
+#include <sys/stat.h>
+#include <errno.h>
+
+/* R074 hop 112: per-frame render loop (anim -> frame source -> ppm). */
+static int sf_render_loop(wb_anim *an, wb_node *comp, uint8_t *rgba,
+                          const char *mp4, double dur, int fps,
+                          int w, int h) {
+    char dir[256];
+    snprintf(dir, sizeof dir, "/tmp/sf_frames_%d", (int)getpid());
+    if (mkdir(dir, 0755) != 0 && errno != EEXIST) return -1;
+    int nframes = (int)(dur * fps);
+    for (int k = 0; k < nframes; k++) {
+        double tt = (double)k / fps;
+        memset(rgba, 0, (size_t)w * h * 4);   /* transparent for comp */
+        wb_anim_render_frame(an, tt, rgba);
+        /* R074: HUD drawn straight onto the CGI frame */
+        char hud[32];
+        snprintf(hud, sizeof hud, "SCORE %06d", 100 * k);
+        wb_ui_text_to_rgba(hud, 2, 1.0f,1.0f,1.0f,1.0f,
+                           (wb_px*)rgba, w, h, w-160, 12);
+        wb_ui_text_to_rgba("FOX", 2, 0.4f,0.8f,1.0f,1.0f,
+                           (wb_px*)rgba, w, h, 16, 12);
+        wb_frame *f = wb_node_pull(comp, tt, 0, 0, w, h);
+        if (!f) continue;
+        /* downscale-check not needed: comp RoD = max(bg,frame) = w,h */
+        char p[512];
+        snprintf(p, sizeof p, "%s/f_%05d.ppm", dir, k);
+        /* crop/verify: if f is bigger than w,h, take top-left ROI */
+        wb_frame tmp = *f;
+        if (f->w > w || f->h > h) {
+            tmp.w = w; tmp.h = h;
+            for (int y2 = 0; y2 < h; y2++)
+                memmove(f->px + y2*w, f->px + y2*f->w,
+                        (size_t)w * sizeof(wb_px));
+        }
+        wb_frame_write_ppm(&tmp, p);
+        wb_frame_free(f);
+    }
+    char cmd[1536];
+    snprintf(cmd, sizeof cmd,
+        "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
+        "-f image2 -framerate %d -i '%s/f_%%05d.ppm' "
+        "-c:v libx264 -pix_fmt yuv420p -movflags +faststart '%s'",
+        fps, dir, mp4);
+    int rc = system(cmd);
+    for (int k = 0; k < nframes; k++) {
+        char p[512];
+        snprintf(p, sizeof p, "%s/f_%05d.ppm", dir, k);
+        remove(p);
+    }
+    rmdir(dir);
+    return rc == 0 ? 0 : -1;
+}
+
+/* R074 hop 112: Star Fox-style corridor run (original assets). */
+#define SF_W 640
+#define SF_H 360
+int wb_render_starfox(const char *mp4) {
+    const double DUR = 10.0;
+    /* --- 3D animation: ship + rings + corridor ------------------- */
+    wb_anim *an = wb_anim_create(SF_W, SF_H);
+    if (!an) return 1;
+
+    /* ship parts (original Arwing-inspired design, SNES palette) */
+    wb_mesh *body  = wb_mesh_box(0.5f, 0.3f, 1.2f, 220,225,255);
+    wb_mesh *nose  = wb_mesh_cone(0.45f, 1.4f, 4, 240,244,255);
+    wb_mesh *wingL = wb_mesh_box(1.1f, 0.08f, 0.5f, 60,110,235);
+    wb_mesh *wingR = wb_mesh_box(1.1f, 0.08f, 0.5f, 60,110,235);
+
+    int o_body = wb_anim_add_object(an, body, 220,225,255);
+    wb_anim_key(an, o_body, 0.0, 0,0,0, 0,0,0, 1.0);
+    wb_anim_key(an, o_body, DUR, 0,0,-9.0, 0,0,0, 1.0);
+    /* gentle bob */
+    for (double bt = 0; bt <= DUR; bt += 0.25)
+        wb_anim_key_ease(an, o_body, bt,
+                         0, 0.15f*(float)sin(bt*2.2), -bt*0.9f,
+                         0,0,0, 1.0, 1);
+    /* nose on the front, rotated to point +Z (forward) */
+    int o_nose = wb_anim_add_object(an, nose, 240,244,255);
+    wb_anim_key(an, o_nose, 0.0, 0, 0.05f, -1.4f, -1.5707f,0,0, 1.0);
+    for (double bt = 0; bt <= DUR; bt += 0.25)
+        wb_anim_key_ease(an, o_nose, bt,
+                         0, 0.15f*(float)sin(bt*2.2), -bt*0.9f-1.4f,
+                         -1.5707f,0,0, 1.0, 1);
+    /* wings parented to body via same bob keys */
+    int o_wl = wb_anim_add_object(an, wingL, 60,110,235);
+    wb_anim_key(an, o_wl, 0.0, -1.2f, 0, 0.3f, 0,0,0.12f, 1.0);
+    for (double bt = 0; bt <= DUR; bt += 0.25)
+        wb_anim_key_ease(an, o_wl, bt,
+                         -1.2f, 0.12f*(float)sin(bt*2.2), -bt*0.9f+0.3f,
+                         0,0,0.12f, 1.0, 1);
+    int o_wr = wb_anim_add_object(an, wingR, 60,110,235);
+    wb_anim_key(an, o_wr, 0.0, 1.2f, 0, 0.3f, 0,0,-0.12f, 1.0);
+    for (double bt = 0; bt <= DUR; bt += 0.25)
+        wb_anim_key_ease(an, o_wr, bt,
+                         1.2f, 0.12f*(float)sin(bt*2.2), -bt*0.9f+0.3f,
+                         0,0,-0.12f, 1.0, 1);
+
+    /* enemy rings: 8 tori approaching from ahead, staggered lanes */
+    wb_mesh *ring[8];
+    char lane_x[8] = {-30,-18,20,32,-25,15,-12,28};
+    float lane_y[8] = {6,-4,8,-6,4,-8,10,2};
+    for (int e = 0; e < 8; e++) {
+        ring[e] = wb_mesh_torus(1.6f, 0.35f, 10, 6, 235,80,60);
+        int oe = wb_anim_add_object(an, ring[e], 235,80,60);
+        double t0 = 1.0 + e * 1.1;
+        /* approach from far ahead (-Z far) to behind camera */
+        wb_anim_key_ease(an, oe, t0,
+                         lane_x[e], lane_y[e], -120.0f,
+                         0,0,0, 1.5f, 0);
+        wb_anim_key_ease(an, oe, t0 + 1.6,
+                         (float)(lane_x[e] % 7), lane_y[e]*0.3f, 6.0f,
+                         0, (float)e*0.7f, 0, 0.6f, 0);
+    }
+
+    /* corridor floor strips scrolling toward camera (Mode-7 vibe):
+     * R074 fix — each strip gets keys every (DUR/5)s marching from far
+     * to near, so the floor is always populated */
+    wb_mesh *strip[10];
+    for (int st = 0; st < 10; st++) {
+        strip[st] = wb_mesh_box(26.0f, 0.15f, 2.2f, 90,150,235);
+        int os_ = wb_anim_add_object(an, strip[st], 60,110,200);
+        double period = DUR / 5.0;
+        double phase = st * (DUR / 10.0);
+        for (double ct = -phase; ct < DUR + 1.0; ct += period) {
+            double ta = ct < 0 ? 0 : ct;
+            double tb = ct + period;
+            if (ta > DUR) break;
+            if (tb > DUR) tb = DUR;
+            double z0 = -160.0 - (ct < 0 ? -ct : 0) * 60.0;
+            wb_anim_key_ease(an, os_, ta,
+                             0, -2.5f, (float)(-150.0),
+                             0,0,0, 1.0, 0);
+            wb_anim_key_ease(an, os_, tb,
+                             0, -2.5f, (float)(4.0),
+                             0,0,0, 1.0, 0);
+            (void)z0;
+        }
+    }
+
+    /* starfield: tiny white boxes scattered around the corridor */
+    for (int stx = 0; stx < 16; stx++) {
+        float sx = (float)((stx * 97) % 160) - 80.0f;
+        float sy = (float)((stx * 53) % 60) - 10.0f;
+        float sz = -20.0f - (float)((stx * 71) % 130);
+        wb_mesh *star = wb_mesh_box(0.15f, 0.15f, 0.15f, 255,255,255);
+        int ost = wb_anim_add_object(an, star, 255,255,255);
+        wb_anim_key(an, ost, 0.0, sx, sy, sz, 0,0,0, 1.0);
+        wb_anim_key(an, ost, DUR, sx, sy, sz + 8.0f, 0,0,0, 1.0);
+    }
+
+    /* camera chase: slight rise + shake-free dolly */
+    wb_anim_set_camera(an, 0.28f, 0.0f, 26.0f);
+    for (double ct = 0; ct <= DUR; ct += 1.0)
+        wb_anim_key_camera(an, ct, 0.28f,
+                           6.0f*(float)sin(ct*0.7),
+                           26.0f + 1.2f*(float)sin(ct*1.3));
+
+    printf("sf: %d objects, %d tris total\n",
+           wb_anim_object_count(an), 0);
+
+    /* --- compositor: space bg + anim frame + HUD ------------------ */
+    uint8_t *rgba = malloc((size_t)SF_W * SF_H * 4);
+    if (!rgba) return 1;
+    wb_node *bg = wb_node_source_scene(0.01f,0.01f,0.05f,
+                                       0.05f,0.03f,0.15f,
+                                       1, 0.05f, SF_W, SF_H);
+    wb_node *sfframe = wb_node_source_frame(SF_W, SF_H, rgba);
+    wb_node *comp = wb_node_composite();
+    if (!bg || !sfframe || !comp) return 1;
+    wb_composite_add(comp, bg);      /* bottom: space */
+    wb_composite_add(comp, sfframe); /* middle: CGI */
+
+    return sf_render_loop(an, comp, rgba, mp4, DUR, 15, SF_W, SF_H);
+}
+
 int main(int argc, char **argv) {
     fprintf(stderr, "Big Mac renderer %s\n", WB_VERSION);
     const char *outpath = argc > 1 ? argv[1] : "render.wav";
@@ -111,6 +290,17 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++)
         if (strcmp(argv[i], "--lufs") == 0 && i + 1 < argc)
             lufs_target = atof(argv[++i]);
+    /* R074 hop 112: --starfox — corridor run demo */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--starfox") == 0) {
+            const char *mp4 = (i+1 < argc) ? argv[i+1]
+                            : "/tmp/starfox.mp4";
+            int rc3 = wb_render_starfox(mp4);
+            printf("Star Fox render rc=%d\n", rc3);
+            return rc3;
+        }
+    }
+
     /* R074 hop 110: --showcase — full demo render at 640x360 */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--showcase") == 0) {

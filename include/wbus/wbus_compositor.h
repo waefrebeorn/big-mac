@@ -171,6 +171,10 @@ wb_node *wb_node_source_scene(float r0, float g0, float b0,
                               int mode, float band_speed,
                               int w, int h);
 
+/* R074 hop 112: frame source — serve an external RGBA buffer (caller
+ * updates the buffer between pulls; the node does not copy on create). */
+wb_node *wb_node_source_frame(int w, int h, uint8_t *rgba);
+
 /* R073 hop 44: title/text generator node (built-in 5x7 font). */
 wb_node *wb_node_source_text(const char *text, int scale,
                              float r, float g, float b, float a,

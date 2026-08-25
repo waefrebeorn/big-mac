@@ -2123,6 +2123,57 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 106: showcase demo — three scenes, two transitions,
+     * soundtrack muxed; one MP4 out. */
+    {
+        wb_node *s1 = wb_node_source_color(0.9f,0.2f,0.1f,1,64,64);
+        wb_node *s2 = wb_node_source_color(0.1f,0.8f,0.3f,1,64,64);
+        wb_node *s3 = wb_node_source_color(0.2f,0.3f,0.9f,1,64,64);
+        /* T1: gradient wipe s1->s2 over 2..3s window (dur 1) */
+        wb_node *t1 = wb_transition_preset(1, 1.0);
+        /* T2: crossfade (T1 result -> s3) */
+        wb_node *t2 = wb_transition_preset(0, 1.0);
+        CHECK(t1 && t2, "demo: presets built");
+        if (t1 && t2) {
+            wb_transition_add(t1, s1);
+            wb_transition_add(t1, s2);
+            wb_transition_add(t2, t1);   /* nested: transition as input */
+            wb_transition_add(t2, s3);
+            /* soundtrack: two tones */
+            uint32_t nf = WB_SAMPLE_RATE * 2;
+            wb_sample *buf = malloc(nf*2*sizeof(wb_sample));
+            if (buf) {
+                for (uint32_t i = 0; i < nf; i++) {
+                    double tt = (double)i / WB_SAMPLE_RATE;
+                    float v = sinf(2*M_PI*(tt<1?330:440)*tt)*0.35f;
+                    buf[i*2]=(wb_sample)v; buf[i*2+1]=(wb_sample)v;
+                }
+                wb_wav_write_pcm16("/tmp/demo106.wav", buf, nf, 2,
+                                   WB_SAMPLE_RATE);
+                free(buf);
+            }
+            remove("/tmp/bigmac_demo106.mp4");
+            int rc = wb_compositor_export_mp4_audio(t2,
+                    "/tmp/bigmac_demo106.mp4", "/tmp/demo106.wav",
+                    3.0, 10, 64, 64);
+            CHECK(rc == 0, "demo: exported");
+            FILE *fp = fopen("/tmp/bigmac_demo106.mp4","rb");
+            CHECK(fp != NULL, "demo: file exists");
+            if (fp) {
+                fseek(fp,0,SEEK_END);
+                printf("         demo: %ld bytes\n", ftell(fp));
+                fclose(fp);
+            }
+            wb_node_destroy(t2);
+        }
+        if (t1) wb_node_destroy(t1);
+        if (s1) wb_node_destroy(s1);
+        if (s2) wb_node_destroy(s2);
+        if (s3) wb_node_destroy(s3);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

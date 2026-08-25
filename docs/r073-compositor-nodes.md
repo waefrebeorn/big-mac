@@ -47,6 +47,8 @@ param bus (`wb_node_add_param`). Gate: `build/wb_test_compositor`.
   places crossfades at every cut with midpoints riding the BPM grid
 - Onset-aligned transitions: `wb_session_batch_transitions_onset`
   biases cut windows toward transients of a reference audio clip
+- Style presets: `wb_transition_preset(p, dur)` — 0=MusicVideo,
+  1=News, 2=Cinematic (min 1.5s dip), 3=VJ (zoom-blur)
 - R073 hop 83: the third (map) input is optional for ALL transition ops —
   its Rec.709 luma modulates per-pixel progress (luma-masked crossfade,
   wipe, iris, slide, push, noise dissolve); op 7 keeps hard threshold. |

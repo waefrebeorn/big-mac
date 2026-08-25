@@ -29,7 +29,7 @@
 24. white balance temp multiplies after grade ops (WB should be first)  **[FIXED]**
 25. HSL hue_shift parsed but unimplemented ((void)hsh) — parameter is dead  **[FIXED]**
 26. HSL selection softness linear, no smoothstep (banding at edges)  **[FIXED]**
-27. curves op maps v>hig into 0.75..1 band but clamps u2>=0 — highlights above wht fold back instead of clipping
+27. curves op maps v>hig into 0.75..1 band but clamps u2>=0 — highlights above wht fold back instead of clipping  **[FIXED]**
 28. chroma spill suppression runs even when pixel was fully keyed (a==0 pixels get spill math)  **[FIXED]**
 29. luma key uses Rec.709 weights on sRGB values (should be linear-light luma)  **[FIXED]**
 30. key_tol default falls back to `gain` param — semantic collision with exposure gain  **[FIXED]**
@@ -38,7 +38,7 @@
 33. text glyph write replaces RGBA instead of source-over blending with existing frame content  **[FIXED]**
 34. noise dissolve hash uses px_i*const ^ py_i*const — visible axis-aligned correlation pattern  **[FIXED]**
 35. split-flap jitter reuses same hash constants — correlated with checkerboard pattern  **[FIXED]**
-36. vignette fall*fall applied multiplicatively to RGB pre-gamma (should be post)
+36. vignette fall*fall applied multiplicatively to RGB pre-gamma (should be post)  **[FIXED]**
 
 ## C. Performance / structure
 37. blur executes entire 2-pass box PER PIXEL — O(n^2); must hoist to per-frame passes  **[FIXED]**
@@ -53,7 +53,7 @@
 46. two-phase pull_request implemented but most nodes ignore phase 0 semantics
 47. wb_frame lacks refcount — every stage copies or re-walks buffers
 48. no tile-based rendering despite wb_compositor_tile_size() existing (dead API)
-49. GPU backend flag exists but nothing checks it (dead enum)
+49. GPU backend flag exists but nothing checks it (dead enum)  **[FIXED]**
 
 ## D. Correctness / logic
 50. D78 debug fprintf(stderr) left inside hot HSL pixel loop (spams + slows)  **[FIXED]**
@@ -66,30 +66,30 @@
 57. checkerboard cell size fixed 16px — not proportional to resolution  **[FIXED]**
 58. venetian strips fixed 16px — same issue  **[FIXED]**
 59. clock wipe hand anchored at frame center only  **[FIXED]**
-60. barn-door dir field reused for axis AND direction semantics unclearly (overload)
+60. barn-door dir field reused for axis AND direction semantics unclearly (overload)  **[FIXED]**
 61. zoom-blur tap count hardcoded 5; spin-blur too — no quality param  **[FIXED]**
 62. directional-blur wipe only works horizontally (hardcoded x taps)  **[FIXED]**
 63. ripple echo ring offset hardcoded 0.15*maxd  **[FIXED]**
 64. map dissolve threshold uses strict > (no soft knee) unlike documented feather  **[FIXED]**
-65. crossfade blends alpha linearly — premultiplied vs straight alpha ambiguity unresolved
-66. composite alpha-over formula assumes straight alpha; sources are premultiplied-ish (inconsistent)
+65. crossfade blends alpha linearly — premultiplied vs straight alpha ambiguity unresolved  **[FIXED]**
+66. composite alpha-over formula assumes straight alpha; sources are premultiplied-ish (inconsistent)  **[FIXED]**
 67. text anim modes 3/4 use d->anim_dur but mode 1 typewriter divides by same dur (ok) yet mode 2 slide uses w/2 fixed  **[FIXED]**
 68. text cx param overrides x but y has no cy equivalent (asymmetric API)  **[FIXED]**
-69. wb_frame_set_gpu flag set but GPU path never frees differently (leak pattern ready)
+69. wb_frame_set_gpu flag set but GPU path never frees differently (leak pattern ready)  **[FIXED]**
 70. roi_clip negative rx adjustment can produce rw<0 before final check (works but fragile)  **[FIXED]**
 
 ## E. API / plumbing
-71. wb_transition_preset returns node with params bound to internal tracks — caller can't retime them
+71. wb_transition_preset returns node with params bound to internal tracks — caller can't retime them  **[FIXED]**
 72. preset 2 silently overrides requested duration (<1.5 forced) — surprising behavior  **[FIXED]**
 73. no wb_node_set_start_time — all timing baked at t=0 origin  **[FIXED]**
 74. wb_compositor_export_mp4 uses system() — no error capture, shell injection via path possible  **[FIXED]**
-75. mp4 export fps/dur ints only; no audio-video sync guarantee beyond -shortest
-76. PPM sequence filenames %05d overflow after 99999 frames (silent overwrite)
+75. mp4 export fps/dur ints only; no audio-video sync guarantee beyond -shortest  **[FIXED]**
+76. PPM sequence filenames %05d overflow after 99999 frames (silent overwrite)  **[FIXED]** (pipe arch: no file sequences)
 77. export_mp4 mkdir race between concurrent exports (pid-suffixed but rmdir non-empty fails silently)  **[FIXED]**
 78. no way to query a node's output dimensions before pulling (needed for plumbing)  **[FIXED]**
 79. wb_node_add_param returns slot idx but -1 on dup? duplicates silently replace (undocumented)  **[FIXED]**
-80. param tracks owned by caller but node keeps raw pointers — dangling if caller frees early
-81. transition dir field overloaded (wipe direction vs barn-door axis)
+80. param tracks owned by caller but node keeps raw pointers — dangling if caller frees early  **[FIXED]**
+81. transition dir field overloaded (wipe direction vs barn-door axis)  **[FIXED]**
 82. no refcounting on wb_frame across cache/composite (documented ownership maze)
 83. selftest still probes stderr D78 line (test depends on debug spam)  **[FIXED]**
 84. test suite never tests ROI < frame anywhere (ROI paths untested)  **[FIXED]**
@@ -107,7 +107,7 @@
 94. scene colors are flat fields — no gradients/patterns to show grading  **[FIXED]**
 95. no fade-from-black at demo start / fade-to-black at end  **[FIXED]**
 96. transitions all centered — no movement to show directional features  **[FIXED]**
-97. GIF palette generated at fps=6 without dithering flags (banding)
+97. GIF palette generated at fps=6 without dithering flags (banding)  **[FIXED]** (GIF path removed; pipe-only)
 98. showcase.mp4 has no faststart flag (moov at end — stalls web playback)  **[FIXED]**
 99. no poster/thumbnail extraction alongside exports  **[FIXED]**
 100. demo graph built ad-hoc in test file — no reusable builder API for apps  **[FIXED]**

@@ -50,6 +50,9 @@ int wb_delivery_measure_loudness(const char *wav_path,
 
 /* Normalize a WAV in place (pass 2) to target LUFS with linear mode. */
 int wb_delivery_normalize_wav(const char *wav_path, double target_lufs);
+/* #89: two-pass loudnorm for MP4 (video stream copied). */
+int wb_delivery_normalize_mp4(const char *mp4, const char *out_path,
+                              double target_lufs);
 
 /* G41 (Wave2): stems export — render every non-bus track to its own WAV
  * (zero-based start, full session length) into dir/trackNN_name.wav.

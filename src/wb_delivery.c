@@ -182,3 +182,40 @@ int wb_delivery_chapters(const wb_session *s, char *buf, size_t cap) {
     }
     return written;
 }
+
+/* R074 hop 139 (#89): two-pass loudnorm for an MP4 (audio only).
+ * Returns 0 on success; out_path receives the normalized file. */
+int wb_delivery_normalize_mp4(const char *mp4, const char *out_path,
+                              double target_lufs) {
+    if (!mp4 || !out_path) return -1;
+    /* pass 1: measure */
+    char cmd[1024];
+    snprintf(cmd, sizeof cmd,
+        "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel info -i '%s' "
+        "-af loudnorm=I=%.1f:TP=-1.5:LRA=11.0:print_format=json "
+        "-f null /dev/null 2>&1", mp4, target_lufs);
+    FILE *pp = popen(cmd, "r");
+    if (!pp) return -1;
+    char buf[16384]; size_t n = 0;
+    int c;
+    while ((c = fgetc(pp)) != EOF && n < sizeof buf - 1) buf[n++] = (char)c;
+    buf[n] = 0;
+    pclose(pp);
+    const char *js = strstr(buf, "{");
+    double ii = target_lufs, tp = -1.5, lra = 11.0, th = -0.5;
+    if (js) {
+        char *v;
+        if ((v = strstr(js, "\"input_i\"")))      ii  = atof(v + 11);
+        if ((v = strstr(js, "\"input_tp\"")))     tp  = atof(v + 12);
+        if ((v = strstr(js, "\"input_lra\"")))    lra = atof(v + 12);
+        if ((v = strstr(js, "\"input_thresh\""))) th  = atof(v + 14);
+    }
+    /* pass 2: linear normalize with measured values */
+    snprintf(cmd, sizeof cmd,
+        "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error -i '%s' "
+        "-af loudnorm=linear=true:I=%.1f:TP=-1.5:LRA=11.0:"
+        "measured_I=%.2f:measured_TP=%.2f:measured_LRA=%.2f:"
+        "measured_thresh=%.2f -c:v copy '%s'",
+        mp4, target_lufs, ii, tp, lra, th, out_path);
+    return system(cmd) == 0 ? 0 : -1;
+}

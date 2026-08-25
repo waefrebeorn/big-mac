@@ -16,6 +16,7 @@
 #include "wbus.h"
 #include "wb_internal.h"
 #include "wbus/wbus_lufs.h"
+#include "wbus/wbus_delivery.h"
 #include "wbus/wbus_compositor.h"
 #include "wbus/wbus_mesh.h"
 #include "wbus/wbus_anim.h"
@@ -522,6 +523,20 @@ int main(int argc, char **argv) {
             const char *mp4 = (i+1 < argc) ? argv[i+1]
                             : "/tmp/starfox.mp4";
             int rc3 = wb_render_starfox(mp4);
+            /* R074 hop 139 (#89): honor --lufs in video mode via the
+             * wb_delivery two-pass loudnorm. */
+            if (rc3 == 0 && lufs_target != 0.0) {
+                char tmpout[512];
+                snprintf(tmpout, sizeof tmpout, "%s.ln.mp4", mp4);
+                if (wb_delivery_normalize_mp4(mp4, tmpout,
+                                              lufs_target) == 0) {
+                    rename(tmpout, mp4);
+                    printf("loudnorm applied: %.1f LUFS\n", lufs_target);
+                } else {
+                    fprintf(stderr, "loudnorm failed; leaving as-is\n");
+                    remove(tmpout);
+                }
+            }
             printf("Star Fox render rc=%d\n", rc3);
             return rc3;
         }

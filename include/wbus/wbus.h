@@ -566,6 +566,11 @@ int  wb_session_batch_transitions(wb_session *s, int track,
  * session BPM grid (cut-on-beat). Returns cuts placed or -1. */
 int  wb_session_batch_transitions_beat(wb_session *s, int track,
                                   struct wb_clip_edit_table *et, double xf);
+/* R073 hop 95: batch transitions biased toward detected audio onsets of
+ * a reference clip (atrack/aclip). Returns cuts placed or -1. */
+int  wb_session_batch_transitions_onset(wb_session *s, int vtrack,
+                                  struct wb_clip_edit_table *et, double xf,
+                                  int atrack, int aclip);
 /* G47: export the video arrangement as OpenTimelineIO (JSON). */
 int  wb_session_export_otio(const wb_session *s, const char *path);
 /* G27: transient detection — spectral-flux onsets over an audio clip.

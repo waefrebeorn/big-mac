@@ -4805,6 +4805,63 @@ static void test_scale_chord_step(void) {
     }
 
 
+
+
+    /* R073 hop 95: onset-aligned batch transitions */
+    {
+        wb_session *os_ = wb_session_create();
+        CHECK(os_ != NULL, "onb: session");
+        if (os_) {
+            wb_session_add_track(os_, "a", 1);   /* audio track */
+            wb_track *atr = &os_->tracks[0];
+            uint32_t nf = 4 * WB_SAMPLE_RATE;
+            atr->clips = calloc(1, sizeof(wb_clip));
+            atr->clip_count = 1;
+            wb_clip *cl = &atr->clips[0];
+            memset(cl, 0, sizeof(*cl));
+            cl->type = 1; cl->start = 0; cl->length = (double)nf;
+            cl->audio_channels = 1; cl->audio_frames = nf;
+            cl->audio_data = calloc(nf, sizeof(wb_sample));
+            double hit[1] = { 1.0 };
+            for (int h = 0; h < 1; h++) {
+                uint32_t s0 = (uint32_t)(hit[h] * WB_SAMPLE_RATE);
+                for (uint32_t i = 0; i < 4000 && s0 + i < nf; i++) {
+                    float env = expf(-(float)i / 600.0f);
+                    cl->audio_data[s0 + i] =
+                        (wb_sample)(env * sinf(2*M_PI*200.0f*i/WB_SAMPLE_RATE));
+                }
+            }
+            /* video track with a cut at 1.1s */
+            int vti = wb_session_add_video_track(os_, "v");
+            CHECK(vti == 1, "onb: video track is index 1");
+            if (vti == 1) {
+                wb_track *vtr = &os_->tracks[vti];
+                vtr->clips = calloc(2, sizeof(wb_clip));
+                vtr->clip_count = 2;
+                memset(&vtr->clips[0], 0, sizeof(wb_clip));
+                memset(&vtr->clips[1], 0, sizeof(wb_clip));
+                vtr->clips[0].start = 0.0;
+                vtr->clips[0].length = 1.1;
+                vtr->clips[1].start = 1.1;
+                vtr->clips[1].length = 2.0;
+                wb_clip_edit_table *et2 = wb_clip_edit_create();
+                int n = wb_session_batch_transitions_onset(os_, 1, et2,
+                                                           0.4, 0, 0);
+                CHECK(n == 1, "onb: one cut placed");
+                wb_clip_edit *ea = wb_clip_edit_get(et2, 1, 0);
+                /* half=0.2, onset 1.0 vs boundary 1.1 -> best_dt=-0.1
+                 * -> A's tail reaches back to onset-half: fo=0.1 */
+                CHECK(ea && ea->fade_out > 0.05f && ea->fade_out < 0.15f,
+                      "onb: fade shifted toward the onset");
+                printf("         onb: fade_out=%.3f\n",
+                       ea ? ea->fade_out : -1.0f);
+                wb_clip_edit_destroy(et2);
+            }
+            wb_session_destroy(os_);
+        }
+    }
+
+
 printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);

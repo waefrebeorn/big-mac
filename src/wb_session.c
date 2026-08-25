@@ -1838,6 +1838,53 @@ int wb_session_batch_transitions_beat(wb_session *s, int track,
     return cuts;
 }
 
+/* R073 hop 95: batch transitions aligned to detected audio onsets — for
+ * each cut boundary on the video track, find the nearest transient in
+ * the reference audio clip and bias the fade window toward it so the
+ * picture change lands on the sound. Returns cuts placed or -1. */
+int wb_session_batch_transitions_onset(wb_session *s, int vtrack,
+                                 struct wb_clip_edit_table *et, double xf,
+                                 int atrack, int aclip) {
+    if (!s || !et || vtrack < 0 || vtrack >= (int)s->track_count)
+        return -1;
+    if (xf <= 0) return -1;
+    if (atrack < 0 || atrack >= (int)s->track_count) return -1;
+    /* gather transients once (frame positions -> seconds via rate) */
+    uint32_t ons[256];
+    double rate = (double)WB_SAMPLE_RATE;
+    int non = wb_session_detect_transients(s, atrack, aclip,
+                                           0.5f, ons, 256);
+    wb_track *tr = &s->tracks[vtrack];
+    int cuts = 0;
+    double half = xf * 0.5;
+    for (uint32_t i = 0; i + 1 < tr->clip_count; i++) {
+        wb_clip *a = &tr->clips[i], *b = &tr->clips[i+1];
+        wb_clip_edit *ea = wb_clip_edit_get(et, vtrack, (int)i);
+        wb_clip_edit *eb = wb_clip_edit_get(et, vtrack, (int)i+1);
+        if (!ea || !eb) continue;
+        double boundary = a->start + a->length;
+        /* nearest onset to this boundary (clip-local frames -> timeline) */
+        double best_dt = 1e30;
+        for (int k = 0; k < non; k++) {
+            double ot = (double)ons[k] / rate
+                      + (a->start - 0.0);   /* clip placed at its start */
+            double dt = ot - boundary;
+            if (dt * dt < best_dt * best_dt) best_dt = dt;
+        }
+        if (best_dt > 1e29) best_dt = 0.0;   /* no onsets: symmetric */
+        /* shift the transition window so its midpoint rides the onset:
+         * A's tail must reach back to onset-half, B's head to onset+half */
+        double fo = best_dt + half;   /* boundary..(onset-half) span */
+        double fi = -best_dt + half;  /* boundary..(onset+half) span */
+        if (fo < 0) fo = 0; if (fo > xf * 2.0) fo = xf * 2.0;
+        if (fi < 0) fi = 0; if (fi > xf * 2.0) fi = xf * 2.0;
+        ea->fade_out = (float)fo;
+        eb->fade_in  = (float)fi;
+        cuts++;
+    }
+    return cuts;
+}
+
 /* ---- G47: OTIO export ----------------------------------------------------- */
 /* Export the video arrangement as an OpenTimelineIO (JSON) timeline: one
  * Track containing a Clip per video clip, with source_range (source in-point

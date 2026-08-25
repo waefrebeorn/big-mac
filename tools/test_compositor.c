@@ -1594,6 +1594,32 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 86: barn-door wipe (op 9) */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *tr = wb_node_transition(9, 2.0);
+        wb_transition_dir(tr, 0);   /* horizontal strip */
+        wb_transition_add(tr, ga);
+        wb_transition_add(tr, gb);
+        wb_frame *f = wb_node_pull(tr, 1.0, 0, 0, 64, 64);
+        CHECK(f != NULL, "barn: pulled");
+        if (f) {
+            wb_px ctr = f->px[32*64+32];    /* center -> B */
+            wb_px edge = f->px[32*64+2];    /* left edge -> A */
+            CHECK(ctr.b > 0.9f, "barn: center strip reveals B");
+            CHECK(edge.r > 0.9f, "barn: edges keep A at half");
+            printf("         barn: ctr b=%.2f | edge r=%.2f\n",
+                   ctr.b, edge.r);
+            wb_frame_free(f);
+        }
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

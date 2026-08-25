@@ -780,6 +780,38 @@ wb_node *wb_node_transform(void) {
 }
 
 /* ---- COMPOSITE (alpha over, bottom..top) ----------------------------- */
+
+
+/* attach an input to a composite (caller keeps ownership of child) */
+static void comp_add(wb_node *comp, wb_node *child) {
+    comp->inputs = realloc(comp->inputs, (comp->n_inputs+1)*sizeof(wb_node*));
+    comp->inputs[comp->n_inputs++] = child;
+}
+
+/* ---- R074 hop 119 (G-SF049): per-layer transform ---------------------- */
+typedef struct { float ox, oy, scale; } comp_layer_t;
+#define COMP_MAX_LAYERS 16
+static comp_layer_t g_layers[COMP_MAX_LAYERS];
+static wb_node     *g_layer_node[COMP_MAX_LAYERS];
+static int          g_nlayers = 0;
+
+void wb_composite_set_layer(wb_node *comp, int layer,
+                            float ox, float oy, float scale) {
+    (void)comp;
+    if (layer < 0 || layer >= COMP_MAX_LAYERS) return;
+    g_layers[layer].ox = ox; g_layers[layer].oy = oy;
+    g_layers[layer].scale = scale > 0 ? scale : 1.0f;
+    g_layer_node[layer] = comp;
+}
+static comp_layer_t *layer_of(wb_node *comp, int idx) {
+    for (int i = 0; i < COMP_MAX_LAYERS; i++)
+        if (g_layer_node[i] == comp && g_layers[i].scale != 1.0f
+            && idx >= 0)
+            return &g_layers[i];
+    return NULL;
+}
+
+
 static wb_frame *comp_pull(wb_node *self, double t,
                            int rx, int ry, int rw, int rh, int phase) {
     if (self->n_inputs < 1) return NULL;
@@ -804,6 +836,25 @@ static wb_frame *comp_pull(wb_node *self, double t,
     for (int i = 0; i < self->n_inputs; i++) {
         wb_frame *f = wb_node_pull(self->inputs[i], t, rx, ry, rw, rh);
         if (!f) continue;
+        /* G-SF049: layer transform — offset/scale layers above the base.
+         * Base layer (i==0) always fills the frame untouched. */
+        comp_layer_t *L = (i > 0) ? layer_of(self, i) : NULL;
+        if (L && f->w > 1 && f->h > 1) {
+            int nw = (int)(f->w * L->scale);
+            int nh = (int)(f->h * L->scale);
+            int ox = (int)L->ox + ((cw - nw) >> 1);
+            int oy = (int)L->oy + ((chh - nh) >> 1);
+            for (int y = ry; y < ry + rh && y < chh; y++) {
+                int fy = (y - oy) * f->h / nh;
+                if (fy < 0 || fy >= f->h) continue;
+                for (int x = rx; x < rx + rw && x < cw; x++) {
+                    int fx = (x - ox) * f->w / nw;
+                    if (fx < 0 || fx >= f->w) continue;
+                    out->px[y*cw + x] = f->px[fy*f->w + fx];
+                }
+            }
+            continue;
+        }
         for (int y = ry; y < ry + rh && y < chh; y++)
             for (int x = rx; x < rx + rw && x < cw; x++) {
                 wb_px s = f->px[y*f->w + x];
@@ -827,11 +878,6 @@ wb_node *wb_node_composite(void) {
     return n;
 }
 /* attach an input to a composite (caller keeps ownership of child) */
-static void comp_add(wb_node *comp, wb_node *child) {
-    comp->inputs = realloc(comp->inputs, (comp->n_inputs+1)*sizeof(wb_node*));
-    comp->inputs[comp->n_inputs++] = child;
-}
-
 /* ---- CACHE (auto edge memoization, bounded LRU) ---------------------- */
 typedef struct {
     wb_node *child;
@@ -1615,6 +1661,84 @@ wb_node *wb_node_effect_scaler(int out_w, int out_h) {
     n->inputs = calloc(1, sizeof(wb_node *));
     wb_node_set_format(n, out_w > 0 ? out_w : 64, out_h > 0 ? out_h : 64);
     return n;
+}
+
+
+/* ---- R074 hop 119 (G-SF051/052/053): presentation effect nodes -------- */
+/* Shared single-input effect pull wrapper */
+typedef struct {
+    int   kind;        /* 0=letterbox 1=scanline 2=chromatic */
+    float amount;      /* letterbox bar fraction / scanline strength /
+                          chromatic offset px */
+} pres_t;
+
+static wb_frame *pres_pull(wb_node *self, double t,
+                           int rx, int ry, int rw, int rh) {
+    (void)rx; (void)ry;
+    if (!self->inputs || !self->inputs[0]) return NULL;
+    wb_frame *in = wb_node_pull(self->inputs[0], t, -1,-1,-1,-1);
+    if (!in) return NULL;
+    pres_t *d = self->user;
+    int W = in->w, H = in->h;
+    if (d->kind == 0) {                       /* LETTERBOX */
+        int bar = (int)(H * d->amount);
+        for (int y = 0; y < H; y++) {
+            if (y < bar || y >= H - bar)
+                memset(&in->px[y*W], 0, (size_t)W*sizeof(wb_px));
+        }
+        return in;
+    }
+    if (d->kind == 1) {                       /* SCANLINE / CRT */
+        for (int y = 0; y < H; y++) {
+            if (y % 2) continue;
+            for (int x = 0; x < W; x++) {
+                wb_px *p = &in->px[y*W + x];
+                float k = 1.0f - d->amount;
+                p->r*=k; p->g*=k; p->b*=k;
+            }
+        }
+        return in;
+    }
+    /* CHROMATIC ABERRATION: shift R left, B right by amount px */
+    int off = (int)(d->amount + 0.5f);
+    if (off <= 0) return in;
+    wb_frame *out = wb_frame_alloc(W, H);
+    if (!out) return in;
+    for (int y = 0; y < H; y++) {
+        for (int x = 0; x < W; x++) {
+            wb_px *q = &out->px[y*W + x];
+            int xr = x - off < 0 ? 0 : x - off;
+            int xb = x + off >= W ? W-1 : x + off;
+            q->r = in->px[y*W + xr].r;
+            q->g = in->px[y*W + x].g;
+            q->b = in->px[y*W + xb].b;
+            q->a = in->px[y*W + x].a;
+        }
+    }
+    out->roi_x = out->roi_y = 0; out->roi_w = W; out->roi_h = H;
+    return out;
+}
+static void pres_free(wb_node *n) { free(n->user); }
+
+static wb_node *pres_create(int kind, float amount) {
+    wb_node *n = wb_node_create(WB_NODE_EFFECT, "pres");
+    if (!n) return NULL;
+    pres_t *d = calloc(1, sizeof(*d));
+    if (!d) { wb_node_destroy(n); return NULL; }
+    d->kind = kind; d->amount = amount;
+    n->user = d; n->pull = pres_pull; n->free = pres_free;
+    n->n_inputs = 1;
+    n->inputs = calloc(1, sizeof(wb_node *));
+    return n;
+}
+wb_node *wb_node_effect_letterbox(float bar_fraction) {
+    return pres_create(0, bar_fraction);
+}
+wb_node *wb_node_effect_scanline(float strength) {
+    return pres_create(1, strength);
+}
+wb_node *wb_node_effect_chromatic(float offset_px) {
+    return pres_create(2, offset_px);
 }
 
 /* R073 hop 101: write a frame as a binary PPM (P6) image. */

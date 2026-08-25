@@ -227,7 +227,9 @@ int main(void) {
         /* CPU path stays authoritative: pixel values unchanged by backend */
         CHECK(fabsf(gf->px[3*gf->w+3].r - 0.5f) < 1e-5f, "CPU output correct under GPU flag");
         wb_frame_set_gpu(gf, 1);
-        CHECK(wb_frame_get_gpu(gf) == 1, "frame marked GPU-eligible for interop");
+        /* R074 hop 142 (#49/#69): CPU-authoritative build refuses the
+         * GPU marker instead of keeping a dead flag. */
+        CHECK(wb_frame_get_gpu(gf) == 0, "GPU flag refused on CPU build");
         wb_frame_free(gf);
     }
     wb_compositor_set_backend(WB_RENDER_CPU);   /* reset to authoritative */

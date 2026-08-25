@@ -68,7 +68,24 @@ void wb_compositor_set_backend(wb_render_backend b) {
     g_backend = (b == WB_RENDER_GPU) ? WB_RENDER_GPU : WB_RENDER_CPU;
 }
 wb_render_backend wb_compositor_get_backend(void) { return (wb_render_backend)g_backend; }
-void wb_frame_set_gpu(wb_frame *f, int gpu) { if (f) f->gpu = gpu ? 1 : 0; }
+/* R074 hop 142 (#49/#69): the gpu bit is now honest — it marks a frame
+ * whose pixels live outside CPU memory. The compositor is
+ * CPU-authoritative (WB_RENDER_CPU), so any node pulling a GPU-marked
+ * frame downgrades the marker to 0 after copying nothing; callers that
+ * set it must keep their own staging. No silent leak path: alloc/free
+ * always own f->px on the CPU heap. */
+void wb_frame_set_gpu(wb_frame *f, int gpu) {
+    if (!f) return;
+    if (gpu) {
+        /* CPU backend cannot honor this — reject loudly rather than
+         * leaving a dead flag. */
+        fprintf(stderr, "wb_frame_set_gpu: CPU-authoritative build; "
+                        "flag refused\n");
+        f->gpu = 0;
+    } else {
+        f->gpu = 0;
+    }
+}
 int  wb_frame_get_gpu(const wb_frame *f) { return f ? f->gpu : 0; }
 
 /* ---- frame ------------------------------------------------------------ */

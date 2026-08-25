@@ -4766,6 +4766,45 @@ static void test_scale_chord_step(void) {
     }
 
 
+
+
+    /* R073 hop 93: beat-snapped batch transitions */
+    {
+        wb_session *bs = wb_session_create();
+        CHECK(bs != NULL, "btb: session");
+        if (bs) {
+            bs->bpm = 120.0;   /* beats every 0.5s */
+            wb_track *btr = wb_session_add_track(bs, "bt", 0);
+            CHECK(btr != NULL, "btb: track created");
+            if (btr) {
+                btr->clips = calloc(2, sizeof(wb_clip));
+                btr->clip_count = 2;
+                for (int i = 0; i < 2; i++) {
+                    memset(&btr->clips[i], 0, sizeof(wb_clip));
+                    btr->clips[i].type = 0;
+                }
+                /* boundary at 1.9s — off the 0.5s grid */
+                btr->clips[0].start = 0.0;
+                btr->clips[0].length = 1.9;
+                btr->clips[1].start = 1.9;
+                btr->clips[1].length = 2.0;
+                wb_clip_edit_table *bet = wb_clip_edit_create();
+                int n = wb_session_batch_transitions_beat(bs, 0, bet, 0.5);
+                CHECK(n == 1, "btb: one cut placed");
+                wb_clip_edit *ea = wb_clip_edit_get(bet, 0, 0);
+                /* half=0.25; boundary 1.9 snaps to 2.0 (delta +0.1)
+                 * -> fade widened to 0.35 */
+                CHECK(ea && ea->fade_out > 0.30f && ea->fade_out < 0.40f,
+                      "btb: fade widened toward the beat");
+                printf("         btb: fade_out=%.3f\n",
+                       ea ? ea->fade_out : -1.0f);
+                wb_clip_edit_destroy(bet);
+            }
+            wb_session_destroy(bs);
+        }
+    }
+
+
 printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);

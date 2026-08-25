@@ -1811,6 +1811,33 @@ int wb_session_batch_transitions(wb_session *s, int track, struct
     return cuts;
 }
 
+/* R073 hop 93: like wb_session_batch_transitions, but each cut midpoint
+ * is snapped to the session's BPM grid before the fade windows are set. */
+int wb_session_batch_transitions_beat(wb_session *s, int track,
+                                 struct wb_clip_edit_table *et, double xf) {
+    if (!s || !et || track < 0 || track >= (int)s->track_count) return -1;
+    if (xf <= 0) return -1;
+    double bpm = s->bpm > 0 ? s->bpm : 120.0;
+    wb_track *tr = &s->tracks[track];
+    int cuts = 0;
+    for (uint32_t i = 0; i + 1 < tr->clip_count; i++) {
+        wb_clip *a = &tr->clips[i], *b = &tr->clips[i+1];
+        wb_clip_edit *ea = wb_clip_edit_get(et, track, (int)i);
+        wb_clip_edit *eb = wb_clip_edit_get(et, track, (int)i+1);
+        if (!ea || !eb) continue;
+        /* raw boundary time between the two clips */
+        double boundary = a->start + a->length;
+        double snapped = wb_session_snap_to_beat(boundary, bpm);
+        double delta = snapped - boundary;
+        /* shift the fade windows to straddle the snapped point */
+        double half = xf * 0.5;
+        ea->fade_out = (float)(half + delta > 0 ? half + delta : half - delta);
+        eb->fade_in  = (float)(half + delta > 0 ? half + delta : half - delta);
+        cuts++;
+    }
+    return cuts;
+}
+
 /* ---- G47: OTIO export ----------------------------------------------------- */
 /* Export the video arrangement as an OpenTimelineIO (JSON) timeline: one
  * Track containing a Clip per video clip, with source_range (source in-point

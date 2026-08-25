@@ -562,6 +562,10 @@ int  wb_session_copy_strip(wb_session *s, int src_track, int dst_track);
 /* G73: batch transitions — set a default crossfade across all cuts. */
 int  wb_session_batch_transitions(wb_session *s, int track,
                                   struct wb_clip_edit_table *et, double xf);
+/* R073 hop 93: batch transitions with cut midpoints snapped to the
+ * session BPM grid (cut-on-beat). Returns cuts placed or -1. */
+int  wb_session_batch_transitions_beat(wb_session *s, int track,
+                                  struct wb_clip_edit_table *et, double xf);
 /* G47: export the video arrangement as OpenTimelineIO (JSON). */
 int  wb_session_export_otio(const wb_session *s, const char *path);
 /* G27: transient detection — spectral-flux onsets over an audio clip.

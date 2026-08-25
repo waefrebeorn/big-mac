@@ -1729,6 +1729,40 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 92: zoom-blur transition (op 14) */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *tr = wb_node_transition(14, 2.0);
+        wb_transition_add(tr, ga);
+        wb_transition_add(tr, gb);
+        wb_frame *s = wb_node_pull(tr, 0.02, 0, 0, 64, 64);
+        CHECK(s != NULL && s->px[32*64+32].r > 0.9f,
+              "zbl: starts as source A");
+        if (s) wb_frame_free(s);
+        wb_frame *e = wb_node_pull(tr, 1.98, 0, 0, 64, 64);
+        CHECK(e != NULL && e->px[32*64+32].b > 0.9f,
+              "zbl: ends as source B");
+        if (e) wb_frame_free(e);
+        wb_frame *m = wb_node_pull(tr, 1.0, 0, 0, 64, 64);
+        CHECK(m != NULL, "zbl: pulled mid");
+        if (m) {
+            /* corner pixel at mid: A-taps pull toward center (redder),
+             * B-taps pull outward (still blue-ish); blend ~50/50 */
+            wb_px c = m->px[4*64+4];
+            CHECK(c.r > 0.2f && c.r < 0.9f,
+                  "zbl: mid-blend mixes channels");
+            printf("         zbl: mid corner r=%.2f b=%.2f\n",
+                   c.r, c.b);
+            wb_frame_free(m);
+        }
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

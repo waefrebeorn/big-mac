@@ -1387,6 +1387,42 @@ static wb_frame *trans_pull(wb_node *self, double t,
                 if (bx >= 0 && bx < a->w) out->px[i] = pb;
                 else                      out->px[i] = pa;
             }
+        } else if (tr->op == 14) {
+            /* R073 hop 92: zoom-blur transition — radial multi-tap blur
+             * whose strength peaks at the midpoint; B scales in over A.
+             * 5 taps sampled along the ray to frame center. */
+            float punch = sinf(mB * 3.14159265f);      /* 0..1..0 */
+            float cx = a->w * 0.5f, cy = a->h * 0.5f;
+            int sx0 = px_i, sy0 = py_i;
+            /* pick source frame: first half reads A zoomed out, second
+             * half reads B zoomed in — crossfade the two reads by mB */
+            float ra = 0.0f, ga_ = 0.0f, ba = 0.0f;
+            float rb = 0.0f, gb = 0.0f, bb = 0.0f;
+            for (int tap = 0; tap < 5; tap++) {
+                float f = (float)tap / 4.0f;
+                int axx = (int)(cx + (sx0 - cx)
+                          * (1.0f - punch * 0.15f * f));
+                int ayy = (int)(cy + (sy0 - cy)
+                          * (1.0f - punch * 0.15f * f));
+                if (axx < 0) axx = 0; if (axx >= a->w) axx = a->w - 1;
+                if (ayy < 0) ayy = 0; if (ayy >= a->h) ayy = a->h - 1;
+                wb_px q = a->px[ayy * a->w + axx];
+                ra += q.r; ga_ += q.g; ba += q.b;
+                int bxx = (int)(cx + (sx0 - cx)
+                          * (1.0f + punch * 0.15f * f));
+                int byy = (int)(cy + (sy0 - cy)
+                          * (1.0f + punch * 0.15f * f));
+                if (bxx < 0) bxx = 0; if (bxx >= b->w) bxx = b->w - 1;
+                if (byy < 0) byy = 0; if (byy >= b->h) byy = b->h - 1;
+                q = b->px[byy * b->w + bxx];
+                rb += q.r; gb += q.g; bb += q.b;
+            }
+            ra /= 5.0f; ga_ /= 5.0f; ba /= 5.0f;
+            rb /= 5.0f; gb /= 5.0f; bb /= 5.0f;
+            out->px[i].r = ra*(1-mM) + rb*mM;
+            out->px[i].g = ga_*(1-mM) + gb*mM;
+            out->px[i].b = ba*(1-mM) + bb*mM;
+            out->px[i].a = pa.a*(1-mM) + pb.a*mM;
         } else if (tr->op == 13) {
             /* R073 hop 90: Venetian-blind dissolve — horizontal strips
              * (16 px) flip A->B in a top-to-bottom wave; each strip's

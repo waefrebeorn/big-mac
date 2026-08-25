@@ -1537,6 +1537,63 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 85: diagonal + angular gradient wipes */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *tr = wb_node_transition(8, 2.0);
+        wb_transition_add(tr, ga);
+        wb_transition_add(tr, gb);
+        struct { const char *n; float v; } ps[] = {
+            {"grad_dir", 2.0f}, {"grad_feather", 0.05f},
+        };
+        for (unsigned k = 0; k < sizeof ps / sizeof ps[0]; k++) {
+            wb_param_track *tp = wb_param_track_create();
+            wb_param_track_set(tp, 0.0, ps[k].v, WB_KF_HOLD);
+            wb_node_add_param(tr, ps[k].n, tp);
+        }
+        wb_frame *fd = wb_node_pull(tr, 1.0, 0, 0, 64, 64);
+        CHECK(fd != NULL, "gdiag: pulled");
+        if (fd) {
+            wb_px tl = fd->px[1*64+1];
+            wb_px br = fd->px[63*64+62];
+            CHECK(tl.b > 0.9f, "gdiag: TL corner reveals B");
+            CHECK(br.r > 0.9f, "gdiag: BR corner keeps A");
+            printf("         gdiag: TL b=%.2f | BR r=%.2f\n",
+                   tl.b, br.r);
+            wb_frame_free(fd);
+        }
+        if (tr) wb_node_destroy(tr);
+
+        wb_node *tr2 = wb_node_transition(8, 2.0);
+        wb_transition_add(tr2, ga);
+        wb_transition_add(tr2, gb);
+        struct { const char *n; float v; } ps2[] = {
+            {"grad_dir", 3.0f}, {"grad_feather", 0.05f},
+        };
+        for (unsigned k = 0; k < sizeof ps2 / sizeof ps2[0]; k++) {
+            wb_param_track *tp = wb_param_track_create();
+            wb_param_track_set(tp, 0.0, ps2[k].v, WB_KF_HOLD);
+            wb_node_add_param(tr2, ps2[k].n, tp);
+        }
+        wb_frame *fa = wb_node_pull(tr2, 1.0, 0, 0, 64, 64);
+        CHECK(fa != NULL, "gang: pulled");
+        if (fa) {
+            wb_px topc = fa->px[1*64+32];     /* ang~0 -> B */
+            wb_px leftm = fa->px[32*64+1];    /* 9 o'clock, g~0.75 -> A */
+            CHECK(topc.b > 0.9f, "gang: sweep starts at 12 o'clock");
+            CHECK(leftm.r > 0.9f, "gang: left side still A at half");
+            printf("         gang: top b=%.2f left r=%.2f\n",
+                   topc.b, leftm.r);
+            wb_frame_free(fa);
+        }
+        if (tr2) wb_node_destroy(tr2);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

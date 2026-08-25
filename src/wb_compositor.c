@@ -1396,6 +1396,18 @@ static wb_frame *trans_pull(wb_node *self, double t,
             if (mapf) {
                 g = 0.2126f*mapf->px[i].r + 0.7152f*mapf->px[i].g
                   + 0.0722f*mapf->px[i].b;
+            } else if (wb_node_param_value(self, "grad_dir", t) > 2.5f) {
+                /* angular: clock sweep starting at 12 o'clock */
+                float dxn = px_i - a->w * 0.5f;
+                float dyn = py_i - a->h * 0.5f;
+                float ang = atan2f(dxn, -dyn);      /* 0 at top, +cw */
+                if (ang < 0) ang += 6.2831853f;
+                g = ang / 6.2831853f;
+            } else if (wb_node_param_value(self, "grad_dir", t) > 1.5f) {
+                /* diagonal TL -> BR */
+                float u = (float)px_i / (float)(a->w > 1 ? a->w-1 : 1);
+                float v = (float)py_i / (float)(a->h > 1 ? a->h-1 : 1);
+                g = (u + v) * 0.5f;
             } else if (wb_node_param_value(self, "grad_dir", t) > 0.5f) {
                 float dxn = px_i - a->w * 0.5f;
                 float dyn = py_i - a->h * 0.5f;

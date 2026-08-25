@@ -2007,8 +2007,10 @@ static wb_frame *trans_pull(wb_node *self, double t,
     /* R073 hop 68/83: map input. Required (3rd input) for op 7; optional
      * for any other transition — when present it modulates the per-pixel
      * progress spatially by the map's Rec.709 luma (masked transition). */
+    /* R074 hop 134 (#41): lazy mapf — only pulled for ops that read it
+     * (7 = map dissolve). Other ops skip the third-input cost. */
     wb_frame *mapf = NULL;
-    if (self->n_inputs >= 3 && self->inputs[2]) {
+    if (self->n_inputs >= 3 && self->inputs[2] && tr->op == 7) {
         mapf = wb_node_pull(self->inputs[2], t, rx, ry, rw, rh);
         if (!mapf) { wb_frame_free(a); wb_frame_free(b); return NULL; }
     } else if (tr->op == 7) {
@@ -2206,10 +2208,15 @@ static wb_frame *trans_pull(wb_node *self, double t,
              * pixels near the moving edge average trailing taps along
              * the slide axis, giving a motion smear that peaks at the
              * boundary and vanishes at start/end. */
-            int sxm = (int)(mM * a->w);
-            float u = (float)(px_i - sxm);   /* <0 inside B, >0 in A */
-            /* smear band trails BEHIND the edge (into A's side) */
-            float band = a->w * 0.12f
+            /* R074 hop 134 (#62): wipe_dir param — 0 horizontal
+             * (default), 1 vertical slide with vertical smear. */
+            int vertical = wb_node_param_value(self, "wipe_dir", t) > 0.5f;
+            int edge;
+            if (vertical) edge = (int)(mM * a->h);
+            else          edge = (int)(mM * a->w);
+            float u = vertical ? (float)(py_i - edge)
+                               : (float)(px_i - edge); /* <0 B, >0 A */
+            float band = (vertical ? a->h : a->w) * 0.12f
                        * sinf(mM * 3.14159265f);
             wb_px base = (u <= 0) ? pb : pa;
             float sr = base.r, sg = base.g, sb = base.b;
@@ -2220,14 +2227,24 @@ static wb_frame *trans_pull(wb_node *self, double t,
                 float acc_r = 0, acc_g = 0, acc_b = 0;
                 int taps = 5;
                 for (int q = 0; q < taps; q++) {
-                    int xx = px_i - (int)((float)q / (taps - 1)
-                            * band);
-                    if (xx < 0) xx = 0;
-                    if (xx >= b->w) xx = b->w - 1;
-                    wb_px t2 = (xx < sxm)
-                             ? b->px[py_i * b->w + xx]
-                             : a->px[py_i * a->w + xx];
-                    acc_r += t2.r; acc_g += t2.g; acc_b += t2.b;
+                    if (vertical) {
+                        int yy = py_i - (int)((float)q / (taps-1) * band);
+                        if (yy < 0) yy = 0;
+                        if (yy >= b->h) yy = b->h - 1;
+                        wb_px t2 = (yy < edge)
+                                 ? b->px[yy * b->w + px_i]
+                                 : a->px[yy * a->w + px_i];
+                        acc_r += t2.r; acc_g += t2.g; acc_b += t2.b;
+                    } else {
+                        int xx = px_i - (int)((float)q / (taps - 1)
+                                * band);
+                        if (xx < 0) xx = 0;
+                        if (xx >= b->w) xx = b->w - 1;
+                        wb_px t2 = (xx < edge)
+                                 ? b->px[py_i * b->w + xx]
+                                 : a->px[py_i * a->w + xx];
+                        acc_r += t2.r; acc_g += t2.g; acc_b += t2.b;
+                    }
                 }
                 sr = a->px[i].r*(1-w) + (acc_r/taps)*w;
                 sg = a->px[i].g*(1-w) + (acc_g/taps)*w;

@@ -1491,6 +1491,52 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 84: gradient wipe (op 8) — linear + radial built-ins */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *tr = wb_node_transition(8, 2.0);   /* gradient wipe */
+        wb_transition_add(tr, ga);
+        wb_transition_add(tr, gb);
+        wb_frame *f = wb_node_pull(tr, 1.0, 0, 0, 64, 64);
+        CHECK(f != NULL, "gwipe: pulled");
+        if (f) {
+            wb_px left = f->px[32*64+2];    /* g~0.03 << 0.5 -> B */
+            wb_px right = f->px[32*64+61];  /* g~0.97 > 0.5 -> A */
+            CHECK(left.b > 0.9f && left.r < 0.1f,
+                  "gwipe: linear wipe reveals B on the left");
+            CHECK(right.r > 0.9f && right.b < 0.1f,
+                  "gwipe: linear wipe keeps A on the right");
+            printf("         gwipe: L b=%.2f r=%.2f | R r=%.2f\n",
+                   left.b, right.r, right.r);
+            wb_frame_free(f);
+        }
+        /* radial variant */
+        struct { const char *n; float v; } ps[] = {
+            {"grad_dir", 1.0f}, {"grad_feather", 0.05f},
+        };
+        for (unsigned k = 0; k < sizeof ps / sizeof ps[0]; k++) {
+            wb_param_track *tp = wb_param_track_create();
+            wb_param_track_set(tp, 0.0, ps[k].v, WB_KF_HOLD);
+            wb_node_add_param(tr, ps[k].n, tp);
+        }
+        wb_frame *g2 = wb_node_pull(tr, 0.5, 0, 0, 64, 64);
+        CHECK(g2 != NULL, "gwipe: radial pulled");
+        if (g2) {
+            wb_px ctr = g2->px[32*64+32];   /* g=0 -> full B */
+            wb_px cor = g2->px[63];         /* far corner -> A */
+            CHECK(ctr.b > 0.9f, "gwipe: radial reveals B from center");
+            printf("         gwipe: radial ctr b=%.2f cor r=%.2f\n",
+                   ctr.b, cor.r);
+            wb_frame_free(g2);
+        }
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

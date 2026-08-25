@@ -1370,7 +1370,7 @@ static wb_frame *trans_pull(wb_node *self, double t,
             float th = mM + jitter;
             if (th > 0.5f) { out->px[i] = pb; }
             else           { out->px[i] = pa; }
-        } else {
+        } else if (tr->op == 4 || tr->op == 5) {
             /* R073 hop 51: slide (4) / push (5) — horizontal translation.
              * sample A at (x + mB*W), B at (x - W + mB*W); for push both
              * translate together, for slide B overlays a stationary A. */
@@ -1387,6 +1387,32 @@ static wb_frame *trans_pull(wb_node *self, double t,
                 if (bx >= 0 && bx < a->w) out->px[i] = pb;
                 else                      out->px[i] = pa;
             }
+        } else if (tr->op == 8) {
+            /* R073 hop 84: gradient wipe — built-in gradient map is the
+             * per-pixel threshold. grad_dir 0 = linear L→R (with soft
+             * band via win_soft-style feather), 1 = radial from center.
+             * A user matte in slot 3 overrides the built-in gradient. */
+            float g;
+            if (mapf) {
+                g = 0.2126f*mapf->px[i].r + 0.7152f*mapf->px[i].g
+                  + 0.0722f*mapf->px[i].b;
+            } else if (wb_node_param_value(self, "grad_dir", t) > 0.5f) {
+                float dxn = px_i - a->w * 0.5f;
+                float dyn = py_i - a->h * 0.5f;
+                g = sqrtf(dxn*dxn + dyn*dyn)
+                  / (0.5f * sqrtf((float)(a->w*a->w + a->h*a->h)));
+            } else {
+                g = (float)px_i / (float)(a->w > 1 ? a->w - 1 : 1);
+            }
+            /* feathered threshold: full B above g+feather, full A below */
+            float feath = wb_node_param_value(self, "grad_feather", t);
+            if (feath <= 0.0f) feath = 0.05f;
+            float k = (mB - g) / feath + 0.5f;
+            if (k < 0) k = 0; if (k > 1) k = 1;
+            out->px[i].r = pa.r*(1-k) + pb.r*k;
+            out->px[i].g = pa.g*(1-k) + pb.g*k;
+            out->px[i].b = pa.b*(1-k) + pb.b*k;
+            out->px[i].a = pa.a*(1-k) + pb.a*k;
         }
     }
     wb_frame_free(a); wb_frame_free(b);

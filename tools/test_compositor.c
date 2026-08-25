@@ -1424,6 +1424,40 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 82: tracked power window follows a keyframed path */
+    {
+        wb_node *src = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *cv = wb_node_effect(11, 0.0f);
+        struct { const char *n; float v; } ps[] = {
+            {"hue_c", 0.0f}, {"hue_w", 30.0f}, {"sec_sat", 0.2f},
+            {"win_r", 0.20f}, {"win_shape", 0.0f},  /* circle */
+        };
+        for (unsigned k = 0; k < sizeof ps / sizeof ps[0]; k++) {
+            wb_param_track *tp = wb_param_track_create();
+            wb_param_track_set(tp, 0.0, ps[k].v, WB_KF_HOLD);
+            wb_node_add_param(cv, ps[k].n, tp);
+        }
+        double ts[2] = {1.0, 5.0};
+        float xs[2] = {0.5f, 1.0f}, ys[2] = {0.5f, 1.0f};
+        int rc = wb_node_window_track_path(cv, ts, xs, ys, 2, 1.0);
+        CHECK(rc == 0, "trkwin: track path bound");
+        cv->inputs[0] = src;
+        /* midpoint t=3 → cx=cy=0.75 → center (32,32) is outside the 0.2-radius circle */
+        wb_frame *f = cv ? wb_node_pull(cv, 3.0, 0, 0, 64, 64) : NULL;
+        CHECK(f != NULL, "trkwin: pulled");
+        if (f) {
+            wb_px p = f->px[32*64+32];
+            CHECK(p.r > 0.9f,
+                  "trkwin: tracked window moved away from center");
+            printf("         trkwin: center-r=%.2f\n", p.r);
+            wb_frame_free(f);
+        }
+        if (cv) wb_node_destroy(cv);
+        if (src) wb_node_destroy(src);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

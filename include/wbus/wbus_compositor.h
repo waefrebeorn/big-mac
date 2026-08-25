@@ -245,8 +245,13 @@ struct wb_node *wb_node_graph_node_at(const wb_node_graph *g, int i);
 /* G24: bind a param track to a graph node by index (graph does NOT own it —
  * caller keeps ownership). Returns slot idx or -1. */
 int             wb_node_graph_bind_param(const wb_node_graph *g, int i,
-                                         const char *name, wb_param_track *tr);
+                                         const char *name,
+                                         wb_param_track *tr);
 
+/* R073 hop 82: drive a power window's center along a keyframed path. */
+int wb_node_window_track_path(wb_node *win_effect,
+                              const double *ts, const float xs[],
+                              const float ys[], int n, double dur);
 
 #ifdef __cplusplus
 }

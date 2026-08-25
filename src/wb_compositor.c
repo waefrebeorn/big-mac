@@ -1394,6 +1394,22 @@ wb_node *wb_node_transition(int op, double duration_secs) {
     n->inputs = calloc(2, sizeof(wb_node*));
     return n;
 }
+
+/* R073 hop 82: bind win_cx/win_cy from paired sample arrays (linear). */
+int wb_node_window_track_path(wb_node *win_effect,
+                              const double *ts, const float xs[],
+                              const float ys[], int n, double dur) {
+    if (!win_effect || n < 2) return -1;
+    (void)dur;
+    wb_param_track *tcx = wb_param_track_create();
+    wb_param_track *tcy = wb_param_track_create();
+    wb_param_track_set_many(tcx, ts, xs, n, WB_KF_LINEAR);
+    wb_param_track_set_many(tcy, ts, ys, n, WB_KF_LINEAR);
+    int ix = wb_node_add_param(win_effect, "win_cx", tcx);
+    int iy = wb_node_add_param(win_effect, "win_cy", tcy);
+    return (ix >= 0 && iy >= 0) ? 0 : -1;
+}
+
 /* attach inputs (same convention as composite) */
 void wb_transition_add(wb_node *trans, wb_node *child);
 void wb_transition_add(wb_node *trans, wb_node *child) {

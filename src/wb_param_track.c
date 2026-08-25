@@ -177,3 +177,11 @@ float wb_param_track_value_at(const wb_param_track *tr, double t) {
     default:           return a->value;
     }
 }
+
+/* R073 hop 82: bulk-set keyframes from parallel arrays (linear interp). */
+void wb_param_track_set_many(wb_param_track *tr, const double *ts,
+                             const float *vs, int n, wb_kf_interp interp) {
+    if (!tr || !ts || !vs || n <= 0) return;
+    for (int i = 0; i < n; i++)
+        wb_param_track_set(tr, ts[i], vs[i], interp);
+}

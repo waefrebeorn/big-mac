@@ -62,6 +62,10 @@ float wb_param_track_value_at(const wb_param_track *tr, double t);
 void wb_param_track_set_extrapolate(wb_param_track *tr, int on);
 
 
+/* R073 hop 82: build a track from uniform time/value samples (linear). */
+void wb_param_track_set_many(wb_param_track *tr, const double *ts,
+                             const float *vs, int n, wb_kf_interp interp);
+
 #ifdef __cplusplus
 }
 #endif

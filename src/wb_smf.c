@@ -182,3 +182,74 @@ void wb_smf_free(wb_smf *s) {
     free(s->notes);
     free(s);
 }
+
+/* ---- R074 hop 123 (G-SF076): SMF export -------------------------------- */
+static int wr_vlq(uint8_t *b, uint32_t v) {
+    uint8_t tmp[5]; int n = 0;
+    tmp[n++] = v & 0x7F; v >>= 7;
+    while (v) { tmp[n++] = 0x80 | (v & 0x7F); v >>= 7; }
+    for (int i = 0; i < n; i++) b[i] = tmp[n-1-i];
+    return n;
+}
+
+int wb_smf_save(const char *path, const wb_note *notes, int nnotes,
+                double bpm, int tpqn) {
+    if (!path || !notes || nnotes <= 0 || bpm <= 0 || tpqn <= 0) return -1;
+    double sec_per_tick = 60.0 / (bpm * tpqn);
+    /* build event list: (tick, bytes) */
+    typedef struct { uint32_t tick; uint8_t b[4]; int len; } ev_t;
+    ev_t *evs = malloc(sizeof(ev_t) * (size_t)nnotes * 2);
+    if (!evs) return -1;
+    int ne = 0;
+    for (int i = 0; i < nnotes; i++) {
+        uint32_t on  = (uint32_t)(notes[i].start / sec_per_tick);
+        uint32_t off = on + (uint32_t)(notes[i].dur / sec_per_tick);
+        if (off <= on) off = on + 1;
+        evs[ne].tick = on;
+        evs[ne].b[0]=0x90; evs[ne].b[1]=notes[i].pitch;
+        evs[ne].b[2]=notes[i].vel ? notes[i].vel : 100; evs[ne].len=3; ne++;
+        evs[ne].tick = off;
+        evs[ne].b[0]=0x80; evs[ne].b[1]=notes[i].pitch; evs[ne].b[2]=0;
+        evs[ne].len=3; ne++;
+    }
+    /* sort by tick, note-offs first at equal ticks */
+    for (int i = 1; i < ne; i++) {
+        ev_t e = evs[i]; int j = i-1;
+        while (j >= 0 && (evs[j].tick > e.tick ||
+               (evs[j].tick == e.tick && evs[j].b[0] > e.b[0]))) {
+            evs[j+1] = evs[j]; j--;
+        }
+        evs[j+1] = e;
+    }
+    /* serialize track */
+    uint8_t *trk = malloc((size_t)ne * 12 + 32);
+    if (!trk) { free(evs); return -1; }
+    int tl = 0;
+    uint32_t us_qn = (uint32_t)(60000000.0 / bpm);
+    trk[tl++]=0; trk[tl++]=0xFF; trk[tl++]=0x51; trk[tl++]=3;
+    trk[tl++]=(us_qn>>16)&0xFF; trk[tl++]=(us_qn>>8)&0xFF; trk[tl++]=us_qn&0xFF;
+    uint32_t last = 0;
+    for (int i = 0; i < ne; i++) {
+        tl += wr_vlq(trk+tl, evs[i].tick - last);
+        last = evs[i].tick;
+        memcpy(trk+tl, evs[i].b, (size_t)evs[i].len); tl += evs[i].len;
+    }
+    trk[tl++]=0; trk[tl++]=0xFF; trk[tl++]=0x2F; trk[tl++]=0;
+    free(evs);
+
+    FILE *f = fopen(path, "wb");
+    if (!f) { free(trk); return -1; }
+    uint8_t hdr[14] = {
+        'M','T','h','d',0,0,0,6,0,0,0,1,
+        (uint8_t)(tpqn>>8),(uint8_t)(tpqn&0xFF)
+    };
+    fwrite(hdr,1,14,f);
+    uint8_t ck[8] = {'M','T','r','k',
+                     (uint8_t)(tl>>24),(uint8_t)(tl>>16),
+                     (uint8_t)(tl>>8),(uint8_t)tl};
+    fwrite(ck,1,8,f);
+    fwrite(trk,1,(size_t)tl,f);
+    fclose(f);
+    free(trk);
+    return 0;
+}

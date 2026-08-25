@@ -31,13 +31,13 @@ failure, missing feature, and quality gap found on the way is a gap.
 25. G-SF025 No LOD system
 
 ## B. Renderer / rasterizer (26-45)
-26. G-SF026 No resolution scale option (locked to anim WxH)
+26. G-SF026 No resolution scale option (locked to anim WxH) **[FIXED]**
 27. G-SF027 Flat shading only — no gouraud/phong interpolation option
 28. G-SF028 Single directional sun — no point lights
 29. G-SF029 No shadow casting (ship has no ground shadow)
 30. G-SF030 [FIXED hop113] No dithering mode (SNES had ordered dither!) **[FIXED]**
 31. G-SF031 [FIXED hop113] No palette quantize render target (true SNES 256-color mode) **[FIXED]**
-32. G-SF032 No affine texture warp (the actual Mode-7 effect)
+32. G-SF032 No affine texture warp (the actual Mode-7 effect) **[FIXED]**
 33. G-SF033 [FIXED hop113] Z-buffer precision unconfigurable; far plane clipping at z=-160 observed **[FIXED]**
 34. G-SF034 No wireframe/debug draw mode **[FIXED]**
 35. G-SF035 No viewport scissor/region rendering

@@ -31,6 +31,10 @@ double   wb_smf_duration(const wb_smf *s);
 
 void     wb_smf_free(wb_smf *s);
 
+/* G-SF076: write notes as a type-0 .mid file. Returns 0 on success. */
+int      wb_smf_save(const char *path, const struct wb_note *notes,
+                     int nnotes, double bpm, int tpqn);
+
 #ifdef __cplusplus
 }
 #endif

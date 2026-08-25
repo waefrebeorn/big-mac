@@ -59,7 +59,7 @@
 50. D78 debug fprintf(stderr) left inside hot HSL pixel loop (spams + slows)  **[FIXED]**
 51. gain param override: `kv != 0 || e->gain == 0` — cannot set gain to exactly 0 when static nonzero
 52. same "gain" param doubles as blur radius fallback — semantic overload  **[FIXED]**
-53. trans_pull `if (!a) return b;` leaks a's siblings when one input missing mid-graph
+53. trans_pull `if (!a) return b;` leaks a's siblings when one input missing mid-graph  **[FIXED]**
 54. transition duration relative to t=0 only — no start-time offset param (can't place at t=5s)  **[FIXED]**
 55. nested transitions receive outer t directly — inner transition sees full timeline, not local time  **[FIXED]**
 56. split-flap cw/ch integer div rounds down — last row/col cells wider than others  **[FIXED]**
@@ -69,7 +69,7 @@
 60. barn-door dir field reused for axis AND direction semantics unclearly (overload)
 61. zoom-blur tap count hardcoded 5; spin-blur too — no quality param
 62. directional-blur wipe only works horizontally (hardcoded x taps)
-63. ripple echo ring offset hardcoded 0.15*maxd
+63. ripple echo ring offset hardcoded 0.15*maxd  **[FIXED]**
 64. map dissolve threshold uses strict > (no soft knee) unlike documented feather  **[FIXED]**
 65. crossfade blends alpha linearly — premultiplied vs straight alpha ambiguity unresolved
 66. composite alpha-over formula assumes straight alpha; sources are premultiplied-ish (inconsistent)

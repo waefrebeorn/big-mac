@@ -444,6 +444,30 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++)
         if (strcmp(argv[i], "--lufs") == 0 && i + 1 < argc)
             lufs_target = atof(argv[++i]);
+    /* R074 hop 123 (G-SF076): --smfroundtrip — save+load verify */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--smfroundtrip") == 0) {
+            wb_note ns[3] = {
+                {0.0, 0.5, 60, 100, 0, 0},
+                {0.5, 0.5, 64, 100, 0, 0},
+                {1.0, 1.0, 67, 90, 0, 0},
+            };
+            if (wb_smf_save("/tmp/rt.mid", ns, 3, 120.0, 480) != 0) {
+                printf("save FAIL\n"); return 1;
+            }
+            wb_smf *sm = wb_smf_load("/tmp/rt.mid");
+            if (!sm || wb_smf_note_count(sm) != 3) {
+                printf("roundtrip FAIL\n"); return 1;
+            }
+            const wb_note *rn = wb_smf_notes(sm);
+            int ok = rn[0].pitch==60 && rn[2].pitch==67 &&
+                     fabs(rn[2].start - 1.0) < 0.01;
+            printf("roundtrip %s\n", ok ? "PASS" : "FAIL");
+            wb_smf_free(sm);
+            return ok ? 0 : 1;
+        }
+    }
+
     /* R074 hop 115 (G-SF061): --smfcheck FILE */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--smfcheck") == 0 && i+1 < argc) {

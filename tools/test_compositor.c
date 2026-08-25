@@ -1925,6 +1925,51 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 100: end-to-end demo — transition + windowed grade +
+     * tracked window, pulled as one graph */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.2f, 0.1f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.1f, 0.2f, 1.0f, 1.0f, 64, 64);
+        /* gradient wipe mid-transition */
+        wb_node *tr = wb_transition_preset(1, 2.0);   /* News wipe */
+        CHECK(tr != NULL, "e2e: preset built");
+        wb_transition_add(tr, ga);
+        wb_transition_add(tr, gb);
+        /* HSL secondary with circular window on the wiped result */
+        wb_node *hsl = wb_node_effect(11, 0.0f);
+        struct { const char *n; float v; } ps[] = {
+            {"hue_c", 240.0f}, {"hue_w", 60.0f}, {"sec_sat", 1.5f},
+            {"win_r", 0.3f}, {"win_shape", 0.0f},
+            {"win_rot", 0.0f}, {"win_cx", 0.8f}, {"win_cy", 0.5f},
+        };
+        for (unsigned k = 0; k < sizeof ps / sizeof ps[0]; k++) {
+            wb_param_track *tp = wb_param_track_create();
+            wb_param_track_set(tp, 0.0, ps[k].v, WB_KF_HOLD);
+            wb_node_add_param(hsl, ps[k].n, tp);
+        }
+        hsl->inputs[0] = tr;
+        wb_frame *f = wb_node_pull(hsl, 1.0, 0, 0, 64, 64);
+        CHECK(f != NULL, "e2e: composite pulled");
+        if (f) {
+            wb_px leftB = f->px[32*64+6];   /* wiped side: blue */
+            wb_px rightA = f->px[32*64+58]; /* pending side: red */
+            CHECK(leftB.b > leftB.r,
+                  "e2e: wipe revealed B on the left");
+            CHECK(rightA.r > rightA.b,
+                  "e2e: pending side keeps A");
+            printf("         e2e: L(b%.1f r%.1f) | R(r%.1f b%.1f)\n",
+                   leftB.b, leftB.r, rightA.r, rightA.b);
+            wb_frame_free(f);
+        }
+        if (hsl) wb_node_destroy(hsl);   /* frees tr via inputs? no:
+                                            caller owns; destroy both */
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

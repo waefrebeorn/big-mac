@@ -172,6 +172,9 @@ wb_node *wb_node_effect_scaler(int out_w, int out_h);
 wb_node *wb_node_effect_letterbox(float bar_fraction);
 wb_node *wb_node_effect_scanline(float strength);
 wb_node *wb_node_effect_chromatic(float offset_px);
+/* G-SF032: Mode-7 affine ground warp. */
+wb_node *wb_node_effect_mode7(float horizon_frac, float strength,
+                              double scroll_speed);
 
 /* R074 hop 111: scene source — smoothstep gradient (vertical or radial)
  * with a moving light sweep. Colors are top/bottom endpoints. */

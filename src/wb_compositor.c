@@ -1755,6 +1755,58 @@ wb_node *wb_node_effect_chromatic(float offset_px) {
     return pres_create(2, offset_px);
 }
 
+
+/* ---- R074 hop 122 (G-SF032): MODE-7 affine ground warp node ----------- */
+typedef struct { float horizon; float scale; double scroll; } m7_t;
+
+static wb_frame *m7_pull(wb_node *self, double t,
+                         int rx, int ry, int rw, int rh) {
+    (void)rx; (void)ry;
+    if (!self->inputs || !self->inputs[0]) return NULL;
+    wb_frame *in = wb_node_pull(self->inputs[0], t, -1,-1,-1,-1);
+    if (!in || in->w < 2 || in->h < 2) return in;
+    m7_t *d = self->user;
+    int W = in->w, H = in->h;
+    int hy = (int)(H * d->horizon);
+    if (hy <= 0) hy = H/3;
+    wb_frame *out = wb_frame_alloc(W, H);
+    if (!out) return in;
+    /* sky: copy top rows */
+    for (int y = 0; y < hy && y < H; y++)
+        memcpy(&out->px[y*W], &in->px[y*W], (size_t)W*sizeof(wb_px));
+    double scrolloff = d->scroll * t * 60.0;
+    for (int y = hy; y < H; y++) {
+        /* perspective: rows near bottom are "close" */
+        float pz = (float)(y - hy + 1) / (float)(H - hy);
+        float spread = d->scale / (pz * pz + 0.02f);
+        for (int x = 0; x < W; x++) {
+            float u = ((x - W*0.5f) * spread + (float)scrolloff)
+                      / W + 0.5f;
+            u = u - floorf(u);            /* wrap */
+            int sx = (int)(u * W) % W; if (sx < 0) sx += W;
+            out->px[y*W + x] = in->px[y*W + sx];
+        }
+    }
+    out->roi_x=0; out->roi_y=0; out->roi_w=W; out->roi_h=H;
+    return out;
+}
+static void m7_free(wb_node *n) { free(n->user); }
+
+wb_node *wb_node_effect_mode7(float horizon_frac, float strength,
+                              double scroll_speed) {
+    wb_node *n = wb_node_create(WB_NODE_EFFECT, "mode7");
+    if (!n) return NULL;
+    m7_t *d = calloc(1, sizeof(*d));
+    if (!d) { wb_node_destroy(n); return NULL; }
+    d->horizon = horizon_frac > 0 ? horizon_frac : 0.35f;
+    d->scale = strength > 0 ? strength : 1.0f;
+    d->scroll = scroll_speed;
+    n->user = d; n->pull = m7_pull; n->free = m7_free;
+    n->n_inputs = 1;
+    n->inputs = calloc(1, sizeof(wb_node *));
+    return n;
+}
+
 /* R073 hop 101: write a frame as a binary PPM (P6) image. */
 int wb_frame_write_ppm(const wb_frame *f, const char *path) {
     if (!f || !path || f->w <= 0 || f->h <= 0) return -1;
@@ -1879,6 +1931,8 @@ static wb_frame *trans_pull(wb_node *self, double t,
     }
     wb_frame *a = wb_node_pull(self->inputs[0], t, rx, ry, rw, rh);
     wb_frame *b = wb_node_pull(self->inputs[1], t, rx, ry, rw, rh);
+    /* R074 hop 122 (#53): null-guard both inputs before mixing */
+    if (!a && !b) return NULL;
     if (!a) return b;
     if (!b) return a;
     /* R074 fix: transitions can now be placed on the timeline via the
@@ -2047,7 +2101,19 @@ static wb_frame *trans_pull(wb_node *self, double t,
             float maxd = 0.5f * sqrtf((float)(a->w*a->w + a->h*a->h));
             /* two rings for the ripple look: primary + echo */
             float k1 = (mM * maxd - dist) / feath + 0.5f;
-            float d2 = fabsf(dist - mM * maxd - maxd * 0.15f);
+            /* R074 hop 122 (#63): keyframable echo ring offset */
+            float echo_off = 0.15f;
+            {
+                /* read from transition node if bound */
+                for (int pi2 = 0; pi2 < self->n_params; pi2++) {
+                    if (self->param_names &&
+                        strncmp(self->param_names[pi2], "ripple_echo", 32) == 0) {
+                        echo_off = wb_node_param_value(self, "ripple_echo", t);
+                        break;
+                    }
+                }
+            }
+            float d2 = fabsf(dist - mM * maxd - maxd * echo_off);
             float k2 = (feath - d2) / feath + 0.5f;
             float k = k1 > k2 ? k1 : k2;
             if (k < 0) k = 0; if (k > 1) k = 1;

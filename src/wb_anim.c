@@ -529,3 +529,15 @@ int wb_anim_rot_unwrap(wb_anim *a, int obj) {
     }
     return 0;
 }
+
+/* R074 hop 122 (G-SF026): render at scaled resolution (letterboxed by
+ * caller). 0 resets to the original create size. */
+int wb_anim_set_resolution(wb_anim *a, int w, int h) {
+    if (!a) return -1;
+    if (w <= 0 || h <= 0) { w = a->w > 0 ? a->w : w; h = a->h; }
+    if (w <= 0 || h <= 0) return -1;
+    /* only shrink allowed once buffers sized — grow is fine too since
+     * draw lists are dynamic */
+    a->w = w; a->h = h;
+    return 0;
+}

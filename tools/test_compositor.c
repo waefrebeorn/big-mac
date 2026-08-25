@@ -2174,6 +2174,81 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 107: animated text title over the demo graph */
+    {
+        wb_node *ga = wb_node_source_color(0.9f,0.2f,0.1f,1,64,64);
+        wb_node *gb = wb_node_source_color(0.1f,0.2f,0.9f,1,64,64);
+        wb_node *tr = wb_transition_preset(0, 2.0);
+        CHECK(tr != NULL, "ttl: preset built");
+        if (tr) {
+            wb_transition_add(tr, ga);
+            wb_transition_add(tr, gb);
+            /* title overlay */
+            wb_node *txt = wb_node_source_text("BIG MAC", 2,
+                                              1,1,1,1, 64, 64);
+            CHECK(txt != NULL, "ttl: text node built");
+            if (txt) {
+                wb_node_source_text_anim(txt, 1, 1.0);  /* slide-in */
+                wb_node *comp = wb_node_composite();
+                CHECK(comp != NULL, "ttl: composite built");
+                if (comp) {
+                    wb_composite_add(comp, tr);   /* bottom */
+                    wb_composite_add(comp, txt);  /* top */
+                    /* pull mid-transition: text should be visible over
+                     * the blend (white-ish glyph pixels present) */
+                    int ok = 0;
+                    for (int k = 0; k < 4; k++) {
+                        double tt = 0.3 + k * 0.5;
+                        wb_frame *f = wb_node_pull(comp, tt, 0,0,64,64);
+                        if (!f) continue;
+                        float mx = 0;
+                        for (int y = 0; y < 64; y++)
+                            for (int x = 0; x < 64; x++) {
+                                wb_px q = f->px[y*f->w + x];
+                                float s = q.r+q.g+q.b;
+                                if (s > mx) mx = s;
+                            }
+                        if (mx > 2.0f) ok++;   /* bright glyph found */
+                        wb_frame_free(f);
+                    }
+                    CHECK(ok >= 3,
+                          "ttl: title visible across the timeline");
+                    printf("         ttl: bright frames %d/4\n", ok);
+                    wb_node_destroy(comp);   /* owns tr + txt */
+                }
+            }
+        }
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 107 probe: text node alone */
+    {
+        wb_node *txt = wb_node_source_text("BIG MAC", 2,
+                                          1,1,1,1, 64, 64);
+        CHECK(txt != NULL, "tprobe: built");
+        if (txt) {
+            wb_frame *f = wb_node_pull(txt, 0.5, 0, 0, 64, 64);
+            CHECK(f != NULL, "tprobe: pulled");
+            if (f) {
+                float mx = 0; int bright = 0;
+                for (int i = 0; i < 64*64; i++) {
+                    float s = f->px[i].r+f->px[i].g+f->px[i].b;
+                    if (s > mx) mx = s;
+                    if (s > 2.0f) bright++;
+                }
+                printf("         tprobe: max=%.2f bright=%d\n",
+                       mx, bright);
+                wb_frame_free(f);
+            }
+            wb_node_destroy(txt);
+        }
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

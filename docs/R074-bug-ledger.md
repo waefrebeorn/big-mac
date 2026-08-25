@@ -25,12 +25,12 @@
 ## B. Color science
 21. All blending done in sRGB space, not linear light (dark blends wrong)  **[FIXED]**
 22. glow adds excess*color without clamping (values >1 wrap in PPM)  **[FIXED]**
-23. primary grade applies gain BEFORE gamma (order: lift,gain,gamma — should be lift,gamma,gain per ASC)
+23. primary grade applies gain BEFORE gamma (order: lift,gain,gamma — should be lift,gamma,gain per ASC)  **[FIXED]**
 24. white balance temp multiplies after grade ops (WB should be first)  **[FIXED]**
 25. HSL hue_shift parsed but unimplemented ((void)hsh) — parameter is dead  **[FIXED]**
 26. HSL selection softness linear, no smoothstep (banding at edges)  **[FIXED]**
 27. curves op maps v>hig into 0.75..1 band but clamps u2>=0 — highlights above wht fold back instead of clipping
-28. chroma spill suppression runs even when pixel was fully keyed (a==0 pixels get spill math)
+28. chroma spill suppression runs even when pixel was fully keyed (a==0 pixels get spill math)  **[FIXED]**
 29. luma key uses Rec.709 weights on sRGB values (should be linear-light luma)  **[FIXED]**
 30. key_tol default falls back to `gain` param — semantic collision with exposure gain  **[FIXED]**
 31. sat computed around Rec.709 luma of sRGB values (same linear-light issue)  **[FIXED]**
@@ -44,7 +44,7 @@
 37. blur executes entire 2-pass box PER PIXEL — O(n^2); must hoist to per-frame passes  **[FIXED]**
 38. blur allocates a full temp frame EVERY pixel iteration (malloc storm)  **[FIXED]**
 39. comp_pull 4096x4096 calloc = 64MB per pull at default (massive)  **[FIXED]**
-40. eff_pull giant if-else chain per pixel — dispatch should be outside loops
+40. eff_pull giant if-else chain per pixel — dispatch should be outside loops  **[FIXED]**
 41. trans_pull mapf pulled even for ops that never read it
 42. cache node unbounded growth risk (max_frames unchecked on realloc path?)
 43. wb_node_param_value called multiple times per pixel for same params (hoist!)  **[FIXED]**
@@ -57,7 +57,7 @@
 
 ## D. Correctness / logic
 50. D78 debug fprintf(stderr) left inside hot HSL pixel loop (spams + slows)  **[FIXED]**
-51. gain param override: `kv != 0 || e->gain == 0` — cannot set gain to exactly 0 when static nonzero
+51. gain param override: `kv != 0 || e->gain == 0` — cannot set gain to exactly 0 when static nonzero  **[FIXED]**
 52. same "gain" param doubles as blur radius fallback — semantic overload  **[FIXED]**
 53. trans_pull `if (!a) return b;` leaks a's siblings when one input missing mid-graph  **[FIXED]**
 54. transition duration relative to t=0 only — no start-time offset param (can't place at t=5s)  **[FIXED]**
@@ -65,7 +65,7 @@
 56. split-flap cw/ch integer div rounds down — last row/col cells wider than others  **[FIXED]**
 57. checkerboard cell size fixed 16px — not proportional to resolution  **[FIXED]**
 58. venetian strips fixed 16px — same issue  **[FIXED]**
-59. clock wipe hand anchored at frame center only
+59. clock wipe hand anchored at frame center only  **[FIXED]**
 60. barn-door dir field reused for axis AND direction semantics unclearly (overload)
 61. zoom-blur tap count hardcoded 5; spin-blur too — no quality param
 62. directional-blur wipe only works horizontally (hardcoded x taps)
@@ -76,17 +76,17 @@
 67. text anim modes 3/4 use d->anim_dur but mode 1 typewriter divides by same dur (ok) yet mode 2 slide uses w/2 fixed
 68. text cx param overrides x but y has no cy equivalent (asymmetric API)  **[FIXED]**
 69. wb_frame_set_gpu flag set but GPU path never frees differently (leak pattern ready)
-70. roi_clip negative rx adjustment can produce rw<0 before final check (works but fragile)
+70. roi_clip negative rx adjustment can produce rw<0 before final check (works but fragile)  **[FIXED]**
 
 ## E. API / plumbing
 71. wb_transition_preset returns node with params bound to internal tracks — caller can't retime them
-72. preset 2 silently overrides requested duration (<1.5 forced) — surprising behavior
+72. preset 2 silently overrides requested duration (<1.5 forced) — surprising behavior  **[FIXED]**
 73. no wb_node_set_start_time — all timing baked at t=0 origin  **[FIXED]**
 74. wb_compositor_export_mp4 uses system() — no error capture, shell injection via path possible  **[FIXED]**
 75. mp4 export fps/dur ints only; no audio-video sync guarantee beyond -shortest
 76. PPM sequence filenames %05d overflow after 99999 frames (silent overwrite)
 77. export_mp4 mkdir race between concurrent exports (pid-suffixed but rmdir non-empty fails silently)  **[FIXED]**
-78. no way to query a node's output dimensions before pulling (needed for plumbing)
+78. no way to query a node's output dimensions before pulling (needed for plumbing)  **[FIXED]**
 79. wb_node_add_param returns slot idx but -1 on dup? duplicates silently replace (undocumented)
 80. param tracks owned by caller but node keeps raw pointers — dangling if caller frees early
 81. transition dir field overloaded (wipe direction vs barn-door axis)
@@ -102,7 +102,7 @@
 
 ## F. Demo-facing polish
 91. showcase renders at 64x64 (blocky) — needs 640x480+ path  **[FIXED]**
-92. title scale=2 tiny at real resolutions — needs resolution-relative sizing
+92. title scale=2 tiny at real resolutions — needs resolution-relative sizing  **[FIXED]**
 93. soundtrack is bare sine — no envelope, clicks at boundaries  **[FIXED]**
 94. scene colors are flat fields — no gradients/patterns to show grading  **[FIXED]**
 95. no fade-from-black at demo start / fade-to-black at end  **[FIXED]**

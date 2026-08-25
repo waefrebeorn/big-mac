@@ -1447,7 +1447,8 @@ int wb_compositor_export_mp4_audio(wb_node *trans, const char *mp4_path,
         char pcmd[1280];
         snprintf(pcmd, sizeof pcmd,
             "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
-            "-i '%s' -frames:v 1 '%s.png'", mp4_path, mp4_path);
+            "-ss %.2f -i '%s' -frames:v 1 '%s.png'",
+            dur * 0.5, mp4_path, mp4_path);   /* R074: mid-frame poster */
         system(pcmd);
     }
     /* clean temp frames */

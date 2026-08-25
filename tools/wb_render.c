@@ -11,12 +11,67 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <unistd.h>
 
 #include "wbus.h"
 #include "wb_internal.h"
 #include "wbus/wbus_lufs.h"
 #include "wbus/wbus_compositor.h"
 #include "wbus/wbus_limiter.h"
+
+/* R074 hop 110: showcase renderer — full demo at 640x360. */
+#define SC_W 640
+#define SC_H 360
+int wb_render_showcase(const char *mp4) {
+    wb_node *s1 = wb_node_source_color(0.9f,0.2f,0.1f,1,SC_W,SC_H);
+    wb_node *s2 = wb_node_source_color(0.1f,0.8f,0.3f,1,SC_W,SC_H);
+    wb_node *s3 = wb_node_source_color(0.2f,0.3f,0.9f,1,SC_W,SC_H);
+    wb_node *t1 = wb_transition_preset(1, 1.0);
+    wb_node *t2 = wb_transition_preset(3, 1.0);
+    wb_node *txt = wb_node_source_text("BIG MAC", 8,
+                                      1,1,1,1, SC_W, SC_H);
+    wb_node *comp = wb_node_composite();
+    if (!s1||!s2||!s3||!t1||!t2||!txt||!comp) return 1;
+    wb_node_source_text_anim(txt, 4, 2.5);
+    wb_param_track *tcy = wb_param_track_create();
+    wb_param_track_set(tcy, 0.0, 0.42f, WB_KF_HOLD);
+    wb_node_add_param(txt, "cy", tcy);
+    wb_param_track *tcx = wb_param_track_create();
+    wb_param_track_set(tcx, 0.0, 0.16f, WB_KF_HOLD);
+    wb_node_add_param(txt, "cx", tcx);
+    wb_transition_add(t1, s1);
+    wb_transition_add(t1, s2);
+    wb_transition_add(t2, t1);
+    wb_transition_add(t2, s3);
+    wb_composite_add(comp, t2);
+    wb_composite_add(comp, txt);
+
+    uint32_t nf = (uint32_t)(WB_SAMPLE_RATE * 4.0);
+    wb_sample *buf = malloc(nf*2*sizeof(wb_sample));
+    if (!buf) return 1;
+    for (uint32_t i = 0; i < nf; i++) {
+        double tt = (double)i / WB_SAMPLE_RATE;
+        float f0 = tt<1.33f?294:(tt<2.66f?370:494);
+        float v = sinf(2*M_PI*f0*tt)*0.28f
+                + sinf(2*M_PI*f0*0.5f*tt)*0.10f;
+        double tf = fmod(tt, 1.333);
+        float env = (float)(tf<0.05 ? tf/0.05 :
+                     tf>1.2 ? (1.333-tf)/0.133 : 1.0);
+        v *= env;
+        buf[i*2]=(wb_sample)v; buf[i*2+1]=(wb_sample)v;
+    }
+    char wavp[512];
+    snprintf(wavp, sizeof wavp, "/tmp/showcase_audio_%d.wav", (int)getpid());
+    wb_wav_write_pcm16(wavp, buf, nf, 2, WB_SAMPLE_RATE);
+    free(buf);
+
+    int rc = wb_compositor_export_mp4_audio(comp, mp4, wavp,
+                                            4.0, 15, SC_W, SC_H);
+    remove(wavp);
+    wb_node_destroy(comp);   /* owns t1/t2/txt */
+    wb_node_destroy(s1); wb_node_destroy(s2); wb_node_destroy(s3);
+    return rc == 0 ? 0 : 1;
+}
 
 int main(int argc, char **argv) {
     fprintf(stderr, "Big Mac renderer %s\n", WB_VERSION);
@@ -25,6 +80,18 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++)
         if (strcmp(argv[i], "--lufs") == 0 && i + 1 < argc)
             lufs_target = atof(argv[++i]);
+    /* R074 hop 110: --showcase — full demo render at 640x360 */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--showcase") == 0) {
+            const char *mp4 = (i+1 < argc) ? argv[i+1]
+                            : "/tmp/bigmac_showcase_v2.mp4";
+            extern int wb_render_showcase(const char *mp4);
+            int rc2 = wb_render_showcase(mp4);
+            printf("Showcase render rc=%d\n", rc2);
+            return rc2;
+        }
+    }
+
     /* R073 hop 103 / R074 fix: --transition-frames OP N PREFIX
      * [--dur S] [--size WxH] — configurable duration + resolution. */
     double seq_dur = 2.0;

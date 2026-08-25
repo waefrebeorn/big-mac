@@ -139,6 +139,12 @@ void wb_node_destroy(wb_node *n) {
             wb_node_destroy(n->inputs[i]);
     }
     free(n->inputs);
+    /* R074 hop 143 (#71/#80): release owned tracks. */
+    if (n->owns_params) {
+        for (int i = 0; i < n->n_params; i++)
+            if (n->params && n->params[i])
+                wb_param_track_free(n->params[i]);
+    }
     free(n->params);
     free(n->param_lanes);
     free(n);
@@ -193,6 +199,16 @@ int wb_node_add_param(wb_node *n, const char *name, wb_param_track *tr) {
     if (name) snprintf(n->param_names[n->n_params], sizeof(n->param_names[0]), "%s", name);
     else n->param_names[n->n_params][0] = '\0';
     return n->n_params++;
+}
+
+/* R074 hop 143 (#71/#80): node-owned param track — the node frees it
+ * in wb_node_destroy. Fixes the dangling-pointer hazard where callers
+ * had to keep tracks alive for the node's whole life. */
+int wb_node_add_param_owned(wb_node *n, const char *name,
+                            wb_param_track *tr) {
+    int idx = wb_node_add_param(n, name, tr);
+    if (idx >= 0) n->owns_params = 1;
+    return idx;
 }
 
 int wb_node_add_param_lane(wb_node *n, const char *name, wb_automation_lane *lane) {
@@ -2583,7 +2599,9 @@ wb_node *wb_transition_preset(int preset, double duration_secs) {
     for (int i = 0; i < nps; i++) {
         wb_param_track *tp = wb_param_track_create();
         wb_param_track_set(tp, 0.0, ps[i].v, WB_KF_HOLD);
-        wb_node_add_param(n, ps[i].name, tp);
+        /* R074 hop 143 (#71): preset tracks are node-owned — caller
+         * never has to free internals. */
+        wb_node_add_param_owned(n, ps[i].name, tp);
     }
     return n;
 }

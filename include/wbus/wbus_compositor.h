@@ -82,6 +82,7 @@ struct wb_node {
      * A param slot is fed by EITHER a keyframed track OR a session
      * automation lane (both are the same unified bus; track overrides lane). */
     wb_param_track **params;
+    int     owns_params;   /* #71/#80: node frees its tracks */
     wb_automation_lane **param_lanes;
     int   n_params;
     char  param_names[16][32];

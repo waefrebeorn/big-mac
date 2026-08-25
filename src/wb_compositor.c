@@ -399,12 +399,20 @@ static wb_frame *eff_pull(wb_node *self, double t,
                              - wb_node_param_value(self, "win_cy", t);
                     float ws = wb_node_param_value(self, "win_soft", t);
                     if (ws <= 0.0f) ws = 0.15f;
-                    /* R073 hop 78: win_shape 1 = rect (Chebyshev) */
+                    /* R073 hop 79: win_shape 1=rect, 2=ellipse, else circle */
+                    float wsh = wb_node_param_value(self,
+                                                    "win_shape", t);
                     float dist;
-                    if (wb_node_param_value(self, "win_shape", t) > 0.5f)
-                        dist = fmaxf(fabsf(nx), fabsf(ny));
-                    else
-                        dist = sqrtf(nx*nx + ny*ny);
+                    if (wsh > 1.5f) {
+                        /* ellipse: normalized elliptical radius */
+                        float ex = nx / (wr > 1e-3f ? wr : 1e-3f);
+                        float ey = ny / (wr > 1e-3f ? wr : 1e-3f);
+                        dist = hypotf(ex, ey) * wr;
+                    } else if (wsh > 0.5f) {
+                        dist = fmaxf(fabsf(nx), fabsf(ny));   /* rect */
+                    } else {
+                        dist = sqrtf(nx*nx + ny*ny);          /* circle */
+                    }
                     wsel = 1.0f - (dist - wr) / ws;
                     if (wsel < 0.0f) wsel = 0.0f;
                     if (wsel > 1.0f) wsel = 1.0f;

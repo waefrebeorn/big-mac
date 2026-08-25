@@ -1304,6 +1304,52 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 79: elliptical power window (shape=2; circular when
+     * win_r is used as both semi-axes — plumbing for future aniso). */
+    {
+        wb_node *src = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *cv = wb_node_effect(11, 0.0f);
+        wb_param_track *th = wb_param_track_create();
+        wb_param_track_set(th, 0.0, 0.0f, WB_KF_HOLD);
+        wb_param_track *tw = wb_param_track_create();
+        wb_param_track_set(tw, 0.0, 30.0f, WB_KF_HOLD);
+        wb_param_track *ts = wb_param_track_create();
+        wb_param_track_set(ts, 0.0, 0.2f, WB_KF_HOLD);
+        wb_param_track *twin = wb_param_track_create();
+        wb_param_track_set(twin, 0.0, 0.25f, WB_KF_HOLD);
+        wb_param_track *tsh = wb_param_track_create();
+        wb_param_track_set(tsh, 0.0, 2.0f, WB_KF_HOLD);   /* ellipse */
+        wb_param_track *tcx = wb_param_track_create();
+        wb_param_track_set(tcx, 0.0, 0.5f, WB_KF_HOLD);
+        wb_param_track *tcy = wb_param_track_create();
+        wb_param_track_set(tcy, 0.0, 0.5f, WB_KF_HOLD);
+        wb_node_add_param(cv, "hue_c", th);
+        wb_node_add_param(cv, "hue_w", tw);
+        wb_node_add_param(cv, "sec_sat", ts);
+        wb_node_add_param(cv, "win_r", twin);
+        wb_node_add_param(cv, "win_shape", tsh);
+        wb_node_add_param(cv, "win_cx", tcx);
+        wb_node_add_param(cv, "win_cy", tcy);
+        cv->inputs[0] = src;
+        wb_frame *f = cv ? wb_node_pull(cv, 0.0, 0, 0, 64, 64) : NULL;
+        CHECK(f != NULL, "ell: pulled");
+        if (f) {
+            wb_px pin = f->px[32*64+32];
+            CHECK(pin.r < 0.6f,
+                  "ell: elliptical window desaturates center");
+            printf("         ell: in-r=%.2f\n", pin.r);
+            wb_frame_free(f);
+        }
+        if (cv) wb_node_destroy(cv);
+        if (src) wb_node_destroy(src);
+        wb_param_track_free(th); wb_param_track_free(tw);
+        wb_param_track_free(ts); wb_param_track_free(twin);
+        wb_param_track_free(tsh); wb_param_track_free(tcx);
+        wb_param_track_free(tcy);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

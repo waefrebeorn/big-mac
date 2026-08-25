@@ -44,6 +44,8 @@ param bus (`wb_node_add_param`). Gate: `build/wb_test_compositor`.
 | 16 | Directional-blur wipe — slide with motion smear trailing the edge |
 | 17 | Split-flap grid dissolve — 8x8 cells flip in a diagonal wave with hash jitter |
 | 18 | Ripple dissolve — circular wave + echo ring expands from center |
+- Hop 100 milestone: end-to-end graph (preset transition -> windowed
+  HSL secondary) pulled and verified as one chain.
 - Cut-on-beat: `wb_session_snap_to_beat(t, bpm)` snaps any transition
   midpoint to the session's nearest beat (pairs with the hop-15 estimator)
 - Batch beat-snapped transitions: `wb_session_batch_transitions_beat`

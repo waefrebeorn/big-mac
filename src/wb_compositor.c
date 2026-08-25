@@ -1351,6 +1351,71 @@ wb_node *wb_node_source_text(const char *text, int scale,
     return n;
 }
 
+/* ---- R074 hop 111: SCENE source (gradient + moving band) -------------- */
+typedef struct {
+    int w, h;
+    float r0,g0,b0, r1,g1,b1;   /* top / bottom gradient colors */
+    int mode;                   /* 0 = vertical, 1 = radial */
+    float band_speed;           /* moving highlight speed (cycles/sec) */
+} src_scene_t;
+
+static wb_frame *src_scene_pull(wb_node *self, double t,
+                                int rx, int ry, int rw, int rh, int phase) {
+    (void)phase;
+    src_scene_t *s = self->user;
+    wb_frame *f = wb_frame_alloc(s->w, s->h);
+    if (!f) return NULL;
+    float cx = s->w * 0.5f, cy = s->h * 0.5f;
+    float maxd = sqrtf(cx*cx + cy*cy);
+    float band = sinf(2.0f*3.14159265f*s->band_speed*t) * 0.5f + 0.5f;
+    for (int y = 0; y < s->h; y++) {
+        float v = (float)y / (s->h > 1 ? s->h-1 : 1);
+        for (int x = 0; x < s->w; x++) {
+            float u = (float)x / (s->w > 1 ? s->w-1 : 1);
+            float m;
+            if (s->mode == 1) {
+                float dx = x - cx, dy = y - cy;
+                m = sqrtf(dx*dx + dy*dy) / maxd;
+            } else {
+                m = v;
+            }
+            float k = m*m*(3-2*m);          /* smoothstep the gradient */
+            /* diagonal light sweep adds life without a blur pass */
+            float sweep = 0.05f * (float)sin((u + v*0.5f + band)
+                          * 3.14159265f);   /* R074: subtler sweep */
+            float rr = s->r0 + (s->r1-s->r0)*k + sweep;
+            float gg = s->g0 + (s->g1-s->g0)*k + sweep;
+            float bb = s->b0 + (s->b1-s->b0)*k + sweep;
+            if (rr<0) rr=0; if (rr>1) rr=1;
+            if (gg<0) gg=0; if (gg>1) gg=1;
+            if (bb<0) bb=0; if (bb>1) bb=1;
+            wb_px *q = &f->px[y*s->w + x];
+            q->r = rr; q->g = gg; q->b = bb; q->a = 1.0f;
+        }
+    }
+    f->roi_x = 0; f->roi_y = 0; f->roi_w = s->w; f->roi_h = s->h;
+    return f;
+}
+static void src_scene_free(wb_node *n) { free(n->user); }
+
+wb_node *wb_node_source_scene(float r0, float g0, float b0,
+                              float r1, float g1, float b1,
+                              int mode, float band_speed,
+                              int w, int h) {
+    wb_node *n = wb_node_create(WB_NODE_SOURCE, "src_scene");
+    if (!n) return NULL;
+    src_scene_t *s = calloc(1, sizeof(*s));
+    if (!s) { wb_node_destroy(n); return NULL; }
+    s->w = w > 0 ? w : 320; s->h = h > 0 ? h : 240;
+    s->r0=r0; s->g0=g0; s->b0=b0; s->r1=r1; s->g1=g1; s->b1=b1;
+    s->mode = mode; s->band_speed = band_speed;
+    n->user = s;
+    n->pull = src_scene_pull;
+    n->free = src_scene_free;
+    wb_node_set_format(n, s->w, s->h);
+    return n;
+}
+
 /* R073 hop 101: write a frame as a binary PPM (P6) image. */
 int wb_frame_write_ppm(const wb_frame *f, const char *path) {
     if (!f || !path || f->w <= 0 || f->h <= 0) return -1;

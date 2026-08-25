@@ -23,28 +23,59 @@
 #define SC_W 640
 #define SC_H 360
 int wb_render_showcase(const char *mp4) {
-    wb_node *s1 = wb_node_source_color(0.9f,0.2f,0.1f,1,SC_W,SC_H);
-    wb_node *s2 = wb_node_source_color(0.1f,0.8f,0.3f,1,SC_W,SC_H);
-    wb_node *s3 = wb_node_source_color(0.2f,0.3f,0.9f,1,SC_W,SC_H);
-    wb_node *t1 = wb_transition_preset(1, 1.0);
-    wb_node *t2 = wb_transition_preset(3, 1.0);
+    /* R074: gradient scene sources with light sweeps */
+    wb_node *s1 = wb_node_source_scene(0.95f,0.35f,0.10f,
+                                       0.45f,0.05f,0.15f,
+                                       0, 0.12f, SC_W,SC_H);
+    wb_node *s2 = wb_node_source_scene(0.05f,0.55f,0.30f,
+                                       0.00f,0.15f,0.35f,
+                                       1, 0.18f, SC_W,SC_H);
+    wb_node *s3 = wb_node_source_scene(0.10f,0.20f,0.75f,
+                                       0.30f,0.05f,0.50f,
+                                       0, 0.10f, SC_W,SC_H);
+    wb_node *t1 = wb_transition_preset(1, 1.0);   /* News wipe */
+    wb_node *t2 = wb_transition_preset(3, 1.0);   /* VJ zoom-blur */
+    /* two titles: main + subtitle */
     wb_node *txt = wb_node_source_text("BIG MAC", 8,
                                       1,1,1,1, SC_W, SC_H);
+    wb_node *sub = wb_node_source_text("C11 VIDEO COMPOSITOR", 3,
+                                      0.85f,0.85f,0.9f,1, SC_W, SC_H);
     wb_node *comp = wb_node_composite();
-    if (!s1||!s2||!s3||!t1||!t2||!txt||!comp) return 1;
-    wb_node_source_text_anim(txt, 4, 2.5);
+    if (!s1||!s2||!s3||!t1||!t2||!txt||!sub||!comp) return 1;
+    wb_node_source_text_anim(txt, 4, 2.0);   /* full cycle in 2s */
+    wb_node_source_text_anim(sub, 2, 2.5);   /* slide-in */
     wb_param_track *tcy = wb_param_track_create();
-    wb_param_track_set(tcy, 0.0, 0.42f, WB_KF_HOLD);
+    wb_param_track_set(tcy, 0.0, 0.40f, WB_KF_HOLD);
     wb_node_add_param(txt, "cy", tcy);
     wb_param_track *tcx = wb_param_track_create();
     wb_param_track_set(tcx, 0.0, 0.16f, WB_KF_HOLD);
     wb_node_add_param(txt, "cx", tcx);
+    wb_param_track *tsy = wb_param_track_create();
+    wb_param_track_set(tsy, 0.0, 0.58f, WB_KF_HOLD);
+    wb_node_add_param(sub, "cy", tsy);
+    wb_param_track *tsx = wb_param_track_create();
+    wb_param_track_set(tsx, 0.0, 0.22f, WB_KF_HOLD);
+    wb_node_add_param(sub, "cx", tsx);
+    /* R074 fix: stagger transitions across the timeline via t_start —
+     * wipe at 0..1.33s, hold scene 2, zoom-blur at 1.9..3.16s */
+    {
+        wb_param_track *ts1 = wb_param_track_create();
+        wb_param_track_set(ts1, 0.0, 0.0f, WB_KF_HOLD);
+        wb_node_add_param(t1, "t_start", ts1);
+        wb_param_track *ts2 = wb_param_track_create();
+        wb_param_track_set(ts2, 0.0, 1.9f, WB_KF_HOLD);
+        wb_param_track *tdur2 = wb_param_track_create();
+        /* t2 dur stays 1.0 but starts at 1.9 */
+        wb_node_add_param(t2, "t_start", ts2);
+        (void)tdur2;
+    }
     wb_transition_add(t1, s1);
     wb_transition_add(t1, s2);
     wb_transition_add(t2, t1);
     wb_transition_add(t2, s3);
     wb_composite_add(comp, t2);
     wb_composite_add(comp, txt);
+    wb_composite_add(comp, sub);
 
     uint32_t nf = (uint32_t)(WB_SAMPLE_RATE * 4.0);
     wb_sample *buf = malloc(nf*2*sizeof(wb_sample));
@@ -68,7 +99,7 @@ int wb_render_showcase(const char *mp4) {
     int rc = wb_compositor_export_mp4_audio(comp, mp4, wavp,
                                             4.0, 15, SC_W, SC_H);
     remove(wavp);
-    wb_node_destroy(comp);   /* owns t1/t2/txt */
+    wb_node_destroy(comp);   /* owns t1/t2/txt/sub */
     wb_node_destroy(s1); wb_node_destroy(s2); wb_node_destroy(s3);
     return rc == 0 ? 0 : 1;
 }

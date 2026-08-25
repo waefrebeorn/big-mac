@@ -164,6 +164,13 @@ wb_node *wb_node_source_color(float r, float g, float b, float a, int w, int h);
 struct wb_anim;
 wb_node *wb_node_source_anim(struct wb_anim *anim, int w, int h);
 
+/* R074 hop 111: scene source — smoothstep gradient (vertical or radial)
+ * with a moving light sweep. Colors are top/bottom endpoints. */
+wb_node *wb_node_source_scene(float r0, float g0, float b0,
+                              float r1, float g1, float b1,
+                              int mode, float band_speed,
+                              int w, int h);
+
 /* R073 hop 44: title/text generator node (built-in 5x7 font). */
 wb_node *wb_node_source_text(const char *text, int scale,
                              float r, float g, float b, float a,

@@ -1869,6 +1869,37 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 98: split-flap grid dissolve (op 17) */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *tr = wb_node_transition(17, 2.0);
+        wb_transition_add(tr, ga);
+        wb_transition_add(tr, gb);
+        wb_frame *m = wb_node_pull(tr, 1.0, 0, 0, 64, 64);
+        CHECK(m != NULL, "flap: pulled mid");
+        if (m) {
+            int nB = 0;
+            for (int y = 0; y < 64; y += 4)
+                for (int x = 0; x < 64; x += 4)
+                    if (m->px[y*64+x].b > 0.5f) nB++;
+            CHECK(nB > 20 && nB < 236,
+                  "flap: mixed cells at midpoint");
+            wb_px tl = m->px[3*64+3];
+            wb_px br = m->px[60*64+60];
+            CHECK(tl.b > 0.9f, "flap: TL flips first");
+            CHECK(br.r > 0.9f, "flap: BR flips last");
+            printf("         flap: %d/256 B | tl b=%.2f | br r=%.2f\n",
+                   nB, tl.b, br.r);
+            wb_frame_free(m);
+        }
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

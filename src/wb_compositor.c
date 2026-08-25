@@ -1387,6 +1387,21 @@ static wb_frame *trans_pull(wb_node *self, double t,
                 if (bx >= 0 && bx < a->w) out->px[i] = pb;
                 else                      out->px[i] = pa;
             }
+        } else if (tr->op == 17) {
+            /* R073 hop 98: split-flap grid dissolve — 8x8 cells flip
+             * A->B in a diagonal wave (row+col) with per-cell hash
+             * jitter; deterministic, stateless. */
+            int cw = a->w / 8 > 0 ? a->w / 8 : 1;
+            int ch = a->h / 8 > 0 ? a->h / 8 : 1;
+            int col = px_i / cw, row = py_i / ch;
+            unsigned h = (unsigned)(col * 73856093u)
+                       ^ (unsigned)(row * 19349663u);
+            h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+            float jitter = ((float)(h & 0xFF) / 255.0f - 0.5f) * 0.2f;
+            float wave = (float)(row + col) / 14.0f;   /* 0..~1 */
+            float th = mM * 1.4f - wave - jitter;
+            if (th > 0.0f) { out->px[i] = pb; }
+            else           { out->px[i] = pa; }
         } else if (tr->op == 16) {
             /* R073 hop 97: directional-blur wipe — B slides in over A;
              * pixels near the moving edge average trailing taps along

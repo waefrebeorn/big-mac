@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdio.h>
 
 /* R074 hop 113 (G-SF001/002): raised caps + dynamic key growth.
  * Object count still bounded (pointer table) but far higher. */
@@ -628,4 +629,23 @@ void wb_anim_render_frame_blur(wb_anim *a, double t, float blend,
         state_rgba[i] = (uint8_t)(state_rgba[i]*(1.0f-blend)
                                   + fresh[i]*blend);
     free(fresh);
+}
+
+/* R074 hop 130 (G-SF041): grab a single frame to a PNG-less PPM file
+ * (screenshot API). Returns 0 on success. */
+int wb_anim_screenshot(wb_anim *a, double t, const char *path) {
+    if (!a || !path) return -1;
+    uint8_t *buf = malloc((size_t)a->w * a->h * 4);
+    if (!buf) return -1;
+    wb_anim_render_frame(a, t, buf);
+    FILE *f = fopen(path, "wb");
+    if (!f) { free(buf); return -1; }
+    fprintf(f, "P6\n%d %d\n255\n", a->w, a->h);
+    for (int i = 0; i < a->w * a->h; i++) {
+        uint8_t rgb[3] = { buf[i*4+0], buf[i*4+1], buf[i*4+2] };
+        fwrite(rgb, 1, 3, f);
+    }
+    fclose(f);
+    free(buf);
+    return 0;
 }

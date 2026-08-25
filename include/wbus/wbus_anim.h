@@ -94,6 +94,8 @@ void wb_anim_render_frame_aa(wb_anim *a, double t, uint8_t *out_rgba);
 /* G-SF036: temporal accumulation motion blur (caller-owned state). */
 void wb_anim_render_frame_blur(wb_anim *a, double t, float blend,
                                uint8_t *state_rgba);
+/* G-SF041: frame grab to PPM. */
+int wb_anim_screenshot(wb_anim *a, double t, const char *path);
 /* G-SF026: render-resolution override. */
 int wb_anim_set_resolution(wb_anim *a, int w, int h);
 int wb_anim_key_move(wb_anim *a, int obj, int key_idx, double new_t);

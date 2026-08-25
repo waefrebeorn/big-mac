@@ -34,6 +34,7 @@ param bus (`wb_node_add_param`). Gate: `build/wb_test_compositor`.
 | 6 | Noise dissolve (deterministic per-pixel hash jitter ±15%) |
 | 7 | Map dissolve (third input's luma = per-pixel threshold) |
 | 8 | Gradient wipe — grad_dir 0=linear L→R, 1=radial, 2=diagonal TL→BR, 3=clock sweep from 12; grad_feather edge; user matte overrides built-in gradient |
+| 9 | Barn-door wipe — symmetric center strip grows with progress; dir picks axis; feathered edges |
 - R073 hop 83: the third (map) input is optional for ALL transition ops —
   its Rec.709 luma modulates per-pixel progress (luma-masked crossfade,
   wipe, iris, slide, push, noise dissolve); op 7 keeps hard threshold. |

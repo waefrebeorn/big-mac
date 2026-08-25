@@ -32,6 +32,7 @@ struct wb_rast_ctx {
 
     /* camera */
     float rx, ry, rz, dist, y_off;
+    float focal;         /* R074 hop 120 (G-SF007): FOV control */
 
     int cull;
     int wireframe;       /* R074 hop 118 (G-SF034) */
@@ -43,6 +44,7 @@ struct wb_rast_ctx {
 wb_rast_ctx *wb_rast_create(int w, int h) {
     if (w <= 0 || h <= 0) return NULL;
     wb_rast_ctx *r = calloc(1, sizeof(*r));
+    if (r) r->focal = 300.0f;
     if (!r) return NULL;
     r->w = w; r->h = h;
     r->dist = 6.0f;
@@ -109,6 +111,9 @@ void wb_rast_set_specular(wb_rast_ctx *r, float strength) {
     if (!r) return;
     r->spec = strength < 0 ? 0 : (strength > 1 ? 1 : strength);
 }
+void wb_rast_set_focal(wb_rast_ctx *r, float focal) {
+    if (r) r->focal = focal > 10.0f ? focal : (focal < -10.0f ? -focal : 300.0f);
+}
 void wb_rast_set_wireframe(wb_rast_ctx *r, int on) {
     if (r) r->wireframe = on;
 }
@@ -136,7 +141,7 @@ static void project_vert(wb_rast_ctx *r, int i) {
     float zd = z2 + r->dist;
     if (zd < 0.1f) zd = 0.1f;
     r->sz[i] = zd;
-    float focal = 300.0f;                       /* matches wb_cgi projection */
+    float focal = r->focal > 0 ? r->focal : 300.0f;  /* G-SF007: settable */
     r->sx[i] = x3 * focal / zd + (float)r->w * 0.5f;
     r->sy[i] = y3 * focal / zd + (float)r->h * 0.6f + r->y_off;
 }

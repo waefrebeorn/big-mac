@@ -6,15 +6,15 @@ failure, missing feature, and quality gap found on the way is a gap.
 ## A. wb_anim / 3D core (1-25)
 1. G-SF001 [FIXED hop113] WB_ANIM_MAX_OBJS=32 hard cap — demo needed 46 objects; silent -1 drops **[FIXED]**
 2. G-SF002 [FIXED hop113] WB_ANIM_MAX_KEYS=64/object — long flights need hundreds **[FIXED]**
-3. G-SF003 No per-channel keying — all 8 channels set together (pos/rot/scale coupled)
-4. G-SF004 No keyframe delete/move API
+3. G-SF003 No per-channel keying — all 8 channels set together (pos/rot/scale coupled) **[FIXED]**
+4. G-SF004 No keyframe delete/move API **[FIXED]**
 5. G-SF005 [FIXED hop113] No looping/wrap keys (floor strips need manual cycle hacks) **[FIXED]**
 6. G-SF006 No path/curve animation (bezier flight paths for ships)
 7. G-SF007 Camera has no FOV/focal control
 8. G-SF008 Camera can't be parented or shake-composed per-frame cleanly
 9. G-SF009 No look-at constraint (rings should face camera)
 10. G-SF010 No billboard sprites (explosions/stars should always face camera)
-11. G-SF011 Mesh primitives only box/sphere/cyl/cone/torus/plane/arrow — no capsule, no wedge
+11. G-SF011 Mesh primitives only box/sphere/cyl/cone/torus/plane/arrow — no capsule, no wedge **[FIXED]**
 12. G-SF012 No mesh boolean/CSG
 13. G-SF013 No vertex colors beyond single paint color per object
 14. G-SF014 No texture mapping / UV coords at all
@@ -39,7 +39,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 31. G-SF031 [FIXED hop113] No palette quantize render target (true SNES 256-color mode) **[FIXED]**
 32. G-SF032 No affine texture warp (the actual Mode-7 effect)
 33. G-SF033 [FIXED hop113] Z-buffer precision unconfigurable; far plane clipping at z=-160 observed **[FIXED]**
-34. G-SF034 No wireframe/debug draw mode
+34. G-SF034 No wireframe/debug draw mode **[FIXED]**
 35. G-SF035 No viewport scissor/region rendering
 36. G-SF036 No motion blur accumulation buffer
 37. G-SF037 No post-FX chain inside 3D (bloom on engine glow)
@@ -56,11 +56,11 @@ failure, missing feature, and quality gap found on the way is a gap.
 46. G-SF046 [FIXED hop113] wb_node_source_frame copies full frame every pull — no dirty flag **[FIXED]**
 47. G-SF047 [FIXED hop113] No direct anim->node bridge (demo hand-rolled rgba plumbing) **[FIXED]**
 48. G-SF048 Composite RoD fixed 4096 scan — no auto-size from first pull
-49. G-SF049 No layer transform on composited CGI (scale/pos of the 3D overlay)
+49. G-SF049 No layer transform on composited CGI (scale/pos of the 3D overlay) **[FIXED]**
 50. G-SF050 [FIXED hop113] HUD text drawn manually onto rgba — no text node over 3D **[FIXED]**
-51. G-SF051 No letterbox/safe-area guides
-52. G-SF052 No scanline emulator filter node (CRT look)
-53. G-SF053 No chromatic aberration / VHS node
+51. G-SF051 No letterbox/safe-area guides **[FIXED]**
+52. G-SF052 No scanline emulator filter node (CRT look) **[FIXED]**
+53. G-SF053 No chromatic aberration / VHS node **[FIXED]**
 54. G-SF054 Frame source has no fps/timebase metadata
 55. G-SF055 No audio-reactive hooks into 3D anim (CGI bands exist but not wired here)
 56. G-SF056 No per-object visibility track (blink/pulse objects)

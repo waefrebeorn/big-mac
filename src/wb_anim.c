@@ -43,6 +43,8 @@ typedef struct { double t; int id; } wb_anim_event_i;
 
 struct wb_anim {
     int w, h;
+    /* R074 hop 120 (G-SF056): visibility windows */
+    float vis_from[WB_ANIM_MAX_OBJS], vis_to[WB_ANIM_MAX_OBJS];
     /* R074 hop 114 (G-SF017): depth fog */
     int   fog_on;
     float fog_near, fog_far;
@@ -281,6 +283,10 @@ void wb_anim_render_frame(wb_anim *a, double t, uint8_t *out_rgba) {
     for (int i = 0; i < a->nobjs; i++) {
         wb_anim_obj *o = &a->objs[i];
         if (o->nkeys == 0) continue;   /* no keys: object not on stage yet */
+        /* G-SF056: visibility window */
+        if (a->vis_to[i] > a->vis_from[i]
+            && ((double)t < a->vis_from[i] || (double)t > a->vis_to[i]))
+            continue;
         wb_anim_keyframe kf;
         sample_obj(o, t, &kf);
         /* R055c: additively inherit parent's sampled translation */
@@ -466,5 +472,14 @@ int wb_anim_key_move(wb_anim *a, int obj, int key_idx, double new_t) {
     if (key_idx < 0 || key_idx >= o->nkeys) return -1;
     o->keys[key_idx].t = new_t;
     qsort(o->keys, o->nkeys, sizeof(wb_anim_keyframe), keyframe_cmp);
+    return 0;
+}
+
+/* R074 hop 120 (G-SF056): object visible only in [from,to] seconds
+ * (render skips it outside). to <= from clears the window. */
+int wb_anim_set_visible(wb_anim *a, int obj, double from, double to) {
+    if (!a || obj < 0 || obj >= a->nobjs) return -1;
+    a->vis_from[obj] = (float)from;
+    a->vis_to[obj]   = (float)to;
     return 0;
 }

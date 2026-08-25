@@ -74,6 +74,8 @@ int wb_anim_key_pos_z(wb_anim *a, int o, double t, float z, int ease);
 int wb_anim_key_rot_z(wb_anim *a, int o, double t, float rz, int ease);
 /* G-SF004: key editing. */
 int wb_anim_key_delete(wb_anim *a, int obj, int key_idx);
+/* G-SF056: visibility window. */
+int wb_anim_set_visible(wb_anim *a, int obj, double from, double to);
 int wb_anim_key_move(wb_anim *a, int obj, int key_idx, double new_t);
 
 #ifdef __cplusplus

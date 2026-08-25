@@ -788,6 +788,20 @@ static void comp_add(wb_node *comp, wb_node *child) {
     comp->inputs[comp->n_inputs++] = child;
 }
 
+/* R074 hop 120 (G-SF057): reorder composite layers. */
+void wb_composite_move_layer(wb_node *comp, int from, int to) {
+    if (!comp || from < 0 || from >= comp->n_inputs) return;
+    if (to < 0 || to >= comp->n_inputs || from == to) return;
+    wb_node *moved = comp->inputs[from];
+    if (from < to)
+        memmove(&comp->inputs[from], &comp->inputs[from+1],
+                (size_t)(to-from)*sizeof(wb_node*));
+    else
+        memmove(&comp->inputs[to+1], &comp->inputs[to],
+                (size_t)(from-to)*sizeof(wb_node*));
+    comp->inputs[to] = moved;
+}
+
 /* ---- R074 hop 119 (G-SF049): per-layer transform ---------------------- */
 typedef struct { float ox, oy, scale; } comp_layer_t;
 #define COMP_MAX_LAYERS 16

@@ -19,6 +19,7 @@
 #include "wbus/wbus_compositor.h"
 #include "wbus/wbus_mesh.h"
 #include "wbus/wbus_anim.h"
+#include "wbus/wbus_smf.h"
 #include "wbus/wb_ui.h"
 #include "wbus/wbus_limiter.h"
 
@@ -114,45 +115,38 @@ int wb_render_showcase(const char *mp4) {
 static int sf_render_loop(wb_anim *an, wb_node *comp, uint8_t *rgba,
                           const char *mp4, double dur, int fps,
                           int w, int h) {
-    char dir[256];
-    snprintf(dir, sizeof dir, "/tmp/sf_frames_%d", (int)getpid());
-    if (mkdir(dir, 0755) != 0 && errno != EEXIST) return -1;
+    /* R074 hop 115 (G-SF059): pipe PPM frames straight into ffmpeg via
+     * stdin — no temp files, no disk churn. */
+    char cmd[768];
+    snprintf(cmd, sizeof cmd,
+        "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
+        "-f image2pipe -framerate %d -i - -c:v libx264 -preset fast "
+        "-pix_fmt yuv420p -movflags +faststart '%s'", fps, mp4);
+    FILE *pp = popen(cmd, "w");
+    if (!pp) return -1;
     int nframes = (int)(dur * fps);
     for (int k = 0; k < nframes; k++) {
         double tt = (double)k / fps;
-        memset(rgba, 0, (size_t)w * h * 4);   /* transparent for comp */
-        wb_anim_render_frame(an, tt, rgba);
-        /* R074: HUD drawn straight onto the CGI frame */
-        /* HUD now via compositor text nodes — nothing here */
         wb_frame *f = wb_node_pull(comp, tt, 0, 0, w, h);
         if (!f) continue;
-        /* downscale-check not needed: comp RoD = max(bg,frame) = w,h */
-        char p[512];
-        snprintf(p, sizeof p, "%s/f_%05d.ppm", dir, k);
-        /* crop/verify: if f is bigger than w,h, take top-left ROI */
-        wb_frame tmp = *f;
-        if (f->w > w || f->h > h) {
-            tmp.w = w; tmp.h = h;
-            for (int y2 = 0; y2 < h; y2++)
-                memmove(f->px + y2*w, f->px + y2*f->w,
-                        (size_t)w * sizeof(wb_px));
+        fprintf(pp, "P6\n%d %d\n255\n", f->w, f->h);
+        for (int py = 0; py < f->h; py++) {
+            for (int px2 = 0; px2 < f->w; px2++) {
+                wb_px *q = &f->px[py * f->w + px2];
+                unsigned char rgb[3];
+                float rr = q->r; if (rr<0) rr=0; if (rr>1) rr=1;
+                float gg = q->g; if (gg<0) gg=0; if (gg>1) gg=1;
+                float bb = q->b; if (bb<0) bb=0; if (bb>1) bb=1;
+                /* composite over black using alpha */
+                rgb[0] = (unsigned char)(rr*255.0f*q->a + 0.5f);
+                rgb[1] = (unsigned char)(gg*255.0f*q->a + 0.5f);
+                rgb[2] = (unsigned char)(bb*255.0f*q->a + 0.5f);
+                fwrite(rgb, 1, 3, pp);
+            }
         }
-        wb_frame_write_ppm(&tmp, p);
         wb_frame_free(f);
     }
-    char cmd[1536];
-    snprintf(cmd, sizeof cmd,
-        "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
-        "-f image2 -framerate %d -i '%s/f_%%05d.ppm' "
-        "-c:v libx264 -pix_fmt yuv420p -movflags +faststart '%s'",
-        fps, dir, mp4);
-    int rc = system(cmd);
-    for (int k = 0; k < nframes; k++) {
-        char p[512];
-        snprintf(p, sizeof p, "%s/f_%05d.ppm", dir, k);
-        remove(p);
-    }
-    rmdir(dir);
+    int rc = pclose(pp);
     return rc == 0 ? 0 : -1;
 }
 
@@ -160,7 +154,7 @@ static int sf_render_loop(wb_anim *an, wb_node *comp, uint8_t *rgba,
 #define SF_W 640
 #define SF_H 360
 int wb_render_starfox(const char *mp4) {
-    const double DUR = 10.0;
+    const double DUR = 14.0;
     /* --- 3D animation: ship + rings + corridor ------------------- */
     wb_anim *an = wb_anim_create(SF_W, SF_H);
     if (!an) return 1;
@@ -255,6 +249,20 @@ int wb_render_starfox(const char *mp4) {
         wb_anim_key(an, ost, DUR, sx, sy, sz + 8.0f, 0,0,0, 1.0);
     }
 
+    /* GO BIG: second enemy wave in the back half */
+    for (int e = 0; e < 8; e++) {
+        char lx[8] = {-28,-14,22,34,-20,12,-10,30};
+        float ly[8] = {5,-6,7,-5,3,-9,11,4};
+        wb_mesh *ring2 = wb_mesh_torus(1.6f, 0.35f, 10, 6, 255,140,60);
+        int oe = wb_anim_add_object(an, ring2, 255,140,60);
+        double t0 = 8.1 + e * 1.05;
+        wb_anim_key_ease(an, oe, t0,
+                         lx[e], ly[e], -120.0f, 0,0,0, 1.5f, 0);
+        wb_anim_key_ease(an, oe, t0 + 1.6,
+                         lx[e]*0.25f, ly[e]*0.25f, -14.0f,
+                         0, (float)e*0.7f, 0, 0.45f, 1);
+    }
+
     /* G-SF018: ring-pop debris — small cubes bursting at each ring's
      * arrival moment (event-synced via wb_anim_event_add) */
     {
@@ -279,15 +287,67 @@ int wb_render_starfox(const char *mp4) {
         }
     }
 
+    /* GO BIG: BARREL ROLL at the drop (t=6..7): full 360° roll on every
+     * ship part. Keys: pre-roll pose, roll start, roll end. */
+    {
+        double r0 = 6.0, r1 = 7.2;
+        /* body */
+        wb_anim_key_ease(an, o_body, r0,
+                         0, 0.15f*(float)sin(r0*2.2), -r0*0.9f,
+                         0,0,0, 1.0, 0);
+        wb_anim_key_ease(an, o_body, (r0+r1)/2,
+                         0, 0.4f, -(float)(r0+r1)/2*0.9f - 0.5f,
+                         0, 0, 3.14159f, 1.15f, 1);   /* halfway: inverted */
+        wb_anim_key_ease(an, o_body, r1,
+                         0, 0.15f*(float)sin(r1*2.2), -r1*0.9f,
+                         0, 0, 6.28318f, 1.0, 1);
+        /* nose follows body z/bob with its own offset */
+        wb_anim_key_ease(an, o_nose, r0,
+                         0, 0.15f*(float)sin(r0*2.2), -r0*0.9f-1.4f,
+                         -1.5707f,0,0, 1.0, 0);
+        wb_anim_key_ease(an, o_nose, (r0+r1)/2,
+                         0.9f, 0.4f, -(float)(r0+r1)/2*0.9f-1.4f,
+                         -1.5707f, 3.14159f, 0, 1.15f, 1);
+        wb_anim_key_ease(an, o_nose, r1,
+                         0, 0.15f*(float)sin(r1*2.2), -r1*0.9f-1.4f,
+                         -1.5707f, 6.28318f, 0, 1.0, 1);
+        /* wings fold during the roll for style */
+        wb_anim_key_ease(an, o_wl, r0,
+                         -1.2f, 0.12f*(float)sin(r0*2.2), -r0*0.9f+0.3f,
+                         0,0,0.12f, 1.0, 0);
+        wb_anim_key_ease(an, o_wl, (r0+r1)/2,
+                         -0.5f, 0.55f, -(float)(r0+r1)/2*0.9f+0.3f,
+                         0, 3.14159f, 0.12f, 0.8f, 1);
+        wb_anim_key_ease(an, o_wl, r1,
+                         -1.2f, 0.12f*(float)sin(r1*2.2), -r1*0.9f+0.3f,
+                         0, 6.28318f, 0.12f, 1.0, 1);
+        wb_anim_key_ease(an, o_wr, r0,
+                         1.2f, 0.12f*(float)sin(r0*2.2), -r0*0.9f+0.3f,
+                         0,0,-0.12f, 1.0, 0);
+        wb_anim_key_ease(an, o_wr, (r0+r1)/2,
+                         0.5f, 0.55f, -(float)(r0+r1)/2*0.9f+0.3f,
+                         0, 3.14159f, -0.12f, 0.8f, 1);
+        wb_anim_key_ease(an, o_wr, r1,
+                         1.2f, 0.12f*(float)sin(r1*2.2), -r1*0.9f+0.3f,
+                         0, 6.28318f, -0.12f, 1.0, 1);
+    }
+
     /* G-SF017: space fog — distant rings fade into the void */
     wb_anim_set_fog(an, -25.0f, -100.0f, 10, 8, 30);
 
     /* camera chase: slight rise + shake-free dolly */
     wb_anim_set_camera(an, 0.28f, 0.0f, 26.0f);
-    for (double ct = 0; ct <= DUR; ct += 1.0)
+    for (double ct = 0; ct <= DUR; ct += 1.0) {
+        /* GO BIG: camera ORBITS the ship during 6..9s (the spin section) */
+        float ry = 0;
+        if (ct > 6.0 && ct < 9.0) {
+            float u = (float)((ct - 6.0) / 3.0);
+            ry = 6.28318f * u;               /* full 360° orbit */
+        }
         wb_anim_key_camera(an, ct, 0.28f,
-                           6.0f*(float)sin(ct*0.7),
+                           ry + 6.0f*(float)sin(ct*0.7),
                            26.0f + 1.2f*(float)sin(ct*1.3));
+    }
 
     printf("sf: %d objects, %d tris total\n",
            wb_anim_object_count(an), 0);
@@ -329,8 +389,53 @@ int wb_render_starfox(const char *mp4) {
     wb_node *dth = wb_node_effect_dither(6);
     if (!dth) return 1;
     dth->inputs[0] = comp;
-    return sf_render_loop(an, dth, rgba, mp4, DUR, 15, SF_W, SF_H);
+    return sf_render_loop(an, dth, rgba, mp4, DUR, 24, SF_W, SF_H);
 }
+
+/* R074 hop 115 (G-SF061 end-to-end): render a .mid through the ENGINE
+ * synth into a wav — the demo soundtrack comes from our own loader. */
+static int sf_render_audio(const char *mid, const char *wav) {
+    wb_smf *sm = wb_smf_load(mid);
+    if (!sm) { fprintf(stderr, "sf-audio: SMF load failed\n"); return 1; }
+    int nn = wb_smf_note_count(sm);
+    const wb_note *ns = wb_smf_notes(sm);
+    double dur = wb_smf_duration(sm) + 1.0;
+
+    wb_session *sess = wb_session_create();
+    if (!sess) return 1;
+    /* lead + bass on one instrument track; drums channel folded in */
+    wb_track *tr = wb_session_add_track(sess, "theme", WB_TRACK_KIND_INSTR);
+    if (!tr) return 1;
+    for (int i = 0; i < nn; i++) {
+        int pitch = ns[i].pitch;
+        if (pitch == 36 || pitch == 38)
+            pitch = (pitch == 36) ? 36 : 42;   /* map drum kit notes */
+        /* SMF notes are seconds; engine timeline is SAMPLES */
+        wb_session_add_note(tr, ns[i].start * 44100.0,
+                            ns[i].dur * 44100.0,
+                            pitch, ns[i].vel);
+        tr->volume = 1.0f;
+    }
+    sess->length = dur * 44100.0;   /* song length in samples */
+    wb_engine *eng = wb_engine_create();
+    if (!eng) return 1;
+    uint32_t sr = 44100;
+    uint32_t frames = (uint32_t)(dur * sr) & ~1u;
+    wb_sample *mix = malloc(sizeof(wb_sample) * frames * 2);
+    if (!mix) return 1;
+    if (wb_engine_render_session(eng, sess, &mix, &frames) != 0) {
+        fprintf(stderr, "sf-audio: engine render failed\n");
+        return 1;
+    }
+    int rc = wb_wav_write_pcm16(wav, mix, frames, 2, sr);
+    printf("sf-audio: %d notes -> %.1fs wav (%s)\n", nn,
+           frames / (double)sr, rc == 0 ? "ok" : "WAV FAIL");
+    free(mix);
+    wb_engine_destroy(eng);
+    wb_smf_free(sm);
+    return rc;
+}
+
 
 int main(int argc, char **argv) {
     fprintf(stderr, "Big Mac renderer %s\n", WB_VERSION);
@@ -339,6 +444,29 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++)
         if (strcmp(argv[i], "--lufs") == 0 && i + 1 < argc)
             lufs_target = atof(argv[++i]);
+    /* R074 hop 115 (G-SF061): --smfcheck FILE */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--smfcheck") == 0 && i+1 < argc) {
+            wb_smf *sm = wb_smf_load(argv[i+1]);
+            if (!sm) { printf("SMF parse FAIL\n"); return 1; }
+            printf("SMF OK: %d notes, %.2fs\n",
+                   wb_smf_note_count(sm), wb_smf_duration(sm));
+            const wb_note *ns = wb_smf_notes(sm);
+            for (int k = 0; k < wb_smf_note_count(sm) && k < 8; k++)
+                printf("  note %d pitch=%d t=%.3f dur=%.3f vel=%d\n",
+                       k, ns[k].pitch, ns[k].start, ns[k].dur, ns[k].vel);
+            wb_smf_free(sm);
+            return 0;
+        }
+    }
+
+    /* R074 hop 115: --sf-audio MID WAV */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--sf-audio") == 0 && i+2 < argc) {
+            return sf_render_audio(argv[i+1], argv[i+2]);
+        }
+    }
+
     /* R074 hop 112: --starfox — corridor run demo */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--starfox") == 0) {

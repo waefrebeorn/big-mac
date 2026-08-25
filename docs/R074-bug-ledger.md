@@ -92,9 +92,9 @@
 81. transition dir field overloaded (wipe direction vs barn-door axis)
 82. no refcounting on wb_frame across cache/composite (documented ownership maze)
 83. selftest still probes stderr D78 line (test depends on debug spam)
-84. test suite never tests ROI < frame anywhere (ROI paths untested)
-85. no test for size-mismatched transition inputs (crash class uncovered)
-86. no fuzz/property test for PPM roundtrip
+84. test suite never tests ROI < frame anywhere (ROI paths untested)  **[FIXED]**
+85. no test for size-mismatched transition inputs (crash class uncovered)  **[FIXED]**
+86. no fuzz/property test for PPM roundtrip  **[FIXED]**
 87. catalog doc says ops 0-18 but presets expose only 4 — discoverability gap
 88. wb_render --transition-frames hardcodes 2s duration and 64x64  **[FIXED]**
 89. wb_render video mode ignores --lufs (audio/video flags disjoint)

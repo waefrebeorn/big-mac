@@ -584,3 +584,48 @@ int wb_anim_set_emissive(wb_anim *a, int obj, int on) {
     else    a->flags[obj] &= (uint8_t)~0x04;
     return 0;
 }
+
+/* R074 hop 129 (G-SF040): supersampled anti-aliased frame — renders at
+ * 2x2 scale and box-downsamples. out_rgba must be w*h*4. */
+void wb_anim_render_frame_aa(wb_anim *a, double t, uint8_t *out_rgba) {
+    if (!a || !out_rgba) return;
+    int W = a->w, H = a->h;
+    uint8_t *big = malloc((size_t)W*2*H*2*4);
+    if (!big) { wb_anim_render_frame(a, t, out_rgba); return; }
+    int ow = a->w; int oh = a->h;
+    a->w = W*2; a->h = H*2;
+    wb_anim_render_frame(a, t, big);
+    a->w = ow; a->h = oh;
+    for (int y = 0; y < H; y++) {
+        for (int x = 0; x < W; x++) {
+            uint32_t r=0,g=0,b=0,aacc=0,n=0;
+            for (int dy = 0; dy < 2; dy++)
+                for (int dx = 0; dx < 2; dx++) {
+                    const uint8_t *q =
+                        big + (((size_t)(y*2+dy)*W*2) + (x*2+dx))*4;
+                    r += q[0]; g += q[1]; b += q[2]; aacc += q[3]; n++;
+                }
+            uint8_t *o = out_rgba + ((size_t)y*W + x)*4;
+            o[0]=(uint8_t)(r/n); o[1]=(uint8_t)(g/n);
+            o[2]=(uint8_t)(b/n); o[3]=(uint8_t)(aacc/n);
+        }
+    }
+    free(big);
+}
+
+/* R074 hop 129 (G-SF036): motion blur via temporal accumulation.
+ * state buffer persists between calls (caller owns, zeroed initially);
+ * blend = new frame weight (0..1). */
+void wb_anim_render_frame_blur(wb_anim *a, double t, float blend,
+                               uint8_t *state_rgba) {
+    if (!a || !state_rgba) return;
+    int W = a->w, H = a->h;
+    uint8_t *fresh = malloc((size_t)W*H*4);
+    if (!fresh) return;
+    wb_anim_render_frame(a, t, fresh);
+    if (blend < 0) blend = 0; if (blend > 1) blend = 1;
+    for (size_t i = 0; i < (size_t)W*H*4; i++)
+        state_rgba[i] = (uint8_t)(state_rgba[i]*(1.0f-blend)
+                                  + fresh[i]*blend);
+    free(fresh);
+}

@@ -55,7 +55,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 ## C. Compositor integration (46-60)
 46. G-SF046 [FIXED hop113] wb_node_source_frame copies full frame every pull — no dirty flag **[FIXED]**
 47. G-SF047 [FIXED hop113] No direct anim->node bridge (demo hand-rolled rgba plumbing) **[FIXED]**
-48. G-SF048 Composite RoD fixed 4096 scan — no auto-size from first pull
+48. G-SF048 Composite RoD fixed 4096 scan — no auto-size from first pull **[FIXED]**
 49. G-SF049 No layer transform on composited CGI (scale/pos of the 3D overlay) **[FIXED]**
 50. G-SF050 [FIXED hop113] HUD text drawn manually onto rgba — no text node over 3D **[FIXED]**
 51. G-SF051 No letterbox/safe-area guides **[FIXED]**

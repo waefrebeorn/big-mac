@@ -89,6 +89,11 @@ int wb_anim_set_billboard(wb_anim *a, int obj, int on);
 int wb_anim_set_lookcam(wb_anim *a, int obj, int on);
 /* G-SF015: unlit/emissive object. */
 int wb_anim_set_emissive(wb_anim *a, int obj, int on);
+/* G-SF040: 4x supersampled anti-aliased frame. */
+void wb_anim_render_frame_aa(wb_anim *a, double t, uint8_t *out_rgba);
+/* G-SF036: temporal accumulation motion blur (caller-owned state). */
+void wb_anim_render_frame_blur(wb_anim *a, double t, float blend,
+                               uint8_t *state_rgba);
 /* G-SF026: render-resolution override. */
 int wb_anim_set_resolution(wb_anim *a, int w, int h);
 int wb_anim_key_move(wb_anim *a, int obj, int key_idx, double new_t);

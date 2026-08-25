@@ -2445,13 +2445,16 @@ static wb_frame *trans_pull(wb_node *self, double t,
             out->px[i].a = pa.a*(1-k) + pb.a*k;
         } else if (tr->op == 9) {
             /* R073 hop 86: barn-door wipe — B reveals as a symmetric
-             * center strip that grows with progress. tr->dir selects
-             * axis (0=horizontal strip, 1=vertical strip); feathered
-             * edges share grad_feather. */
+             * center strip that grows with progress. R074 hop 141
+             * (#60/#81): axis comes from the keyframable "wipe_dir"
+             * param (0=horizontal, 1=vertical) — tr->dir is no longer
+             * overloaded; feathered edges share grad_feather. */
             float feath = wb_node_param_value(self, "grad_feather", t);
             if (feath <= 0.0f) feath = 0.05f;
+            int axis = wb_node_param_value(self, "wipe_dir", t) > 0.5f
+                     ? 1 : (tr->dir == 1 ? 1 : 0);
             float half = mM * 0.5f;
-            float u = (tr->dir == 1)
+            float u = (axis == 1)
                     ? (float)py_i / (float)(a->h > 1 ? a->h-1 : 1)
                     : (float)px_i / (float)(a->w > 1 ? a->w-1 : 1);
             float d = fabsf(u - 0.5f);

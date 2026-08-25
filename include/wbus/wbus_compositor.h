@@ -73,6 +73,10 @@ struct wb_node {
     wb_node_free_fn free;
     /* identity optimization: set during request-phase to skip compute */
     int is_identity;
+    /* R074 fix: declared output format (0 = infer from inputs). Sources
+     * set it at creation; pulls clip against it instead of a hardcoded
+     * max. Fixes the resolution family of bugs. */
+    int fmt_w, fmt_h;
     /* G11: named keyframed parameters on this node (the shared bus).
      * The compositor pulls param tracks per-frame so FX params animate.
      * A param slot is fed by EITHER a keyframed track OR a session
@@ -172,6 +176,12 @@ void wb_node_source_text_anim(wb_node *text_node, int mode, double dur);
  * Attach inputs with wb_transition_add(A then B). */
 wb_node *wb_node_transition(int op, double duration_secs);
 void      wb_transition_add(wb_node *trans, wb_node *child);
+/* R074 fix: declare/query a node's output format. Set on sources (or any
+ * node) to pin resolution; effects/transitions infer from first input.
+ * Returns 0 and fills w/h, or -1 if unknown. */
+int  wb_node_set_format(wb_node *n, int w, int h);
+int  wb_node_get_format(const wb_node *n, int *w, int *h);
+
 /* R073 hop 101: write a frame as binary PPM (P6). Returns 0 or -1. */
 int wb_frame_write_ppm(const wb_frame *f, const char *path);
 /* R073 hop 104: render a transition graph to an mp4 (H.264) file. */

@@ -24,15 +24,24 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++)
         if (strcmp(argv[i], "--lufs") == 0 && i + 1 < argc)
             lufs_target = atof(argv[++i]);
-    /* R073 hop 103: --transition-frames OP N PREFIX — render a numbered
-     * PPM sequence of transition op over 2s, bypassing audio render. */
+    /* R073 hop 103 / R074 fix: --transition-frames OP N PREFIX
+     * [--dur S] [--size WxH] — configurable duration + resolution. */
+    double seq_dur = 2.0;
+    int seq_w = 640, seq_h = 360;
+    for (int i = 1; i < argc - 1; i++) {
+        if (strcmp(argv[i], "--dur") == 0) seq_dur = atof(argv[i+1]);
+        if (strcmp(argv[i], "--size") == 0 &&
+            sscanf(argv[i+1], "%dx%d", &seq_w, &seq_h) == 2) { }
+    }
     for (int i = 1; i < argc - 3; i++) {
         if (strcmp(argv[i], "--transition-frames") == 0) {
             int op = atoi(argv[i+1]);
             int nframes = atoi(argv[i+2]);
             const char *prefix = argv[i+3];
-            wb_node *ga = wb_node_source_color(1.0f,0.2f,0.1f,1.0f,64,64);
-            wb_node *gb = wb_node_source_color(0.1f,0.2f,1.0f,1.0f,64,64);
+            wb_node *ga = wb_node_source_color(1.0f,0.2f,0.1f,1.0f,
+                                              seq_w, seq_h);
+            wb_node *gb = wb_node_source_color(0.1f,0.2f,1.0f,1.0f,
+                                              seq_w, seq_h);
             if (!ga || !gb) { fprintf(stderr,"render: src fail\n"); return 1; }
             wb_node *tr = wb_node_transition(op, 2.0);
             if (!tr) { fprintf(stderr,"render: trans fail\n"); return 1; }
@@ -40,8 +49,9 @@ int main(int argc, char **argv) {
             wb_transition_add(tr, gb);
             int ok = 0;
             for (int k = 0; k < nframes; k++) {
-                double tt = (double)k / (nframes - 1) * 2.0;
-                wb_frame *f = wb_node_pull(tr, tt, 0, 0, 64, 64);
+                double tt = (double)k / (nframes > 1 ? nframes-1 : 1)
+                          * seq_dur;
+                wb_frame *f = wb_node_pull(tr, tt, 0, 0, seq_w, seq_h);
                 if (!f) continue;
                 char path[512];
                 snprintf(path, sizeof path, "%s_%04d.ppm", prefix, k);

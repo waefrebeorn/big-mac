@@ -144,7 +144,6 @@ int wb_ui_text_width(const char *text, int scale) {
 int wb_ui_text_to_rgba(const char *text, int scale,
                        float r, float g, float b, float a,
                        wb_px *px, int W, int H, int x0, int y0) {
-    (void)a;
     int cur = x0;
     int cur_y = y0;
     for (const unsigned char *p = (const unsigned char *)text; *p; p++) {
@@ -166,7 +165,13 @@ int wb_ui_text_to_rgba(const char *text, int scale,
                         int Y = cur_y + row*scale + sy;
                         if (X < 0 || X >= W || Y < 0 || Y >= H) continue;
                         wb_px *q = &px[Y*W + X];
-                        q->r = r; q->g = g; q->b = b; q->a = a;
+                        /* R074 fix: source-over blend instead of
+                         * overwrite, so fades/shadows composite right */
+                        float ia = 1.0f - a;
+                        q->r = r*a + q->r*ia;
+                        q->g = g*a + q->g*ia;
+                        q->b = b*a + q->b*ia;
+                        q->a = a + q->a*ia;
                     }
             }
         }

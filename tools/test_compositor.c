@@ -604,10 +604,10 @@ int main(void) {
         wb_frame *fg = wb_node_pull(glow, 0.0, 0, 0, 32, 32);
         CHECK(fg != NULL, "glow: pulled");
         if (fg) {
-            /* white frame above threshold blooms past 1.0 (clamped later
-             * by the writer) — verify lift happened vs plain 1.0 */
-            CHECK(fg->px[100].r > 1.0f,
-                  "glow: bright pixels bloom beyond unity");
+            /* R074 fix: glow clamps at 1.0 — a white frame stays at
+             * unity instead of wrapping in the PPM writer */
+            CHECK(fg->px[100].r >= 0.999f && fg->px[100].r <= 1.0f,
+                  "glow: bloom clamps at unity");
             wb_frame_free(fg);
         }
         wb_node_destroy(glow); wb_node_destroy(src);

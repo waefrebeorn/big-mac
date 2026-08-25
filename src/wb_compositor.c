@@ -70,6 +70,7 @@ wb_node *wb_node_create(wb_node_kind kind, const char *id) {
     wb_node *n = calloc(1, sizeof(*n));
     if (!n) return NULL;
     n->kind = kind;
+    n->fmt_w = 0; n->fmt_h = 0;   /* R074: infer until declared */
     n->n_inputs = 0;
     n->inputs = NULL;
     if (id) snprintf(n->id, sizeof(n->id), "%s", id);
@@ -88,6 +89,33 @@ void wb_node_destroy(wb_node *n) {
     free(n->params);
     free(n->param_lanes);
     free(n);
+}
+
+/* R074 fix: explicit format declaration / inference. */
+int wb_node_set_format(wb_node *n, int w, int h) {
+    if (!n || w <= 0 || h <= 0 || w > 4096 || h > 4096) return -1;
+    n->fmt_w = w; n->fmt_h = h;
+    return 0;
+}
+/* Resolve output dims: declared format wins; else first input's resolved
+ * format; else 0 (unknown). */
+static void node_resolve_format(wb_node *n, int *w, int *h) {
+    *w = 0; *h = 0;
+    if (!n) return;
+    if (n->fmt_w > 0 && n->fmt_h > 0) { *w = n->fmt_w; *h = n->fmt_h; return; }
+    for (int i = 0; i < n->n_inputs; i++) {
+        int iw, ih;
+        node_resolve_format(n->inputs[i], &iw, &ih);
+        if (iw > *w) *w = iw;
+        if (ih > *h) *h = ih;
+    }
+}
+int wb_node_get_format(const wb_node *n, int *w, int *h) {
+    int ww, hh;
+    node_resolve_format((wb_node*)n, &ww, &hh);
+    if (w) *w = ww;
+    if (h) *h = hh;
+    return ww > 0 ? 0 : -1;
 }
 
 /* ---- G11 param bus ---------------------------------------------------- */
@@ -132,7 +160,10 @@ float wb_node_param_value(const wb_node *n, const char *name, double t) {
 /* ---- generic pull (identity short-circuit + forwarding) -------------- */
 wb_frame *wb_node_pull(wb_node *n, double t, int rx, int ry, int rw, int rh) {
     if (!n) return NULL;
-    if (!wb_roi_clip(4096, 4096, &rx, &ry, &rw, &rh)) return NULL;
+    int fw, fh;
+    node_resolve_format(n, &fw, &fh);
+    if (fw <= 0) { fw = 4096; fh = 4096; }   /* unknown: legacy bound */
+    if (!wb_roi_clip(fw, fh, &rx, &ry, &rw, &rh)) return NULL;
     /* phase 1 = compute (the default for callers that don't two-phase) */
     return n->pull(n, t, rx, ry, rw, rh, 1);
 }
@@ -143,7 +174,10 @@ wb_frame *wb_node_pull(wb_node *n, double t, int rx, int ry, int rw, int rh) {
  * arInitial -> arAllFramesReady. */
 void wb_node_pull_request(wb_node *n, double t, int rx, int ry, int rw, int rh) {
     if (!n) return;
-    if (!wb_roi_clip(4096, 4096, &rx, &ry, &rw, &rh)) return;
+    int fw, fh;
+    node_resolve_format(n, &fw, &fh);
+    if (fw <= 0) { fw = 4096; fh = 4096; }
+    if (!wb_roi_clip(fw, fh, &rx, &ry, &rw, &rh)) return;
     n->pull(n, t, rx, ry, rw, rh, 0);   /* phase 0: request only */
 }
 
@@ -156,18 +190,18 @@ static wb_frame *src_color_pull(wb_node *self, double t,
     src_color_t *s = self->user;
     wb_frame *f = wb_frame_alloc(s->w, s->h);
     if (!f) return NULL;
-    f->roi_x = rx; f->roi_y = ry; f->roi_w = rw; f->roi_h = rh;
-    for (int y = ry; y < ry + rh; y++)
-        for (int x = rx; x < rx + rw; x++) {
-            f->px[y*s->w + x].r = s->r;
-            f->px[y*s->w + x].g = s->g;
-            f->px[y*s->w + x].b = s->b;
-            f->px[y*s->w + x].a = s->a;
-        }
+    /* R074 fix: a color source is uniform — fill the whole frame so any
+     * ROI consumer sees valid pixels (was: zeros outside ROI). */
+    for (int i = 0; i < s->w * s->h; i++) {
+        f->px[i].r = s->r; f->px[i].g = s->g;
+        f->px[i].b = s->b; f->px[i].a = s->a;
+    }
+    f->roi_x = 0; f->roi_y = 0; f->roi_w = s->w; f->roi_h = s->h;
     return f;
 }
 wb_node *wb_node_source_color(float r, float g, float b, float a, int w, int h) {
     wb_node *n = wb_node_create(WB_NODE_SOURCE, "src_color");
+    wb_node_set_format(n, w > 0 ? w : 320, h > 0 ? h : 240);
     if (!n) return NULL;
     src_color_t *s = calloc(1, sizeof(*s));
     s->r=r; s->g=g; s->b=b; s->a=a; s->w=w; s->h=h;
@@ -238,10 +272,60 @@ static wb_frame *eff_pull(wb_node *self, double t,
     wb_frame *in = wb_node_pull(self->inputs[0], t, rx, ry, rw, rh);
     if (!in) return NULL;
     in->roi_x = rx; in->roi_y = ry; in->roi_w = rw; in->roi_h = rh;
+    /* R074 fix: blur hoisted OUT of the per-pixel loop — one 2-pass box
+     * over the ROI per frame (was O(n^2) with per-pixel malloc storm). */
+    if (e->op == 4) {
+        float rad = wb_node_param_value(self, "blur", t);
+        if (rad <= 0.0f) rad = e->gain > 0 ? e->gain : 1.0f;
+        int r = (int)(rad * 3.0f);
+        if (r >= 1) {
+            int W = in->w, H = in->h;
+            wb_frame *tmp = wb_frame_alloc(W, H);
+            if (tmp) {
+                for (int pass = 0; pass < 2; pass++) {
+                    wb_frame *srcf = (pass == 0) ? in : tmp;
+                    wb_frame *dstf = (pass == 0) ? tmp : in;
+                    for (int y = ry; y < ry + rh; y++)
+                        for (int x = rx; x < rx + rw; x++) {
+                            float ar=0, ag=0, ab=0, aa=0; int n=0;
+                            for (int k2 = -r; k2 <= r; k2++) {
+                                int xx = x + k2;
+                                if (xx < 0 || xx >= W) continue;
+                                wb_px *q=&srcf->px[y*W+xx];
+                                ar+=q->r; ag+=q->g; ab+=q->b; aa+=q->a; n++;
+                            }
+                            wb_px *d=&dstf->px[y*W+x];
+                            d->r=ar/n; d->g=ag/n; d->b=ab/n; d->a=aa/n;
+                        }
+                    for (int y = ry; y < ry + rh; y++)
+                        for (int x = rx; x < rx + rw; x++) {
+                            float ar=0, ag=0, ab=0, aa=0; int n=0;
+                            for (int k2 = -r; k2 <= r; k2++) {
+                                int yy = y + k2;
+                                if (yy < 0 || yy >= H) continue;
+                                wb_px *q=&srcf->px[yy*W+x];
+                                ar+=q->r; ag+=q->g; ab+=q->b; aa+=q->a; n++;
+                            }
+                            wb_px *d=&dstf->px[y*W+x];
+                            d->r=ar/n; d->g=ag/n; d->b=ab/n; d->a=aa/n;
+                        }
+                }
+                wb_frame_free(tmp);
+            }
+        }
+    }
     /* G11: a keyframed "gain" param overrides the static gain (animates) */
     float gain = e->gain;
     float kv = wb_node_param_value(self, "gain", t);
-    if (kv != 0.0f || e->gain == 0.0f) gain = kv;  /* track present => use it */
+    /* R074 fix: a bound track is authoritative even at exactly 0 —
+     * detect binding instead of guessing from the value. */
+    for (int pi = 0; pi < self->n_params; pi++) {
+        if (self->param_names &&
+            strncmp(self->param_names[pi], "gain", 32) == 0) {
+            gain = kv;
+            break;
+        }
+    }
     for (int y = ry; y < ry + rh; y++)
         for (int x = rx; x < rx + rw; x++) {
             wb_px *p = &in->px[y*in->w + x];
@@ -250,50 +334,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 p->a = 1.0f - p->a;
             }
             else if (e->op == 4) {
-                /* R073 hop 42: gaussian blur — two passes of a 3-tap box
-                 * (H+V, repeated) approximates a gaussian; radius from the
-                 * keyframable "blur" param (0..~8). Operates on the RoI. */
-                float rad = wb_node_param_value(self, "blur", t);
-                if (rad <= 0.0f) rad = gain;
-                int r = (int)(rad * 3.0f);
-                if (r < 1) { /* identity when radius < 1 */ }
-                else {
-                    int W = in->w, H = in->h;
-                    wb_frame *tmp = wb_frame_alloc(W, H);
-                    if (tmp) {
-                        for (int pass = 0; pass < 2; pass++) {
-                            wb_frame *srcf = (pass == 0) ? in : tmp;
-                            wb_frame *dstf = (pass == 0) ? tmp : in;
-                            /* horizontal */
-                            for (int y = ry; y < ry + rh; y++)
-                                for (int x = rx; x < rx + rw; x++) {
-                                    float ar=0,ag=0,ab=0,aa=0; int n=0;
-                                    for (int k = -r; k <= r; k++) {
-                                        int xx = x + k;
-                                        if (xx < 0 || xx >= W) continue;
-                                        wb_px *q=&srcf->px[y*W+xx];
-                                        ar+=q->r; ag+=q->g; ab+=q->b; aa+=q->a; n++;
-                                    }
-                                    wb_px *d=&dstf->px[y*W+x];
-                                    d->r=ar/n; d->g=ag/n; d->b=ab/n; d->a=aa/n;
-                                }
-                            /* vertical */
-                            for (int y = ry; y < ry + rh; y++)
-                                for (int x = rx; x < rx + rw; x++) {
-                                    float ar=0,ag=0,ab=0,aa=0; int n=0;
-                                    for (int k = -r; k <= r; k++) {
-                                        int yy = y + k;
-                                        if (yy < 0 || yy >= H) continue;
-                                        wb_px *q=&srcf->px[yy*W+x];
-                                        ar+=q->r; ag+=q->g; ab+=q->b; aa+=q->a; n++;
-                                    }
-                                    wb_px *d=&dstf->px[y*W+x];
-                                    d->r=ar/n; d->g=ag/n; d->b=ab/n; d->a=aa/n;
-                                }
-                        }
-                        wb_frame_free(tmp);
-                    }
-                }
+                /* handled pre-loop (R074 fix) */
             }
             else if (e->op == 6) {
                 /* R073 hop 47a: vignette — radial darkening; strength via
@@ -324,13 +365,15 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 if (gam <= 0.0f) gam = 1.0f;
                 if (gnv <= 0.0f) gnv = 1.0f;
                 if (sat <= 0.0f) sat = e->gain > 0 ? e->gain : 1.0f;
-                p->r = (p->r + lift) * gnv;
-                p->g = (p->g + lift) * gnv;
-                p->b = (p->b + lift) * gnv;
-                /* gamma on positive values */
-                p->r = powf(p->r > 0 ? p->r : 0, 1.0f / gam);
-                p->g = powf(p->g > 0 ? p->g : 0, 1.0f / gam);
-                p->b = powf(p->b > 0 ? p->b : 0, 1.0f / gam);
+                /* R074 fix: ASC order — lift, then gamma, then gain
+                 * (was lift*gain then gamma). Clamp negatives first. */
+                float lr = p->r + lift, lg = p->g + lift,
+                      lb = p->b + lift;
+                if (lr < 0) lr = 0; if (lg < 0) lg = 0; if (lb < 0) lb = 0;
+                if (lr > 1) lr = 1; if (lg > 1) lg = 1; if (lb > 1) lb = 1;
+                p->r = powf(lr, 1.0f / gam) * gnv;
+                p->g = powf(lg, 1.0f / gam) * gnv;
+                p->b = powf(lb, 1.0f / gam) * gnv;
                 /* saturation around Rec.709 luma */
                 float lum = 0.2126f*p->r + 0.7152f*p->g + 0.0722f*p->b;
                 p->r = lum + (p->r - lum)*sat;
@@ -373,10 +416,14 @@ static wb_frame *eff_pull(wb_node *self, double t,
                                 ((hig - shd > 1e-4f) ? hig-shd : 1e-4f);
                             o = 0.25f + 0.5f * (u2*u2*(3-2*u2));
                         } else {
-                            float u2 = (v - hig) /
-                                ((wht - hig > 1e-4f) ? wht-hig : 1e-4f);
-                            if (u2 < 0) u2 = 0; if (u2 > 1) u2 = 1;
-                            o = 0.75f + 0.25f * (u2*u2*(3-2*u2));
+                            /* R074 fix: above white point clips to 1.0
+                             * (was folding back into the band) */
+                            if (v >= wht) { o = 1.0f; }
+                            else {
+                                float u2 = (v - hig) /
+                                    ((wht - hig > 1e-4f) ? wht-hig : 1e-4f);
+                                o = 0.75f + 0.25f * (u2*u2*(3-2*u2));
+                            }
                         }
                         ch[ci] = o;
                     }
@@ -440,10 +487,6 @@ static wb_frame *eff_pull(wb_node *self, double t,
                     wsel = 1.0f - (dist - wr) / ws;
                     if (wsel < 0.0f) wsel = 0.0f;
                     if (wsel > 1.0f) wsel = 1.0f;
-                    if (x == 32 && y == 32)
-                        fprintf(stderr, "D78: nx=%.3f ny=%.3f wr=%.2f "
-                                "ws=%.2f wsel=%.2f\n", nx, ny, wr, ws,
-                                wsel);
                     /* R073 hop 78 fix: wsel<=0 must NOT break the pixel
                      * loop — fall through; sel multiplies to 0 below so
                      * outside-window pixels pass through unchanged. */
@@ -475,11 +518,34 @@ static wb_frame *eff_pull(wb_node *self, double t,
                         float nr = lum + (p->r-lum)*sat;
                         float ng = lum + (p->g-lum)*sat;
                         float nb = lum + (p->b-lum)*sat;
+                        /* R074 fix: hue_shift now actually rotates the
+                         * qualified pixels' hue (degrees). */
+                        if (hsh != 0.0f && sel > 0.0f) {
+                            float hr = hsh * sel;
+                            const float ca = cosf(hr*3.14159265f/180.0f);
+                            const float sa = sinf(hr*3.14159265f/180.0f);
+                            /* rotate around the grey axis via YIQ matrix */
+                            float yr = nr, yi_ = ng, yib = nb;
+                            (void)yr; (void)yi_; (void)yib;
+                            float m[9] = {
+                                0.299f+0.701f*ca+0.168f*sa,
+                                0.587f-0.587f*ca+0.330f*sa,
+                                0.114f-0.114f*ca-0.497f*sa,
+                                0.299f-0.299f*ca-0.328f*sa,
+                                0.587f+0.413f*ca+0.035f*sa,
+                                0.114f-0.114f*ca+0.292f*sa,
+                                0.299f-0.300f*ca+1.250f*sa,
+                                0.587f-0.588f*ca-1.050f*sa,
+                                0.114f+0.886f*ca-0.203f*sa };
+                            float orr = nr*m[0]+ng*m[1]+nb*m[2];
+                            float ogg = nr*m[3]+ng*m[4]+nb*m[5];
+                            float obb = nr*m[6]+ng*m[7]+nb*m[8];
+                            nr = orr; ng = ogg; nb = obb;
+                        }
                         p->r = p->r*(1-sel) + nr*sel;
                         p->g = p->g*(1-sel) + ng*sel;
                         p->b = p->b*(1-sel) + nb*sel;
-                        (void)hsh;   /* hue rotate: future hop */
-                    }
+                                            }
                 }
             }
             else if (e->op == 7) {
@@ -495,9 +561,13 @@ static wb_frame *eff_pull(wb_node *self, double t,
                                   + 0.0722f*p->b;
                         if (lum > thr) {
                             float excess = (lum - thr) / (1.0f - thr);
-                            p->r += excess * (p->r) * 0.5f;
-                            p->g += excess * (p->g) * 0.5f;
-                            p->b += excess * (p->b) * 0.5f;
+                            /* R074 fix: clamp to [0,1] — was unbounded */
+                            p->r = (p->r + excess*p->r*0.5f > 1.0f)
+                                 ? 1.0f : p->r + excess*p->r*0.5f;
+                            p->g = (p->g + excess*p->g*0.5f > 1.0f)
+                                 ? 1.0f : p->g + excess*p->g*0.5f;
+                            p->b = (p->b + excess*p->b*0.5f > 1.0f)
+                                 ? 1.0f : p->b + excess*p->b*0.5f;
                         }
                     }
             }
@@ -535,7 +605,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 float kv2 = p->g, lo1 = p->r, lo2 = p->b;
                 if (kch == 1) { kv2 = p->b; lo1 = p->r; lo2 = p->g; }
                 else if (kch == 2) { kv2 = p->r; lo1 = p->g; lo2 = p->b; }
-                if (p->a > 0.0f && kv2 > lo1 && kv2 > lo2) {
+                if (p->a > 0.01f && kv2 > lo1 && kv2 > lo2) {
                     float lim = lo1 > lo2 ? lo1 : lo2;
                     float spill = wb_node_param_value(self,
                                                       "spill", t);
@@ -667,14 +737,24 @@ static wb_frame *comp_pull(wb_node *self, double t,
             wb_node_pull_request(self->inputs[i], t, rx, ry, rw, rh);
         return NULL;
     }
-    wb_frame *out = wb_frame_alloc(4096, 4096); /* RoD of composite */
+    /* R074 fix: RoD = max of resolved input formats (was 4096x4096). */
+    int cw = 0, chh = 0;
+    for (int i = 0; i < self->n_inputs; i++) {
+        int iw, ih;
+        node_resolve_format(self->inputs[i], &iw, &ih);
+        if (iw > cw) cw = iw;
+        if (ih > chh) chh = ih;
+    }
+    if (cw <= 0 || chh <= 0) { cw = rw > 0 ? rx+rw : 64;
+                               chh = rh > 0 ? ry+rh : 64; }
+    wb_frame *out = wb_frame_alloc(cw, chh);
     if (!out) return NULL;
     out->roi_x = rx; out->roi_y = ry; out->roi_w = rw; out->roi_h = rh;
     for (int i = 0; i < self->n_inputs; i++) {
         wb_frame *f = wb_node_pull(self->inputs[i], t, rx, ry, rw, rh);
         if (!f) continue;
-        for (int y = ry; y < ry + rh; y++)
-            for (int x = rx; x < rx + rw; x++) {
+        for (int y = ry; y < ry + rh && y < chh; y++)
+            for (int x = rx; x < rx + rw && x < cw; x++) {
                 wb_px s = f->px[y*f->w + x];
                 wb_px *d = &out->px[y*out->w + x];
                 float a = s.a;
@@ -1201,6 +1281,10 @@ static wb_frame *src_text_pull(wb_node *self, double t,
     float cxn = wb_node_param_value(self, "cx", t);
     if (cxn <= 0.0f) cxn = (float)d->x / d->w;
     int x0 = (int)(cxn * d->w);
+    /* R074 fix: symmetric cy param for vertical placement */
+    float cyn = wb_node_param_value(self, "cy", t);
+    if (cyn <= 0.0f) cyn = (float)d->y / d->h;
+    int y0p = (int)(cyn * d->h);
     /* R073 hop 46: drop shadow first (offset by half a glyph), then the
      * main text on top — classic title readability treatment */
     char buf[128];
@@ -1237,9 +1321,9 @@ static wb_frame *src_text_pull(wb_node *self, double t,
                        0.0f, 0.0f, 0.0f, 0.6f * alpha_mul,
                        f->px, d->w, d->h,
                        x0 + d->scale + (int)slide_off,
-                       d->y + d->scale);
+                       y0p + d->scale);
     wb_ui_text_to_rgba(draw_text, d->scale, d->r, d->g, d->b, fa,
-                       f->px, d->w, d->h, x0 + (int)slide_off, d->y);
+                       f->px, d->w, d->h, x0 + (int)slide_off, y0p);
     f->roi_x = rx; f->roi_y = ry; f->roi_w = rw; f->roi_h = rh;
     return f;
 }
@@ -1257,6 +1341,7 @@ wb_node *wb_node_source_text(const char *text, int scale,
     s->w = w > 0 ? w : 320; s->h = h > 0 ? h : 240;
     n->user = s;
     n->pull = src_text_pull;
+    wb_node_set_format(n, s->w, s->h);
     return n;
 }
 
@@ -1267,9 +1352,14 @@ int wb_frame_write_ppm(const wb_frame *f, const char *path) {
     if (!fp) return -1;
     fprintf(fp, "P6\n%d %d\n255\n", f->w, f->h);
     for (int i = 0; i < f->w * f->h; i++) {
-        unsigned char r = (unsigned char)(f->px[i].r * 255.0f + 0.5f);
-        unsigned char g = (unsigned char)(f->px[i].g * 255.0f + 0.5f);
-        unsigned char b = (unsigned char)(f->px[i].b * 255.0f + 0.5f);
+        /* R074 fix: clamp to [0,1] — HDR-ish values wrapped to garbage */
+        float fr = f->px[i].r, fg = f->px[i].g, fb = f->px[i].b;
+        if (fr < 0) fr = 0; if (fr > 1) fr = 1;
+        if (fg < 0) fg = 0; if (fg > 1) fg = 1;
+        if (fb < 0) fb = 0; if (fb > 1) fb = 1;
+        unsigned char r = (unsigned char)(fr * 255.0f + 0.5f);
+        unsigned char g = (unsigned char)(fg * 255.0f + 0.5f);
+        unsigned char b = (unsigned char)(fb * 255.0f + 0.5f);
         fwrite(&r, 1, 1, fp); fwrite(&g, 1, 1, fp); fwrite(&b, 1, 1, fp);
     }
     fclose(fp);
@@ -1314,16 +1404,24 @@ int wb_compositor_export_mp4_audio(wb_node *trans, const char *mp4_path,
             "-f image2 -framerate %d -i '%s/f_%%05d.ppm' "
             "-i '%s' -c:a aac -b:a 192k -shortest "
             "-map 0:v:0 -map 1:a:0 "
-            "-c:v libx264 -pix_fmt yuv420p '%s'",
+            "-c:v libx264 -pix_fmt yuv420p -movflags +faststart '%s'",
             fps, dir, wav_path, mp4_path);
     } else {
         snprintf(cmd, sizeof cmd,
             "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
             "-f image2 -framerate %d -i '%s/f_%%05d.ppm' "
-            "-c:v libx264 -pix_fmt yuv420p '%s'",
+            "-c:v libx264 -pix_fmt yuv420p -movflags +faststart '%s'",
             fps, dir, mp4_path);
     }
     int rc = system(cmd);
+    /* R074 fix: poster thumbnail next to the video */
+    if (rc == 0) {
+        char pcmd[1280];
+        snprintf(pcmd, sizeof pcmd,
+            "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
+            "-i '%s' -frames:v 1 '%s.png'", mp4_path, mp4_path);
+        system(pcmd);
+    }
     /* clean temp frames */
     for (int kk = 0; kk < nframes; kk++) {
         char p[512];
@@ -1350,9 +1448,16 @@ static wb_frame *trans_pull(wb_node *self, double t,
     wb_frame *b = wb_node_pull(self->inputs[1], t, rx, ry, rw, rh);
     if (!a) return b;
     if (!b) return a;
-    /* mix factor 0..1 across the transition window; before = A, after = B */
-    double u = tr->dur > 0 ? t / tr->dur : 1.0;
+    /* R074 fix: transitions can now be placed on the timeline via the
+     * keyframable "t_start" param (default 0). Local time drives u. */
+    double t0s = wb_node_param_value(self, "t_start", t);
+    double lt = t - (double)t0s;
+    if (lt < 0) lt = 0;
+    /* mix factor 0..1 across the transition window; before = A, after = B.
+     * R074 fix: smoothstep easing instead of linear (broadcast standard). */
+    double u = tr->dur > 0 ? lt / tr->dur : 1.0;
     if (u < 0) u = 0; if (u > 1) u = 1;
+    u = u * u * (3.0 - 2.0 * u);   /* smoothstep */
     float mB = (float)u;
 
     /* R073 hop 68/83: map input. Required (3rd input) for op 7; optional
@@ -1366,8 +1471,28 @@ static wb_frame *trans_pull(wb_node *self, double t,
         wb_frame_free(a); wb_frame_free(b); return NULL;
     }
 
+    /* R074 fix: guard size mismatch — nested graphs can hand back
+     * different dims (composite RoD). Use the overlap; larger input is
+     * sampled at its top-left crop (no scaler yet, documented). */
+    if (a->w != b->w || a->h != b->h) {
+        int mw = a->w < b->w ? a->w : b->w;
+        int mh = a->h < b->h ? a->h : b->h;
+        if (mw <= 0 || mh <= 0) {
+            wb_frame_free(a); wb_frame_free(b); return NULL;
+        }
+        /* shrink both to the min via in-place crop views */
+        for (int y = 0; y < mh; y++)
+            memcpy(b->px + y*mw, b->px + y*b->w,
+                   (size_t)mw * sizeof(wb_px));
+        for (int y = 0; y < mh; y++)
+            memcpy(a->px + y*mw, a->px + y*a->w,
+                   (size_t)mw * sizeof(wb_px));
+        a->w = mw; a->h = mh; b->w = mw; b->h = mh;
+    }
     wb_frame *out = wb_frame_alloc(a->w, a->h);
     if (!out) { wb_frame_free(a); wb_frame_free(b); return NULL; }
+    out->roi_x = 0; out->roi_y = 0;
+    out->roi_w = a->w; out->roi_h = a->h;   /* R074: honest RoI */
     out->roi_x = rx; out->roi_y = ry; out->roi_w = rw; out->roi_h = rh;
     for (int i = 0; i < a->w * a->h; i++) {
         wb_px pa = a->px[i], pb = b->px[i];
@@ -1608,7 +1733,10 @@ static wb_frame *trans_pull(wb_node *self, double t,
              * grad_feather on the per-strip progress. */
             float feath = wb_node_param_value(self, "grad_feather", t);
             if (feath <= 0.0f) feath = 0.05f;
-            float v = ((py_i / 16) * 16 + 8) / (float)a->h;
+            /* R074 fix: strip height proportional (was fixed 16px) */
+            int sh16 = a->h / 8 > 0 ? a->h / 8 : 1;
+            float v = (((py_i / sh16) * sh16) + sh16/2.0f)
+                    / (float)a->h;
             float k = (mB - v) / feath + 0.5f;
             if (k < 0) k = 0; if (k > 1) k = 1;
             out->px[i].r = pa.r*(1-k) + pb.r*k;
@@ -1638,8 +1766,13 @@ static wb_frame *trans_pull(wb_node *self, double t,
             /* R073 hop 88: checkerboard dissolve — each cell (16 px)
              * switches A->B at its own hashed time within the transition
              * (deterministic per-position hash, no state). */
-            unsigned ch = ((unsigned)(px_i / 16) * 73856093u)
-                        ^ ((unsigned)(py_i / 16) * 19349663u);
+            /* R074 fix: 8x8 grid proportional to resolution (was fixed
+             * 16px cells); hash salted per-axis to decorrelate. */
+            int cw8 = a->w / 8 > 0 ? a->w / 8 : 1;
+            int chh8 = a->h / 8 > 0 ? a->h / 8 : 1;
+            unsigned ch = ((unsigned)((px_i / cw8) * 73856093u)
+                        ^ ((unsigned)(py_i / chh8) * 19349663u))
+                        + 0x9e3779b9u;
             ch ^= ch >> 13; ch *= 0x5bd1e995u; ch ^= ch >> 15;
             float th = mM + ((float)(ch & 0xFFFF) / 65535.0f - 0.5f)
                      * 0.6f;

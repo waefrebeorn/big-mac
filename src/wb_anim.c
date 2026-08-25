@@ -283,7 +283,11 @@ void wb_anim_render_frame(wb_anim *a, double t, uint8_t *out_rgba) {
         cam_rx = ck.rx; cam_ry = ck.ry; cam_dist = ck.pz;
     }
 
-    for (int i = 0; i < a->nobjs; i++) {
+    wb_rast_ctx *r = wb_rast_create(a->w, a->h);
+    if (!r) return;
+    for (int pass = 1; pass <= 2; pass++) {
+    nv = 0; nt = 0;
+for (int i = 0; i < a->nobjs; i++) {
         wb_anim_obj *o = &a->objs[i];
         if (o->nkeys == 0) continue;   /* no keys: object not on stage yet */
         /* G-SF056: visibility window */
@@ -329,14 +333,19 @@ void wb_anim_render_frame(wb_anim *a, double t, uint8_t *out_rgba) {
                      base+src_tris[q].v2, fr, fg, fb, &nt);
         }
     }
-
-    if (nt == 0) return;
-    wb_rast_ctx *r = wb_rast_create(a->w, a->h);
-    if (!r) return;
-    wb_rast_set_scene(r, a->draw_verts, nv, a->draw_tris, nt);
-    wb_rast_set_camera(r, cam_rx, cam_ry, 0, cam_dist, 0);
-    wb_rast_render(r, out_rgba);
-    wb_rast_destroy(r);
+    if (nt > 0) {
+        wb_rast_set_scene(r, a->draw_verts, nv, a->draw_tris, nt);
+        if (pass == 2) {
+            /* G-SF015: unlit */
+            float none[3] = {0,0,0};
+            wb_rast_set_sun(r, 0,0,0, 0);
+            (void)none;
+        }
+        wb_rast_render(r, out_rgba);
+        wb_rast_set_sun(r, 0.45f, 0.75f, 0.5f, 1.0f); /* restore default */
+    }
+    }
+    
 }
 
 /* R074 hop 113: query anim render size. */
@@ -565,5 +574,13 @@ int wb_anim_set_lookcam(wb_anim *a, int obj, int on) {
     if (!a || obj < 0 || obj >= a->nobjs) return -1;
     if (on) a->flags[obj] |= WB_ANIM_LOOKCAM;
     else    a->flags[obj] &= (uint8_t)~WB_ANIM_LOOKCAM;
+    return 0;
+}
+
+/* R074 hop 125 (G-SF015): emissive object — rendered unlit. */
+int wb_anim_set_emissive(wb_anim *a, int obj, int on) {
+    if (!a || obj < 0 || obj >= a->nobjs) return -1;
+    if (on) a->flags[obj] |= 0x04;
+    else    a->flags[obj] &= (uint8_t)~0x04;
     return 0;
 }

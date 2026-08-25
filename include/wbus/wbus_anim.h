@@ -87,6 +87,8 @@ int wb_anim_rot_unwrap(wb_anim *a, int obj);
 int wb_anim_set_billboard(wb_anim *a, int obj, int on);
 /* G-SF009: yaw-to-camera. */
 int wb_anim_set_lookcam(wb_anim *a, int obj, int on);
+/* G-SF015: unlit/emissive object. */
+int wb_anim_set_emissive(wb_anim *a, int obj, int on);
 /* G-SF026: render-resolution override. */
 int wb_anim_set_resolution(wb_anim *a, int w, int h);
 int wb_anim_key_move(wb_anim *a, int obj, int key_idx, double new_t);

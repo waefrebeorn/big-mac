@@ -4752,7 +4752,21 @@ static void test_scale_chord_step(void) {
         wb_anim_free(an);
     }
 
-    printf("\n%d checks, %d failures\n", checks, failures);
+    
+
+    /* R073 hop 91: cut-on-beat snapping */
+    {
+        double t1 = wb_session_snap_to_beat(0.83, 120.0);  /* beat=0.5s */
+        CHECK(t1 == 1.0, "snap: 0.83 snaps to the 1.0s beat at 120bpm");
+        printf("         snap: 0.83 -> %.2f\n", t1);
+        double t2 = wb_session_snap_to_beat(0.24, 120.0);
+        CHECK(t2 == 0.0, "snap: 0.24 snaps down to 0.0 (nearer beat)");
+        double t3 = wb_session_snap_to_beat(1.23, 0.0);
+        CHECK(t3 == 1.23, "snap: bpm<=0 returns t unchanged");
+    }
+
+
+printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
 }

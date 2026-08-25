@@ -377,6 +377,9 @@ int  wb_engine_get_clip_latch(const wb_engine *e);
 void wb_engine_clear_clip_latch(wb_engine *e);
 /* R073 hop 15: estimate an audio clip's tempo (60..180 BPM), 0 if unsure. */
 double wb_session_estimate_bpm(const wb_session *s, int track, int clip);
+/* R073 hop 91: snap a timeline time to the nearest beat of the session
+ * grid (session BPM, beat origin at 0). Returns t unchanged if bpm<=0. */
+double wb_session_snap_to_beat(double t, double bpm);
 /* R073 hop 19: beat-grid phase for a clip of known tempo — [0, 60/bpm).
  * -1 on error. */
 double wb_session_beat_phase(const wb_session *s, int track, int clip,

@@ -2338,6 +2338,13 @@ int wb_capture_frame(wb_session *s, int track, double dest,
 }
 
 /* ---- R073 hop 15: tempo estimation ---------------------------------------- */
+/* R073 hop 91: snap a timeline time to the session's nearest beat. */
+double wb_session_snap_to_beat(double t, double bpm) {
+    if (bpm <= 0.0) return t;
+    double spb = 60.0 / bpm;
+    return floor(t / spb + 0.5) * spb;
+}
+
 /* Estimate a clip's tempo in BPM by autocorrelating its (whitened) onset
  * strength envelope over the 60..180 BPM range; returns 0 if unsure. */
 double wb_session_estimate_bpm(const wb_session *s, int track, int clip) {

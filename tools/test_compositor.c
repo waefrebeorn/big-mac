@@ -1677,6 +1677,33 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 89: four-box wipe (op 12) */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *tr = wb_node_transition(12, 2.0);
+        wb_transition_add(tr, ga);
+        wb_transition_add(tr, gb);
+        wb_frame *f = wb_node_pull(tr, 1.0, 0, 0, 64, 64);
+        CHECK(f != NULL, "fbox: pulled");
+        if (f) {
+            wb_px tl = f->px[4*64+4];       /* near TL corner -> B */
+            wb_px ctr = f->px[32*64+32];    /* center -> A */
+            wb_px br = f->px[59*64+59];     /* near BR corner -> B */
+            CHECK(tl.b > 0.9f, "fbox: TL corner box revealed");
+            CHECK(br.b > 0.9f, "fbox: BR corner box revealed");
+            CHECK(ctr.r > 0.9f, "fbox: center still A at half");
+            printf("         fbox: tl b=%.2f br b=%.2f | ctr r=%.2f\n",
+                   tl.b, br.b, ctr.r);
+            wb_frame_free(f);
+        }
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

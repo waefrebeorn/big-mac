@@ -1387,6 +1387,25 @@ static wb_frame *trans_pull(wb_node *self, double t,
                 if (bx >= 0 && bx < a->w) out->px[i] = pb;
                 else                      out->px[i] = pa;
             }
+        } else if (tr->op == 12) {
+            /* R073 hop 89: four-box wipe — each quadrant fills from its
+             * outer corner toward the frame center as progress grows. */
+            float feath = wb_node_param_value(self, "grad_feather", t);
+            if (feath <= 0.0f) feath = 0.05f;
+            float u = (float)px_i / (float)(a->w > 1 ? a->w-1 : 1);
+            float v = (float)py_i / (float)(a->h > 1 ? a->h-1 : 1);
+            /* distance from this pixel to its quadrant's outer corner,
+             * normalized 0 (at corner) .. 1 (at frame center) */
+            float du = u < 0.5f ? u : 1.0f - u;
+            float dv = v < 0.5f ? v : 1.0f - v;
+            /* box edge reaches the pixel when mB exceeds max(du,dv)/0.5 */
+            float g = fmaxf(du, dv) * 2.0f;
+            float k = (mB - g) / feath + 0.5f;
+            if (k < 0) k = 0; if (k > 1) k = 1;
+            out->px[i].r = pa.r*(1-k) + pb.r*k;
+            out->px[i].g = pa.g*(1-k) + pb.g*k;
+            out->px[i].b = pa.b*(1-k) + pb.b*k;
+            out->px[i].a = pa.a*(1-k) + pb.a*k;
         } else if (tr->op == 11) {
             /* R073 hop 88: checkerboard dissolve — each cell (16 px)
              * switches A->B at its own hashed time within the transition

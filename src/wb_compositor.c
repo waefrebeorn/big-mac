@@ -157,6 +157,16 @@ int wb_node_get_format(const wb_node *n, int *w, int *h) {
 /* ---- G11 param bus ---------------------------------------------------- */
 int wb_node_add_param(wb_node *n, const char *name, wb_param_track *tr) {
     if (!n || !tr || n->n_params >= 16) return -1;
+    /* R074 hop 137 (#79): duplicate name replaces the existing slot
+     * (returns that index) instead of silently shadowing lookups. */
+    if (name) {
+        for (int i = 0; i < n->n_params; i++) {
+            if (strcmp(n->param_names[i], name) == 0) {
+                n->params[i] = tr;
+                return i;
+            }
+        }
+    }
     n->params = realloc(n->params, (n->n_params + 1) * sizeof(wb_param_track*));
     if (!n->params) return -1;
     n->param_lanes = realloc(n->param_lanes, (n->n_params + 1) * sizeof(wb_automation_lane*));

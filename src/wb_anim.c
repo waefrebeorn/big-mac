@@ -386,3 +386,85 @@ int wb_anim_events_due(const wb_anim *a, double t_prev, double t_now,
     }
     return n;
 }
+
+/* ---- R074 hop 118 (G-SF003/004): per-channel keys + key editing ------- */
+/* Write ONE channel at time t: merges with an existing key at |dt|<eps
+ * (updates just that channel) or creates a key carrying only that
+ * channel (other channels inherit from the nearest earlier key). */
+static int anim_key_channel(wb_anim *a, int obj, double t, int ch,
+                            float v, int ease) {
+    if (!a || obj < 0 || obj >= a->nobjs || t < 0) return -1;
+    wb_anim_obj *o = &a->objs[obj];
+    static const char EPS = 0; (void)EPS;
+    const double eps = 1e-6;
+    /* find existing key near t */
+    for (int i = 0; i < o->nkeys; i++) {
+        if (fabs(o->keys[i].t - t) < eps) {
+            switch (ch) {
+                case 0: o->keys[i].px = v; break;
+                case 1: o->keys[i].py = v; break;
+                case 2: o->keys[i].pz = v; break;
+                case 3: o->keys[i].rx = v; break;
+                case 4: o->keys[i].ry = v; break;
+                case 5: o->keys[i].rz = v; break;
+                case 6: if (v <= 0) return -1; o->keys[i].scale = v; break;
+                default: return -1;
+            }
+            if (ease >= 0) o->keys[i].ease = ease;
+            return 0;
+        }
+    }
+    if (o->nkeys >= WB_ANIM_MAX_KEYS) return -1;
+    wb_anim_keyframe *k = &o->keys[o->nkeys++];
+    k->t = t; k->ease = ease < 0 ? 0 : ease;
+    k->scale = 1.0f;
+    /* seed all channels from nearest earlier key (or zero/identity) */
+    const wb_anim_keyframe *prev = NULL;
+    for (int i = 0; i < o->nkeys-1; i++)
+        if (o->keys[i].t <= t) prev = &o->keys[i];
+    if (prev) { *k = *prev; k->t = t; }
+    else { k->px=k->py=k->pz=0; k->rx=k->ry=k->rz=0; }
+    switch (ch) {
+        case 0: k->px = v; break;
+        case 1: k->py = v; break;
+        case 2: k->pz = v; break;
+        case 3: k->rx = v; break;
+        case 4: k->ry = v; break;
+        case 5: k->rz = v; break;
+        case 6: if (v <= 0) { o->nkeys--; return -1; } k->scale = v; break;
+    }
+    qsort(o->keys, o->nkeys, sizeof(wb_anim_keyframe), keyframe_cmp);
+    return 0;
+}
+
+int wb_anim_key_pos_x(wb_anim *a, int o, double t, float x, int ease) {
+    return anim_key_channel(a,o,t,0,x,ease);
+}
+int wb_anim_key_pos_y(wb_anim *a, int o, double t, float y, int ease) {
+    return anim_key_channel(a,o,t,1,y,ease);
+}
+int wb_anim_key_pos_z(wb_anim *a, int o, double t, float z, int ease) {
+    return anim_key_channel(a,o,t,2,z,ease);
+}
+int wb_anim_key_rot_z(wb_anim *a, int o, double t, float rz, int ease) {
+    return anim_key_channel(a,o,t,5,rz,ease);
+}
+
+/* G-SF004: delete / move a key by index. */
+int wb_anim_key_delete(wb_anim *a, int obj, int key_idx) {
+    if (!a || obj < 0 || obj >= a->nobjs) return -1;
+    wb_anim_obj *o = &a->objs[obj];
+    if (key_idx < 0 || key_idx >= o->nkeys) return -1;
+    memmove(&o->keys[key_idx], &o->keys[key_idx+1],
+            (size_t)(o->nkeys-key_idx-1)*sizeof(wb_anim_keyframe));
+    o->nkeys--;
+    return 0;
+}
+int wb_anim_key_move(wb_anim *a, int obj, int key_idx, double new_t) {
+    if (!a || obj < 0 || obj >= a->nobjs || new_t < 0) return -1;
+    wb_anim_obj *o = &a->objs[obj];
+    if (key_idx < 0 || key_idx >= o->nkeys) return -1;
+    o->keys[key_idx].t = new_t;
+    qsort(o->keys, o->nkeys, sizeof(wb_anim_keyframe), keyframe_cmp);
+    return 0;
+}

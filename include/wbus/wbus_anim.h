@@ -66,6 +66,16 @@ double wb_anim_duration(const wb_anim *a);
 
 int  wb_anim_object_count(const wb_anim *a);
 
+
+/* R074 hop 118 (G-SF003): per-channel keys. ease<0 keeps existing. */
+int wb_anim_key_pos_x(wb_anim *a, int o, double t, float x, int ease);
+int wb_anim_key_pos_y(wb_anim *a, int o, double t, float y, int ease);
+int wb_anim_key_pos_z(wb_anim *a, int o, double t, float z, int ease);
+int wb_anim_key_rot_z(wb_anim *a, int o, double t, float rz, int ease);
+/* G-SF004: key editing. */
+int wb_anim_key_delete(wb_anim *a, int obj, int key_idx);
+int wb_anim_key_move(wb_anim *a, int obj, int key_idx, double new_t);
+
 #ifdef __cplusplus
 }
 #endif

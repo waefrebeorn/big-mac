@@ -34,6 +34,7 @@ struct wb_rast_ctx {
     float rx, ry, rz, dist, y_off;
 
     int cull;
+    int wireframe;       /* R074 hop 118 (G-SF034) */
 
     /* per-frame scratch (sized to nverts) */
     float *sx, *sy, *sz;   /* screen x/y + view depth */
@@ -107,6 +108,9 @@ void wb_rast_set_sun(wb_rast_ctx *r, float dx, float dy, float dz,
 void wb_rast_set_specular(wb_rast_ctx *r, float strength) {
     if (!r) return;
     r->spec = strength < 0 ? 0 : (strength > 1 ? 1 : strength);
+}
+void wb_rast_set_wireframe(wb_rast_ctx *r, int on) {
+    if (r) r->wireframe = on;
 }
 void wb_rast_set_zbuffer(wb_rast_ctx *r, int on) {
     if (!r || on == r->zbuf_on) return;
@@ -260,6 +264,26 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
 
     for (int k = 0; k < n; k++) {
         wb_rast_tri *t = &r->tris[order[k]];
+                /* R074 hop 118 (G-SF034): wireframe — draw edges only */
+        if (r->wireframe) {
+            int vidx[3] = { t->v0, t->v1, t->v2 };
+            for (int e = 0; e < 3; e++) {
+                float x0=r->sx[vidx[e]],   y0=r->sy[vidx[e]];
+                float x1=r->sx[vidx[(e+1)%3]], y1=r->sy[vidx[(e+1)%3]];
+                int steps = (int)fmaxf(fabsf(x1-x0), fabsf(y1-y0)) + 1;
+                if (steps > 4096) steps = 4096;
+                for (int s = 0; s <= steps; s++) {
+                    float u = (float)s / steps;
+                    int px = (int)(x0 + (x1-x0)*u);
+                    int py = (int)(y0 + (y1-y0)*u);
+                    if (px < 0 || py < 0 || px >= r->w || py >= r->h) continue;
+                    uint8_t *q = out_rgba + ((size_t)py*r->w + px)*4;
+                    q[0]=t->r; q[1]=t->g; q[2]=t->b; q[3]=255;
+                }
+            }
+            continue;
+        }
+
         /* R055: face normal in WORLD space (pre-projection model coords) */
         const wb_rast_vertex *A=&r->verts[t->v0], *B=&r->verts[t->v1], *C=&r->verts[t->v2];
         float ux=B->x-A->x, uy=B->y-A->y, uz=B->z-A->z;

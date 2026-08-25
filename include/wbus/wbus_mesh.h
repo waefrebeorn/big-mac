@@ -94,6 +94,13 @@ wb_mesh *wb_mesh_load_obj(const char *path);
  * round-trips keep flat shading). Returns 0 on success. */
 int wb_mesh_write_obj(const wb_mesh *m, const char *obj_path);
 
+
+/* R074 hop 118 (G-SF011): capsule + wedge primitives. */
+wb_mesh *wb_mesh_capsule(float radius, float height, int segs,
+                         uint8_t r, uint8_t g, uint8_t b);
+wb_mesh *wb_mesh_wedge(float hx, float hy, float hz,
+                       uint8_t r, uint8_t g, uint8_t b);
+
 #ifdef __cplusplus
 }
 #endif

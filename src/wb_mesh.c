@@ -389,3 +389,72 @@ int wb_mesh_write_obj(const wb_mesh *m, const char *obj_path) {
     fclose(f); fclose(mf);
     return 0;
 }
+
+/* ---- R074 hop 118 (G-SF011): capsule + wedge primitives --------------- */
+/* Capsule: cylinder of `height` (Y axis) capped by two hemispheres. */
+wb_mesh *wb_mesh_capsule(float radius, float height, int segs,
+                         uint8_t r, uint8_t g, uint8_t b) {
+    wb_mesh *cyl = wb_mesh_cylinder(radius, height, segs, r,g,b);
+    if (!cyl) return NULL;
+    wb_mesh *top = wb_mesh_sphere(radius, segs/2 < 2 ? 2 : segs/2,
+                                  segs, r,g,b);
+    wb_mesh *bot = wb_mesh_sphere(radius, segs/2 < 2 ? 2 : segs/2,
+                                  segs, r,g,b);
+    if (!top || !bot) {
+        wb_mesh_free(cyl);
+        if (top) wb_mesh_free(top);
+        if (bot) wb_mesh_free(bot);
+        return NULL;
+    }
+    /* squash spheres to hemispheres and shift */
+    wb_mesh_scale(top, 1.0f, 0.5f, 1.0f);
+    wb_mesh_scale(bot, 1.0f, 0.5f, 1.0f);
+    wb_mesh_translate(top, 0,  height/2, 0);
+    wb_mesh_translate(bot, 0, -height/2, 0);
+    /* merge: rebuild from combined arrays */
+    int nv = wb_mesh_vert_count(cyl)+wb_mesh_vert_count(top)
+            +wb_mesh_vert_count(bot);
+    int nt = wb_mesh_tri_count(cyl)+wb_mesh_tri_count(top)
+            +wb_mesh_tri_count(bot);
+    wb_rast_vertex *v = malloc(sizeof(*v)*(size_t)nv);
+    wb_rast_tri *t = malloc(sizeof(*t)*(size_t)nt);
+    if (!v || !t) { free(v); free(t);
+        wb_mesh_free(cyl); wb_mesh_free(top); wb_mesh_free(bot);
+        return NULL; }
+    int vo = 0, to = 0;
+    const wb_mesh *parts[3] = { cyl, top, bot };
+    for (int p = 0; p < 3; p++) {
+        const wb_rast_vertex *pv = wb_mesh_vert_src(parts[p]);
+        const wb_rast_tri *pt = wb_mesh_tri_src(parts[p]);
+        int base = vo;
+        for (int i = 0; i < wb_mesh_vert_count(parts[p]); i++)
+            v[vo++] = pv[i];
+        for (int i = 0; i < wb_mesh_tri_count(parts[p]); i++) {
+            t[to] = pt[i];
+            t[to].v0 += base; t[to].v1 += base; t[to].v2 += base;
+            to++;
+        }
+    }
+    wb_mesh *outm = wb_mesh_build(v, nv, t, nt);
+    free(v); free(t);
+    wb_mesh_free(cyl); wb_mesh_free(top); wb_mesh_free(bot);
+    return outm;
+}
+
+/* Wedge: right-triangle prism along Z (ramp). Base in XY plane. */
+wb_mesh *wb_mesh_wedge(float hx, float hy, float hz,
+                       uint8_t r, uint8_t g, uint8_t b) {
+    /* 6 vertices: front triangle + back triangle + 3 quads (as tris) */
+    wb_rast_vertex v[6] = {
+        {-hx,-hy,-hz}, {hx,-hy,-hz}, {-hx,hy,-hz},   /* front tri */
+        {-hx,-hy, hz}, {hx,-hy, hz}, {-hx,hy, hz},   /* back tri */
+    };
+    wb_rast_tri t[8] = {
+        {0,1,2,r,g,b},      /* front */
+        {5,4,3,r,g,b},      /* back */
+        {0,2,5,r,g,b}, {0,5,3,r,g,b},   /* slope face */
+        {0,3,4,r,g,b}, {0,4,1,r,g,b},   /* bottom */
+        {1,4,5,r,g,b}, {1,5,2,r,g,b},   /* vertical back face */
+    };
+    return wb_mesh_build(v, 6, t, 8);
+}

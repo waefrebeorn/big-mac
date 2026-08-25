@@ -73,6 +73,8 @@ void wb_rast_set_specular(wb_rast_ctx *r, float strength);
 /* Enable a depth buffer for correct interpenetration (disables the
  * painter's sort path). Default: off (painter). */
 void wb_rast_set_zbuffer(wb_rast_ctx *r, int on);
+/* R074 hop 118 (G-SF034): wireframe/debug draw. */
+void wb_rast_set_wireframe(wb_rast_ctx *r, int on);
 
 #ifdef __cplusplus
 }

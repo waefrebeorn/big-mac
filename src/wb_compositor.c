@@ -1387,6 +1387,37 @@ static wb_frame *trans_pull(wb_node *self, double t,
                 if (bx >= 0 && bx < a->w) out->px[i] = pb;
                 else                      out->px[i] = pa;
             }
+        } else if (tr->op == 15) {
+            /* R073 hop 94: spin-blur transition — angular multi-tap blur
+             * rotating around the frame center; strength peaks at the
+             * midpoint; A spins out, B spins in, blended by progress. */
+            float punch = sinf(mB * 3.14159265f);
+            float cx = a->w * 0.5f, cy = a->h * 0.5f;
+            float ra = 0, ga_ = 0, ba = 0, rb = 0, gb = 0, bb = 0;
+            for (int tap = 0; tap < 5; tap++) {
+                float ang = (punch * 0.12f) *
+                            ((float)tap / 4.0f - 0.5f) * 3.14159265f;
+                float ca = cosf(ang), sa = sinf(ang);
+                float fx = (float)px_i - cx, fy = (float)py_i - cy;
+                int axx = (int)(cx + fx * ca - fy * sa);
+                int ayy = (int)(cy + fx * sa + fy * ca);
+                if (axx < 0) axx = 0; if (axx >= a->w) axx = a->w-1;
+                if (ayy < 0) ayy = 0; if (ayy >= a->h) ayy = a->h-1;
+                wb_px q = a->px[ayy * a->w + axx];
+                ra += q.r; ga_ += q.g; ba += q.b;
+                /* B rotates the opposite way */
+                int bxx = (int)(cx + fx * ca + fy * sa);
+                int byy = (int)(cy - fx * sa + fy * ca);
+                if (bxx < 0) bxx = 0; if (bxx >= b->w) bxx = b->w-1;
+                if (byy < 0) byy = 0; if (byy >= b->h) byy = b->h-1;
+                q = b->px[byy * b->w + bxx];
+                rb += q.r; gb += q.g; bb += q.b;
+            }
+            ra /= 5; ga_ /= 5; ba /= 5; rb /= 5; gb /= 5; bb /= 5;
+            out->px[i].r = ra*(1-mM) + rb*mM;
+            out->px[i].g = ga_*(1-mM) + gb*mM;
+            out->px[i].b = ba*(1-mM) + bb*mM;
+            out->px[i].a = pa.a*(1-mM) + pb.a*mM;
         } else if (tr->op == 14) {
             /* R073 hop 92: zoom-blur transition — radial multi-tap blur
              * whose strength peaks at the midpoint; B scales in over A.

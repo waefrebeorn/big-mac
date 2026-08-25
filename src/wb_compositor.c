@@ -1840,6 +1840,15 @@ wb_node *wb_node_effect_mode7(float horizon_frac, float strength,
     return n;
 }
 
+
+/* R074 hop 131 (#78): query a node's resolved output dimensions without
+ * pulling. Returns 0 on success. */
+int wb_node_output_dims(wb_node *n, int *w, int *h) {
+    if (!n) return -1;
+    node_resolve_format(n, w, h);
+    return (*w > 0 && *h > 0) ? 0 : -1;
+}
+
 /* R073 hop 101: write a frame as a binary PPM (P6) image. */
 int wb_frame_write_ppm(const wb_frame *f, const char *path) {
     if (!f || !path || f->w <= 0 || f->h <= 0) return -1;

@@ -9,7 +9,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 3. G-SF003 No per-channel keying — all 8 channels set together (pos/rot/scale coupled) **[FIXED]**
 4. G-SF004 No keyframe delete/move API **[FIXED]**
 5. G-SF005 [FIXED hop113] No looping/wrap keys (floor strips need manual cycle hacks) **[FIXED]**
-6. G-SF006 No path/curve animation (bezier flight paths for ships)
+6. G-SF006 No path/curve animation (bezier flight paths for ships) **[FIXED]**
 7. G-SF007 Camera has no FOV/focal control **[FIXED]**
 8. G-SF008 Camera can't be parented or shake-composed per-frame cleanly
 9. G-SF009 No look-at constraint (rings should face camera)
@@ -25,7 +25,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 19. G-SF019 No instancing (24 starfield boxes = 24 objects instead of 1 draw)
 20. G-SF020 No skeletal animation / bones
 21. G-SF021 No morph targets
-22. G-SF022 Rotation interpolation is Euler-only — gimbal artifacts possible
+22. G-SF022 Rotation interpolation is Euler-only — gimbal artifacts possible **[FIXED]**
 23. G-SF023 No animation events/callbacks at key times (spawn SFX at ring pass) **[FIXED]**
 24. G-SF024 anim render output alpha-keyed but no depth composite against bg Z
 25. G-SF025 No LOD system
@@ -44,7 +44,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 36. G-SF036 No motion blur accumulation buffer
 37. G-SF037 No post-FX chain inside 3D (bloom on engine glow)
 38. G-SF038 Rasterizer perf: no scanline SIMD; 15fps@640x360 was near budget
-39. G-SF039 No back-face material variation (two-sided lighting wrong)
+39. G-SF039 No back-face material variation (two-sided lighting wrong) **[FIXED]**
 40. G-SF040 No anti-aliasing option (SSAA would help tiny stars)
 41. G-SF041 No screenshot/frame grab API from live session
 42. G-SF042 No multi-scene compositing with per-layer Z

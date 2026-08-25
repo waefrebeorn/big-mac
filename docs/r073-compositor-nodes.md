@@ -40,6 +40,7 @@ param bus (`wb_node_add_param`). Gate: `build/wb_test_compositor`.
 | 12 | Four-box wipe — quadrants fill from outer corners toward center |
 | 13 | Venetian-blind dissolve — 16px horizontal strips flip in a top-down wave |
 | 14 | Zoom-blur — 5-tap radial zoom punch peaking at midpoint; A out, B in |
+| 15 | Spin-blur — 5-tap angular rotation blur, counter-rotating A/B |
 - Cut-on-beat: `wb_session_snap_to_beat(t, bpm)` snaps any transition
   midpoint to the session's nearest beat (pairs with the hop-15 estimator)
 - Batch beat-snapped transitions: `wb_session_batch_transitions_beat`

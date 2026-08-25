@@ -936,11 +936,23 @@ static wb_frame *comp_pull(wb_node *self, double t,
             for (int x = rx; x < rx + rw && x < cw; x++) {
                 wb_px s = f->px[y*f->w + x];
                 wb_px *d = &out->px[y*out->w + x];
+                /* R074 hop 140 (#65/#66): straight-alpha over operator.
+                 * Base layer (i==0) initializes the canvas; subsequent
+                 * layers use src-over with dst premultiplied by its own
+                 * accumulated alpha. */
                 float a = s.a;
-                d->r = s.r*a + d->r*(1-a);
-                d->g = s.g*a + d->g*(1-a);
-                d->b = s.b*a + d->b*(1-a);
-                d->a = a + d->a*(1-a);
+                if (i == 0 || d->a <= 0.0f) {
+                    *d = s;
+                    continue;
+                }
+                float da = d->a;
+                float oa = a + da*(1-a);
+                if (oa > 1e-5f) {
+                    d->r = (s.r*a + d->r*da*(1-a)) / oa;
+                    d->g = (s.g*a + d->g*da*(1-a)) / oa;
+                    d->b = (s.b*a + d->b*da*(1-a)) / oa;
+                }
+                d->a = oa;
             }
         wb_frame_free(f);
     }

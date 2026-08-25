@@ -45,6 +45,8 @@ param bus (`wb_node_add_param`). Gate: `build/wb_test_compositor`.
   midpoint to the session's nearest beat (pairs with the hop-15 estimator)
 - Batch beat-snapped transitions: `wb_session_batch_transitions_beat`
   places crossfades at every cut with midpoints riding the BPM grid
+- Onset-aligned transitions: `wb_session_batch_transitions_onset`
+  biases cut windows toward transients of a reference audio clip
 - R073 hop 83: the third (map) input is optional for ALL transition ops —
   its Rec.709 luma modulates per-pixel progress (luma-masked crossfade,
   wipe, iris, slide, push, noise dissolve); op 7 keeps hard threshold. |

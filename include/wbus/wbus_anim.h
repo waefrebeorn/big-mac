@@ -76,6 +76,13 @@ int wb_anim_key_rot_z(wb_anim *a, int o, double t, float rz, int ease);
 int wb_anim_key_delete(wb_anim *a, int obj, int key_idx);
 /* G-SF056: visibility window. */
 int wb_anim_set_visible(wb_anim *a, int obj, double from, double to);
+/* G-SF006: cubic bezier flight path. */
+int wb_anim_path_bezier(wb_anim *a, int obj, double t0, double t1,
+                        float x0,float y0,float z0, float x1,float y1,float z1,
+                        float x2,float y2,float z2, float x3,float y3,float z3,
+                        int steps);
+/* G-SF022: shortest-arc rotation unwrap across keys. */
+int wb_anim_rot_unwrap(wb_anim *a, int obj);
 int wb_anim_key_move(wb_anim *a, int obj, int key_idx, double new_t);
 
 #ifdef __cplusplus

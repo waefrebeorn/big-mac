@@ -41,14 +41,14 @@
 36. vignette fall*fall applied multiplicatively to RGB pre-gamma (should be post)
 
 ## C. Performance / structure
-37. blur executes entire 2-pass box PER PIXEL — O(n^2); must hoist to per-frame passes
-38. blur allocates a full temp frame EVERY pixel iteration (malloc storm)
-39. comp_pull 4096x4096 calloc = 64MB per pull at default (massive)
+37. blur executes entire 2-pass box PER PIXEL — O(n^2); must hoist to per-frame passes  **[FIXED]**
+38. blur allocates a full temp frame EVERY pixel iteration (malloc storm)  **[FIXED]**
+39. comp_pull 4096x4096 calloc = 64MB per pull at default (massive)  **[FIXED]**
 40. eff_pull giant if-else chain per pixel — dispatch should be outside loops
 41. trans_pull mapf pulled even for ops that never read it
 42. cache node unbounded growth risk (max_frames unchecked on realloc path?)
-43. wb_node_param_value called multiple times per pixel for same params (hoist!)
-44. window params (win_*) re-fetched per pixel inside HSL loop
+43. wb_node_param_value called multiple times per pixel for same params (hoist!)  **[FIXED]**
+44. window params (win_*) re-fetched per pixel inside HSL loop  **[FIXED]**
 45. sinf/cosf/powf/sqrtf per pixel — no lookup tables for gamma/vignette
 46. two-phase pull_request implemented but most nodes ignore phase 0 semantics
 47. wb_frame lacks refcount — every stage copies or re-walks buffers
@@ -101,12 +101,12 @@
 90. no version string in CLI outputs (can't tell which build rendered a file)  **[FIXED]**
 
 ## F. Demo-facing polish
-91. showcase renders at 64x64 (blocky) — needs 640x480+ path
+91. showcase renders at 64x64 (blocky) — needs 640x480+ path  **[FIXED]**
 92. title scale=2 tiny at real resolutions — needs resolution-relative sizing
 93. soundtrack is bare sine — no envelope, clicks at boundaries  **[FIXED]**
-94. scene colors are flat fields — no gradients/patterns to show grading
+94. scene colors are flat fields — no gradients/patterns to show grading  **[FIXED]**
 95. no fade-from-black at demo start / fade-to-black at end  **[FIXED]**
-96. transitions all centered — no movement to show directional features
+96. transitions all centered — no movement to show directional features  **[FIXED]**
 97. GIF palette generated at fps=6 without dithering flags (banding)
 98. showcase.mp4 has no faststart flag (moov at end — stalls web playback)  **[FIXED]**
 99. no poster/thumbnail extraction alongside exports  **[FIXED]**

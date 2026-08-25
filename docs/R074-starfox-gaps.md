@@ -10,7 +10,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 4. G-SF004 No keyframe delete/move API **[FIXED]**
 5. G-SF005 [FIXED hop113] No looping/wrap keys (floor strips need manual cycle hacks) **[FIXED]**
 6. G-SF006 No path/curve animation (bezier flight paths for ships)
-7. G-SF007 Camera has no FOV/focal control
+7. G-SF007 Camera has no FOV/focal control **[FIXED]**
 8. G-SF008 Camera can't be parented or shake-composed per-frame cleanly
 9. G-SF009 No look-at constraint (rings should face camera)
 10. G-SF010 No billboard sprites (explosions/stars should always face camera)
@@ -63,8 +63,8 @@ failure, missing feature, and quality gap found on the way is a gap.
 53. G-SF053 No chromatic aberration / VHS node **[FIXED]**
 54. G-SF054 Frame source has no fps/timebase metadata
 55. G-SF055 No audio-reactive hooks into 3D anim (CGI bands exist but not wired here)
-56. G-SF056 No per-object visibility track (blink/pulse objects)
-57. G-SF057 Composite order fixed by add order — no reorder API
+56. G-SF056 No per-object visibility track (blink/pulse objects) **[FIXED]**
+57. G-SF057 Composite order fixed by add order — no reorder API **[FIXED]**
 58. G-SF058 No nested comp caching (bg re-pulled per frame)
 59. G-SF059 PPM intermediate frames waste disk I/O — no pipe to ffmpeg stdin **[FIXED]**
 60. G-SF060 No progress callback during export loops

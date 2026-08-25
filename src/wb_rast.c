@@ -36,6 +36,7 @@ struct wb_rast_ctx {
 
     int cull;
     int wireframe;       /* R074 hop 118 (G-SF034) */
+    int two_sided;       /* R074 hop 121 (G-SF039): light backfaces */
 
     /* per-frame scratch (sized to nverts) */
     float *sx, *sy, *sz;   /* screen x/y + view depth */
@@ -111,6 +112,9 @@ void wb_rast_set_specular(wb_rast_ctx *r, float strength) {
     if (!r) return;
     r->spec = strength < 0 ? 0 : (strength > 1 ? 1 : strength);
 }
+void wb_rast_set_two_sided(wb_rast_ctx *r, int on) {
+    if (r) r->two_sided = on;
+}
 void wb_rast_set_focal(wb_rast_ctx *r, float focal) {
     if (r) r->focal = focal > 10.0f ? focal : (focal < -10.0f ? -focal : 300.0f);
 }
@@ -158,7 +162,7 @@ static void fill_tri(wb_rast_ctx *r, uint8_t *img,
     float area = (x1-x0)*(y2-y0) - (x2-x0)*(y1-y0);
     if (fabsf(area) < 0.25f) return;
     if (area < 0.0f) {
-        if (r->cull) return;   /* back-facing: dropped */
+        if (r->cull && !r->two_sided) return;   /* G-SF039: two-sided keeps */
         /* culling off: flip winding so the edge tests pass */
         int t = i1; i1 = i2; i2 = t;
         float tx = x1, ty = y1; x1 = x2; y1 = y2; x2 = tx; y2 = ty;

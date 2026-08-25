@@ -483,3 +483,49 @@ int wb_anim_set_visible(wb_anim *a, int obj, double from, double to) {
     a->vis_to[obj]   = (float)to;
     return 0;
 }
+
+/* ---- R074 hop 121 (G-SF006): cubic bezier flight path ----------------- */
+int wb_anim_path_bezier(wb_anim *a, int obj,
+                        double t0, double t1,
+                        float x0,float y0,float z0,
+                        float x1,float y1,float z1,
+                        float x2,float y2,float z2,
+                        float x3,float y3,float z3,
+                        int steps) {
+    if (!a || obj < 0 || obj >= a->nobjs || steps <= 0) return -1;
+    if (t1 <= t0 || a->objs[obj].nkeys + steps > WB_ANIM_MAX_KEYS) return -1;
+    for (int s = 0; s <= steps; s++) {
+        float u = (float)s / steps;
+        float iu = 1.0f - u;
+        /* cubic Bernstein */
+        float b0=iu*iu*iu, b1=3*iu*iu*u, b2=3*iu*u*u, b3=u*u*u;
+        float px=b0*x0+b1*x1+b2*x2+b3*x3;
+        float py=b0*y0+b1*y1+b2*y2+b3*y3;
+        float pz=b0*z0+b1*z1+b2*z2+b3*z3;
+        if (wb_anim_key(a, obj, t0+(t1-t0)*u,
+                        px,py,pz, 0,0,0, 1.0) < 0) return s;
+    }
+    return steps+1;
+}
+
+/* R074 hop 121 (G-SF022): quaternion-safe rotation interpolation is
+ * approximated by shortest-arc Euler unwrap: when |delta|>pi the key
+ * value wraps to the nearer equivalent angle. Call after adding keys. */
+int wb_anim_rot_unwrap(wb_anim *a, int obj) {
+    if (!a || obj < 0 || obj >= a->nobjs) return -1;
+    wb_anim_obj *o = &a->objs[obj];
+    for (int ch = 3; ch < 6; ch++) {
+        float prev = 0;
+        for (int i = 0; i < o->nkeys; i++) {
+            float v[3] = {o->keys[i].rx, o->keys[i].ry, o->keys[i].rz};
+            float d = v[ch] - prev;
+            while (d > 3.14159f)  { v[ch] -= 6.28318f; d -= 6.28318f; }
+            while (d < -3.14159f) { v[ch] += 6.28318f; d += 6.28318f; }
+            if (ch==0) o->keys[i].rx=v[ch];
+            else if (ch==1) o->keys[i].ry=v[ch];
+            else o->keys[i].rz=v[ch];
+            prev = v[ch];
+        }
+    }
+    return 0;
+}

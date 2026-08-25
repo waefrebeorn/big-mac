@@ -75,6 +75,8 @@ void wb_rast_set_specular(wb_rast_ctx *r, float strength);
 void wb_rast_set_zbuffer(wb_rast_ctx *r, int on);
 /* R074 hop 120 (G-SF007): camera focal length (FOV control). */
 void wb_rast_set_focal(wb_rast_ctx *r, float focal);
+/* G-SF039: light back faces with flipped normal. */
+void wb_rast_set_two_sided(wb_rast_ctx *r, int on);
 /* R074 hop 118 (G-SF034): wireframe/debug draw. */
 void wb_rast_set_wireframe(wb_rast_ctx *r, int on);
 

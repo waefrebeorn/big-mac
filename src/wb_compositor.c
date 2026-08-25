@@ -342,6 +342,9 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 float vig = wb_node_param_value(self, "vig", t);
                 if (vig <= 0.0f) vig = gain;
                 float cx2 = in->w * 0.5f, cy2 = in->h * 0.5f;
+                /* R074 hop 116 (#12): Vegas-style falloff — normalize
+                 * by corner distance so edges stay in [0,1]; the
+                 * vig_start radius provides the width/2 feel */
                 float maxd = sqrtf(cx2*cx2 + cy2*cy2);
                 for (int y = ry; y < ry + rh; y++)
                     for (int x = rx; x < rx + rw; x++) {
@@ -377,9 +380,19 @@ static wb_frame *eff_pull(wb_node *self, double t,
                       lb = p->b + lift;
                 if (lr < 0) lr = 0; if (lg < 0) lg = 0; if (lb < 0) lb = 0;
                 if (lr > 1) lr = 1; if (lg > 1) lg = 1; if (lb > 1) lb = 1;
-                p->r = powf(lr, 1.0f / gam) * gnv;
-                p->g = powf(lg, 1.0f / gam) * gnv;
-                p->b = powf(lb, 1.0f / gam) * gnv;
+                /* R074 hop 116 (#20/21): gamma+gain in LINEAR light */
+                float lin[3] = { lr, lg, lb };
+                for (int ch2 = 0; ch2 < 3; ch2++) {
+                    float v = lin[ch2];
+                    v = v <= 0.04045f ? v / 12.92f
+                      : powf((v + 0.055f) / 1.055f, 2.4f);   /* decode */
+                    v = powf(v, 1.0f / gam) * gnv;           /* grade   */
+                    v = v <= 0.0031308f ? v * 12.92f
+                      : 1.055f * powf(v, 1.0f / 2.4f) - 0.055f; /* encode */
+                    if (ch2 == 0) p->r = v;
+                    else if (ch2 == 1) p->g = v;
+                    else p->b = v;
+                }
                 /* saturation around Rec.709 luma */
                 float lum = 0.2126f*p->r + 0.7152f*p->g + 0.0722f*p->b;
                 p->r = lum + (p->r - lum)*sat;
@@ -450,10 +463,15 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 float wr = wb_node_param_value(self, "win_r", t);
                 float wsel = 1.0f;
                 if (wr > 0.0f) {
+                    /* R074 hop 116 (#11): aspect-correct distance —
+                     * dx scaled by aspect so circles are circular while
+                     * win_cx/cy stay in normalized [0,1] space */
+                    float aspect = in->h > 0 ? (float)in->w / (float)in->h : 1.0f;
                     float nx = ((float)x + 0.5f) / in->w
                              - wb_node_param_value(self, "win_cx", t);
                     float ny = ((float)y + 0.5f) / in->h
                              - wb_node_param_value(self, "win_cy", t);
+                    nx *= aspect;
                     float ws = wb_node_param_value(self, "win_soft", t);
                     if (ws <= 0.0f) ws = 0.15f;
                     /* R073 hop 79: win_shape 1=rect, 2=ellipse, else circle */
@@ -1507,6 +1525,68 @@ wb_node *wb_node_effect_dither(int levels) {
     n->free = dither_free;
     n->n_inputs = 1;
     n->inputs = calloc(1, sizeof(wb_node *));
+    return n;
+}
+
+
+/* ---- R074 hop 116 (#10): SCALER node — bilinear resize ---------------- */
+typedef struct { int out_w, out_h; } scaler_t;
+
+static wb_frame *scaler_pull(wb_node *self, double t,
+                             int rx, int ry, int rw, int rh) {
+    (void)rx; (void)ry; (void)rw; (void)rh;
+    if (!self->inputs || !self->inputs[0]) return NULL;
+    wb_frame *in = wb_node_pull(self->inputs[0], t, -1, -1, -1, -1);
+    if (!in) return NULL;
+    int W = in->roi_w, H = in->roi_h;
+    int OW = ((scaler_t*)self->user)->out_w;
+    int OH = ((scaler_t*)self->user)->out_h;
+    if (OW <= 0) OW = W;
+    if (OH <= 0) OH = H;
+    wb_frame *out = wb_frame_alloc(OW, OH);
+    if (!out) return in;
+    if (W < 2 || H < 2) {   /* degenerate input: nearest copy */
+        for (int y = 0; y < OH && y < H; y++)
+            for (int x = 0; x < OW && x < W; x++)
+                out->px[y*OW + x] = in->px[y*W + x];
+        return out;
+    }
+    for (int y = 0; y < OH; y++) {
+        float fy = (y + 0.5f) * H / (float)OH - 0.5f;
+        int y0 = (int)floorf(fy);
+        float ty = fy - y0;
+        if (y0 < 0) { y0 = 0; ty = 0; }
+        if (y0 >= H-1) { y0 = H-2 < 0 ? 0 : H-2; ty = 1; }
+        for (int x = 0; x < OW; x++) {
+            float fx = (x + 0.5f) * W / (float)OW - 0.5f;
+            int x0 = (int)floorf(fx);
+            float tx = fx - x0;
+            if (x0 < 0) { x0 = 0; tx = 0; }
+            if (x0 >= W-1) { x0 = W-2 < 0 ? 0 : W-2; tx = 1; }
+            const wb_px *p00=&in->px[(y0)*W + x0],   *p10=&in->px[(y0)*W+x0+1];
+            const wb_px *p01=&in->px[(y0+1)*W + x0], *p11=&in->px[(y0+1)*W+x0+1];
+            wb_px *q = &out->px[y*OW + x];
+            q->r=(p00->r*(1-tx)+p10->r*tx)*(1-ty)+(p01->r*(1-tx)+p11->r*tx)*ty;
+            q->g=(p00->g*(1-tx)+p10->g*tx)*(1-ty)+(p01->g*(1-tx)+p11->g*tx)*ty;
+            q->b=(p00->b*(1-tx)+p10->b*tx)*(1-ty)+(p01->b*(1-tx)+p11->b*tx)*ty;
+            q->a=(p00->a*(1-tx)+p10->a*tx)*(1-ty)+(p01->a*(1-tx)+p11->a*tx)*ty;
+        }
+    }
+    out->roi_x = 0; out->roi_y = 0; out->roi_w = OW; out->roi_h = OH;
+    return out;
+}
+static void scaler_free(wb_node *n) { free(n->user); }
+
+wb_node *wb_node_effect_scaler(int out_w, int out_h) {
+    wb_node *n = wb_node_create(WB_NODE_EFFECT, "scaler");
+    if (!n) return NULL;
+    scaler_t *s = calloc(1, sizeof(*s));
+    if (!s) { wb_node_destroy(n); return NULL; }
+    s->out_w = out_w; s->out_h = out_h;
+    n->user = s; n->pull = scaler_pull; n->free = scaler_free;
+    n->n_inputs = 1;
+    n->inputs = calloc(1, sizeof(wb_node *));
+    wb_node_set_format(n, out_w > 0 ? out_w : 64, out_h > 0 ? out_h : 64);
     return n;
 }
 

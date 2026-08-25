@@ -166,6 +166,8 @@ wb_node *wb_node_source_anim(struct wb_anim *anim, int w, int h);
 
 /* R074 hop 113 (G-SF030/031): SNES ordered-dither + palette quantize. */
 wb_node *wb_node_effect_dither(int levels);
+/* R074 hop 116 (#10): bilinear scaler — resize to out_w x out_h. */
+wb_node *wb_node_effect_scaler(int out_w, int out_h);
 
 /* R074 hop 111: scene source — smoothstep gradient (vertical or radial)
  * with a moving light sweep. Colors are top/bottom endpoints. */

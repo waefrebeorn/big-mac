@@ -4,11 +4,11 @@ Probed by building the corridor-run demo. Every friction, silent
 failure, missing feature, and quality gap found on the way is a gap.
 
 ## A. wb_anim / 3D core (1-25)
-1. G-SF001 [FIXED hop113] WB_ANIM_MAX_OBJS=32 hard cap — demo needed 46 objects; silent -1 drops
-2. G-SF002 [FIXED hop113] WB_ANIM_MAX_KEYS=64/object — long flights need hundreds
+1. G-SF001 [FIXED hop113] WB_ANIM_MAX_OBJS=32 hard cap — demo needed 46 objects; silent -1 drops **[FIXED]**
+2. G-SF002 [FIXED hop113] WB_ANIM_MAX_KEYS=64/object — long flights need hundreds **[FIXED]**
 3. G-SF003 No per-channel keying — all 8 channels set together (pos/rot/scale coupled)
 4. G-SF004 No keyframe delete/move API
-5. G-SF005 [FIXED hop113] No looping/wrap keys (floor strips need manual cycle hacks)
+5. G-SF005 [FIXED hop113] No looping/wrap keys (floor strips need manual cycle hacks) **[FIXED]**
 6. G-SF006 No path/curve animation (bezier flight paths for ships)
 7. G-SF007 Camera has no FOV/focal control
 8. G-SF008 Camera can't be parented or shake-composed per-frame cleanly
@@ -20,13 +20,13 @@ failure, missing feature, and quality gap found on the way is a gap.
 14. G-SF014 No texture mapping / UV coords at all
 15. G-SF015 No emissive materials (engine glow faked with bright color)
 16. G-SF016 No transparency in 3D (no alpha-sorted transparent pass)
-17. G-SF017 No fog/atmospheric depth fade
-18. G-SF018 No particle system (explosions, engine trails, sparks)
+17. G-SF017 No fog/atmospheric depth fade **[FIXED]**
+18. G-SF018 No particle system (explosions, engine trails, sparks) **[FIXED]**
 19. G-SF019 No instancing (24 starfield boxes = 24 objects instead of 1 draw)
 20. G-SF020 No skeletal animation / bones
 21. G-SF021 No morph targets
 22. G-SF022 Rotation interpolation is Euler-only — gimbal artifacts possible
-23. G-SF023 No animation events/callbacks at key times (spawn SFX at ring pass)
+23. G-SF023 No animation events/callbacks at key times (spawn SFX at ring pass) **[FIXED]**
 24. G-SF024 anim render output alpha-keyed but no depth composite against bg Z
 25. G-SF025 No LOD system
 
@@ -35,10 +35,10 @@ failure, missing feature, and quality gap found on the way is a gap.
 27. G-SF027 Flat shading only — no gouraud/phong interpolation option
 28. G-SF028 Single directional sun — no point lights
 29. G-SF029 No shadow casting (ship has no ground shadow)
-30. G-SF030 [FIXED hop113] No dithering mode (SNES had ordered dither!)
-31. G-SF031 [FIXED hop113] No palette quantize render target (true SNES 256-color mode)
+30. G-SF030 [FIXED hop113] No dithering mode (SNES had ordered dither!) **[FIXED]**
+31. G-SF031 [FIXED hop113] No palette quantize render target (true SNES 256-color mode) **[FIXED]**
 32. G-SF032 No affine texture warp (the actual Mode-7 effect)
-33. G-SF033 [FIXED hop113] Z-buffer precision unconfigurable; far plane clipping at z=-160 observed
+33. G-SF033 [FIXED hop113] Z-buffer precision unconfigurable; far plane clipping at z=-160 observed **[FIXED]**
 34. G-SF034 No wireframe/debug draw mode
 35. G-SF035 No viewport scissor/region rendering
 36. G-SF036 No motion blur accumulation buffer
@@ -53,11 +53,11 @@ failure, missing feature, and quality gap found on the way is a gap.
 45. G-SF045 No render-to-texture (portal/radar effects)
 
 ## C. Compositor integration (46-60)
-46. G-SF046 [FIXED hop113] wb_node_source_frame copies full frame every pull — no dirty flag
-47. G-SF047 [FIXED hop113] No direct anim->node bridge (demo hand-rolled rgba plumbing)
+46. G-SF046 [FIXED hop113] wb_node_source_frame copies full frame every pull — no dirty flag **[FIXED]**
+47. G-SF047 [FIXED hop113] No direct anim->node bridge (demo hand-rolled rgba plumbing) **[FIXED]**
 48. G-SF048 Composite RoD fixed 4096 scan — no auto-size from first pull
 49. G-SF049 No layer transform on composited CGI (scale/pos of the 3D overlay)
-50. G-SF050 [FIXED hop113] HUD text drawn manually onto rgba — no text node over 3D
+50. G-SF050 [FIXED hop113] HUD text drawn manually onto rgba — no text node over 3D **[FIXED]**
 51. G-SF051 No letterbox/safe-area guides
 52. G-SF052 No scanline emulator filter node (CRT look)
 53. G-SF053 No chromatic aberration / VHS node
@@ -66,11 +66,11 @@ failure, missing feature, and quality gap found on the way is a gap.
 56. G-SF056 No per-object visibility track (blink/pulse objects)
 57. G-SF057 Composite order fixed by add order — no reorder API
 58. G-SF058 No nested comp caching (bg re-pulled per frame)
-59. G-SF059 PPM intermediate frames waste disk I/O — no pipe to ffmpeg stdin
+59. G-SF059 PPM intermediate frames waste disk I/O — no pipe to ffmpeg stdin **[FIXED]**
 60. G-SF060 No progress callback during export loops
 
 ## D. Audio / music (61-78)
-61. G-SF061 No SMF (.mid) file loader
+61. G-SF061 No SMF (.mid) file loader **[FIXED]**
 62. G-SF062 No SF2 soundfont loader/player
 63. G-SF063 Soundtrack synthesized in Python outside the engine — engine should render its own demo audio
 64. G-SF064 No FM synthesis voice (SNES-y timbres are limited with subtractive)

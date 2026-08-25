@@ -83,6 +83,10 @@ int wb_anim_path_bezier(wb_anim *a, int obj, double t0, double t1,
                         int steps);
 /* G-SF022: shortest-arc rotation unwrap across keys. */
 int wb_anim_rot_unwrap(wb_anim *a, int obj);
+/* G-SF010: billboard sprites. */
+int wb_anim_set_billboard(wb_anim *a, int obj, int on);
+/* G-SF009: yaw-to-camera. */
+int wb_anim_set_lookcam(wb_anim *a, int obj, int on);
 /* G-SF026: render-resolution override. */
 int wb_anim_set_resolution(wb_anim *a, int w, int h);
 int wb_anim_key_move(wb_anim *a, int obj, int key_idx, double new_t);

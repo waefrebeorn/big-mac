@@ -14,6 +14,8 @@
  * Object count still bounded (pointer table) but far higher. */
 #define WB_ANIM_MAX_KEYS 256
 #define WB_ANIM_MAX_OBJS 128
+#define WB_ANIM_BILLBOARD 0x01
+#define WB_ANIM_LOOKCAM   0x02
 
 #ifndef WB_ANIM_PI
 #define WB_ANIM_PI 3.14159265358979
@@ -62,6 +64,7 @@ struct wb_anim {
     wb_rast_vertex *draw_verts;
     wb_rast_tri    *draw_tris;
     int cap_verts, cap_tris;
+    uint8_t flags[WB_ANIM_MAX_OBJS];   /* R074 hop 124: BB/lookcam */
 };
 
 wb_anim *wb_anim_create(int width, int height) {
@@ -289,6 +292,12 @@ void wb_anim_render_frame(wb_anim *a, double t, uint8_t *out_rgba) {
             continue;
         wb_anim_keyframe kf;
         sample_obj(o, t, &kf);
+        /* R074 hop 124 (G-SF010/009): billboard & look-at overrides */
+        if (a->flags[i] & WB_ANIM_BILLBOARD) {
+            kf.rx = cam_rx; kf.ry = cam_ry; kf.rz = 0;
+        } else if (a->flags[i] & WB_ANIM_LOOKCAM) {
+            kf.ry = cam_ry;
+        }
         /* R055c: additively inherit parent's sampled translation */
         if (o->parent >= 0) {
             wb_anim_keyframe pkf;
@@ -539,5 +548,22 @@ int wb_anim_set_resolution(wb_anim *a, int w, int h) {
     /* only shrink allowed once buffers sized — grow is fine too since
      * draw lists are dynamic */
     a->w = w; a->h = h;
+    return 0;
+}
+
+/* ---- R074 hop 124 (G-SF010/G-SF009): billboards & look-at ------------- */
+
+/* Mark an object to always face the camera (billboard). */
+int wb_anim_set_billboard(wb_anim *a, int obj, int on) {
+    if (!a || obj < 0 || obj >= a->nobjs) return -1;
+    if (on) a->flags[obj] |= WB_ANIM_BILLBOARD;
+    else    a->flags[obj] &= (uint8_t)~WB_ANIM_BILLBOARD;
+    return 0;
+}
+/* Mark an object to rotate toward the camera around Y (look-at). */
+int wb_anim_set_lookcam(wb_anim *a, int obj, int on) {
+    if (!a || obj < 0 || obj >= a->nobjs) return -1;
+    if (on) a->flags[obj] |= WB_ANIM_LOOKCAM;
+    else    a->flags[obj] &= (uint8_t)~WB_ANIM_LOOKCAM;
     return 0;
 }

@@ -33,6 +33,9 @@ param bus (`wb_node_add_param`). Gate: `build/wb_test_compositor`.
 | 5 | Push (both translate) |
 | 6 | Noise dissolve (deterministic per-pixel hash jitter ±15%) |
 | 7 | Map dissolve (third input's luma = per-pixel threshold) |
+- R073 hop 83: the third (map) input is optional for ALL transition ops —
+  its Rec.709 luma modulates per-pixel progress (luma-masked crossfade,
+  wipe, iris, slide, push, noise dissolve); op 7 keeps hard threshold. |
 
 ## Sources
 

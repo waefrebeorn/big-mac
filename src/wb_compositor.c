@@ -1488,6 +1488,16 @@ wb_node *wb_node_source_text(const char *text, int scale,
     return n;
 }
 
+/* R074 hop 133 (#92): resolution-relative title sizing — returns a
+ * pixel scale for the given frame width (width/80 clamped 1..8). */
+int wb_node_source_text_scale_for(int frame_w) {
+    int s = frame_w / 80;
+    if (s < 1) s = 1;
+    if (s > 8) s = 8;
+    return s;
+}
+
+
 /* R074 hop 113 (G-SF050): set a text node's pixel position. */
 void wb_node_source_text_pos(wb_node *n, int x, int y) {
     if (!n || !n->user) return;
@@ -2462,7 +2472,9 @@ wb_node *wb_transition_preset(int preset, double duration_secs) {
         break;
     case 2:                                   /* Cinematic */
         op = 1;                                /* dip-to-black */
-        if (duration_secs < 1.5) duration_secs = 1.5;  /* linger */
+        /* R074 hop 133 (#72): honor explicit short durations — only
+         * extend when the caller left it at the default (<=0). */
+        if (duration_secs <= 0.0) duration_secs = 1.5;
         break;
     case 3:                                   /* VJ */
         op = 14;                               /* zoom-blur */

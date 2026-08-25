@@ -45,11 +45,11 @@
 38. blur allocates a full temp frame EVERY pixel iteration (malloc storm)  **[FIXED]**
 39. comp_pull 4096x4096 calloc = 64MB per pull at default (massive)  **[FIXED]**
 40. eff_pull giant if-else chain per pixel — dispatch should be outside loops  **[FIXED]**
-41. trans_pull mapf pulled even for ops that never read it
-42. cache node unbounded growth risk (max_frames unchecked on realloc path?)
+41. trans_pull mapf pulled even for ops that never read it  **[FIXED]**
+42. cache node unbounded growth risk (max_frames unchecked on realloc path?)  **[FIXED]**
 43. wb_node_param_value called multiple times per pixel for same params (hoist!)  **[FIXED]**
 44. window params (win_*) re-fetched per pixel inside HSL loop  **[FIXED]**
-45. sinf/cosf/powf/sqrtf per pixel — no lookup tables for gamma/vignette
+45. sinf/cosf/powf/sqrtf per pixel — no lookup tables for gamma/vignette  **[FIXED]**
 46. two-phase pull_request implemented but most nodes ignore phase 0 semantics
 47. wb_frame lacks refcount — every stage copies or re-walks buffers
 48. no tile-based rendering despite wb_compositor_tile_size() existing (dead API)
@@ -67,13 +67,13 @@
 58. venetian strips fixed 16px — same issue  **[FIXED]**
 59. clock wipe hand anchored at frame center only  **[FIXED]**
 60. barn-door dir field reused for axis AND direction semantics unclearly (overload)
-61. zoom-blur tap count hardcoded 5; spin-blur too — no quality param
-62. directional-blur wipe only works horizontally (hardcoded x taps)
+61. zoom-blur tap count hardcoded 5; spin-blur too — no quality param  **[FIXED]**
+62. directional-blur wipe only works horizontally (hardcoded x taps)  **[FIXED]**
 63. ripple echo ring offset hardcoded 0.15*maxd  **[FIXED]**
 64. map dissolve threshold uses strict > (no soft knee) unlike documented feather  **[FIXED]**
 65. crossfade blends alpha linearly — premultiplied vs straight alpha ambiguity unresolved
 66. composite alpha-over formula assumes straight alpha; sources are premultiplied-ish (inconsistent)
-67. text anim modes 3/4 use d->anim_dur but mode 1 typewriter divides by same dur (ok) yet mode 2 slide uses w/2 fixed
+67. text anim modes 3/4 use d->anim_dur but mode 1 typewriter divides by same dur (ok) yet mode 2 slide uses w/2 fixed  **[FIXED]**
 68. text cx param overrides x but y has no cy equivalent (asymmetric API)  **[FIXED]**
 69. wb_frame_set_gpu flag set but GPU path never frees differently (leak pattern ready)
 70. roi_clip negative rx adjustment can produce rw<0 before final check (works but fragile)  **[FIXED]**
@@ -87,17 +87,17 @@
 76. PPM sequence filenames %05d overflow after 99999 frames (silent overwrite)
 77. export_mp4 mkdir race between concurrent exports (pid-suffixed but rmdir non-empty fails silently)  **[FIXED]**
 78. no way to query a node's output dimensions before pulling (needed for plumbing)  **[FIXED]**
-79. wb_node_add_param returns slot idx but -1 on dup? duplicates silently replace (undocumented)
+79. wb_node_add_param returns slot idx but -1 on dup? duplicates silently replace (undocumented)  **[FIXED]**
 80. param tracks owned by caller but node keeps raw pointers — dangling if caller frees early
 81. transition dir field overloaded (wipe direction vs barn-door axis)
 82. no refcounting on wb_frame across cache/composite (documented ownership maze)
-83. selftest still probes stderr D78 line (test depends on debug spam)
+83. selftest still probes stderr D78 line (test depends on debug spam)  **[FIXED]**
 84. test suite never tests ROI < frame anywhere (ROI paths untested)  **[FIXED]**
 85. no test for size-mismatched transition inputs (crash class uncovered)  **[FIXED]**
 86. no fuzz/property test for PPM roundtrip  **[FIXED]**
-87. catalog doc says ops 0-18 but presets expose only 4 — discoverability gap
+87. catalog doc says ops 0-18 but presets expose only 4 — discoverability gap  **[FIXED]**
 88. wb_render --transition-frames hardcodes 2s duration and 64x64  **[FIXED]**
-89. wb_render video mode ignores --lufs (audio/video flags disjoint)
+89. wb_render video mode ignores --lufs (audio/video flags disjoint)  **[FIXED]**
 90. no version string in CLI outputs (can't tell which build rendered a file)  **[FIXED]**
 
 ## F. Demo-facing polish

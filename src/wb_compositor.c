@@ -1387,6 +1387,40 @@ static wb_frame *trans_pull(wb_node *self, double t,
                 if (bx >= 0 && bx < a->w) out->px[i] = pb;
                 else                      out->px[i] = pa;
             }
+        } else if (tr->op == 16) {
+            /* R073 hop 97: directional-blur wipe — B slides in over A;
+             * pixels near the moving edge average trailing taps along
+             * the slide axis, giving a motion smear that peaks at the
+             * boundary and vanishes at start/end. */
+            int sxm = (int)(mM * a->w);
+            float u = (float)(px_i - sxm);   /* <0 inside B, >0 in A */
+            /* smear band trails BEHIND the edge (into A's side) */
+            float band = a->w * 0.12f
+                       * sinf(mM * 3.14159265f);
+            wb_px base = (u <= 0) ? pb : pa;
+            float sr = base.r, sg = base.g, sb = base.b;
+            if (u > 0 && band > 0.5f) {
+                /* in the band: blend sharp A with smeared edge samples */
+                float w = 1.0f - u / band;          /* 1 at edge..0 */
+                if (w < 0) w = 0;
+                float acc_r = 0, acc_g = 0, acc_b = 0;
+                int taps = 5;
+                for (int q = 0; q < taps; q++) {
+                    int xx = px_i - (int)((float)q / (taps - 1)
+                            * band);
+                    if (xx < 0) xx = 0;
+                    if (xx >= b->w) xx = b->w - 1;
+                    wb_px t2 = (xx < sxm)
+                             ? b->px[py_i * b->w + xx]
+                             : a->px[py_i * a->w + xx];
+                    acc_r += t2.r; acc_g += t2.g; acc_b += t2.b;
+                }
+                sr = a->px[i].r*(1-w) + (acc_r/taps)*w;
+                sg = a->px[i].g*(1-w) + (acc_g/taps)*w;
+                sb = a->px[i].b*(1-w) + (acc_b/taps)*w;
+            }
+            out->px[i].r = sr; out->px[i].g = sg; out->px[i].b = sb;
+            out->px[i].a = pa.a;
         } else if (tr->op == 15) {
             /* R073 hop 94: spin-blur transition — angular multi-tap blur
              * rotating around the frame center; strength peaks at the

@@ -1835,6 +1835,40 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 97: directional-blur wipe (op 16) */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *tr = wb_node_transition(16, 2.0);
+        wb_transition_add(tr, ga);
+        wb_transition_add(tr, gb);
+        wb_frame *s = wb_node_pull(tr, 0.02, 0, 0, 64, 64);
+        CHECK(s != NULL && s->px[32*64+32].r > 0.9f,
+              "dbw: starts as A");
+        if (s) wb_frame_free(s);
+        wb_frame *m = wb_node_pull(tr, 1.0, 0, 0, 64, 64);
+        CHECK(m != NULL, "dbw: pulled mid");
+        if (m) {
+            wb_px deepB = m->px[32*64+4];     /* deep in B */
+            wb_px deepA = m->px[32*64+62];    /* deep in A */
+            /* smear band: edge at x=32, band ~7px -> x=36 mixed */
+            wb_px sm = m->px[32*64+35];
+            CHECK(deepB.b > 0.9f, "dbw: revealed side is B");
+            CHECK(deepA.r > 0.9f, "dbw: far side still pure A");
+            float mix = sm.r + sm.b;
+            CHECK(mix > 0.3f && mix < 1.7f,
+                  "dbw: edge band carries the smear mix");
+            printf("         dbw: B b=%.2f | A r=%.2f | smear r=%.2f b=%.2f\n",
+                   deepB.b, deepA.r, sm.r, sm.b);
+            wb_frame_free(m);
+        }
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

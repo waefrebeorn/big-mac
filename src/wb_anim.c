@@ -38,8 +38,18 @@ typedef struct {
     int             xcap;
 } wb_anim_obj;
 
+#define WB_ANIM_MAX_EVENTS 32
+typedef struct { double t; int id; } wb_anim_event_i;
+
 struct wb_anim {
     int w, h;
+    /* R074 hop 114 (G-SF017): depth fog */
+    int   fog_on;
+    float fog_near, fog_far;
+    uint8_t fog_r, fog_g, fog_b;
+    /* R074 hop 114 (G-SF023): timeline events */
+    wb_anim_event_i events[WB_ANIM_MAX_EVENTS];
+    int nevents;
     /* R055c: camera track */
     int   ncam_keys;
     wb_anim_keyframe cam_keys[WB_ANIM_MAX_KEYS];
@@ -286,9 +296,23 @@ void wb_anim_render_frame(wb_anim *a, double t, uint8_t *out_rgba) {
         const wb_rast_tri *src_tris = wb_mesh_tri_src(o->mesh);
         for (int v = 0; v < mv; v++)
             draw_vert(a, o->xverts[v].x, o->xverts[v].y, o->xverts[v].z, &nv);
-        for (int q = 0; q < mt; q++)
-            draw_tri(a, base+src_tris[q].v0, base+src_tris[q].v1, base+src_tris[q].v2,
-                     o->r, o->g, o->b, &nt);
+        for (int q = 0; q < mt; q++) {
+            uint8_t fr = o->r, fg = o->g, fb = o->b;
+            if (a->fog_on) {
+                /* G-SF017: fade by centroid depth (camera looks down -z;
+                 * xverts z is world z) */
+                float zc = (o->xverts[src_tris[q].v0].z +
+                            o->xverts[src_tris[q].v1].z +
+                            o->xverts[src_tris[q].v2].z) / 3.0f;
+                float f = (a->fog_far - zc) / (a->fog_far - a->fog_near);
+                if (f < 0) f = 0; else if (f > 1) f = 1;
+                fr = (uint8_t)(fr * f + a->fog_r * (1 - f));
+                fg = (uint8_t)(fg * f + a->fog_g * (1 - f));
+                fb = (uint8_t)(fb * f + a->fog_b * (1 - f));
+            }
+            draw_tri(a, base+src_tris[q].v0, base+src_tris[q].v1,
+                     base+src_tris[q].v2, fr, fg, fb, &nt);
+        }
     }
 
     if (nt == 0) return;
@@ -331,4 +355,34 @@ int wb_anim_key_loop(wb_anim *anim, int obj, double dur,
         }
     }
     return written;
+}
+
+/* R074 hop 114 (G-SF017): depth fog — tris fade toward fog color
+ * between near/far camera distance. Disable with far <= near. */
+void wb_anim_set_fog(wb_anim *a, float z_near, float z_far,
+                     uint8_t r, uint8_t g, uint8_t b) {
+    if (!a) return;
+    a->fog_on = z_far > z_near;
+    a->fog_near = z_near; a->fog_far = z_far;
+    a->fog_r = r; a->fog_g = g; a->fog_b = b;
+}
+
+/* R074 hop 114 (G-SF023): register a timed event. Returns index or -1. */
+int wb_anim_event_add(wb_anim *a, double t, int id) {
+    if (!a || a->nevents >= WB_ANIM_MAX_EVENTS) return -1;
+    a->events[a->nevents].t = t;
+    a->events[a->nevents].id = id;
+    return a->nevents++;
+}
+
+/* R074 hop 114: events with t_prev < te <= t_now, returned in order. */
+int wb_anim_events_due(const wb_anim *a, double t_prev, double t_now,
+                       int *out_ids, int max_out) {
+    if (!a || !out_ids) return -1;
+    int n = 0;
+    for (int i = 0; i < a->nevents && n < max_out; i++) {
+        if (a->events[i].t > t_prev && a->events[i].t <= t_now)
+            out_ids[n++] = a->events[i].id;
+    }
+    return n;
 }

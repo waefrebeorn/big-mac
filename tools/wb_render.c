@@ -255,6 +255,33 @@ int wb_render_starfox(const char *mp4) {
         wb_anim_key(an, ost, DUR, sx, sy, sz + 8.0f, 0,0,0, 1.0);
     }
 
+    /* G-SF018: ring-pop debris — small cubes bursting at each ring's
+     * arrival moment (event-synced via wb_anim_event_add) */
+    {
+        wb_mesh *debris = wb_mesh_box(0.35f, 0.35f, 0.35f, 255,160,60);
+        int didx = 0;
+        for (int e = 0; e < 8; e++) {
+            double pop_t = 1.0 + e * 1.1 + 1.6;   /* matches ring arrival */
+            float cx = lane_x[e]*0.25f, cy = lane_y[e]*0.25f;
+            wb_anim_event_add(an, pop_t, 100 + e);
+            for (int dd = 0; dd < 4 && didx < 20; dd++, didx++) {
+                int od = wb_anim_add_object(an, debris, 255,160,60);
+                if (od < 0) break;
+                float ang = (float)dd * 1.5707f + (float)e;
+                wb_anim_key_ease(an, od, pop_t,
+                                 cx, cy, -14.0f, 0,0,0, 1.0f, 0);
+                wb_anim_key_ease(an, od, pop_t + 0.8,
+                                 cx + 6.0f*(float)cos(ang),
+                                 cy + 5.0f*(float)sin(ang),
+                                 -14.0f + 3.0f,
+                                 3.0f*ang, 2.0f*ang, 0, 0.1f, 1);
+            }
+        }
+    }
+
+    /* G-SF017: space fog — distant rings fade into the void */
+    wb_anim_set_fog(an, -25.0f, -100.0f, 10, 8, 30);
+
     /* camera chase: slight rise + shake-free dolly */
     wb_anim_set_camera(an, 0.28f, 0.0f, 26.0f);
     for (double ct = 0; ct <= DUR; ct += 1.0)

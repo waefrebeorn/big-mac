@@ -70,9 +70,20 @@ int  wb_anim_object_count(const wb_anim *a);
 }
 #endif
 
-#endif /* WUBUS_WBUS_ANIM_H */
 
-/* R074 hop 113: looping corridor keys (G-SF005). */
+/* R074 hop 113/114: loop keys, fog, events, size query. */
+void wb_anim_get_size(const wb_anim *a, int *w, int *h);
 int wb_anim_key_loop(wb_anim *a, int obj, double dur,
                      double period, double phase,
                      float px, float py, float pz_far, float pz_near);
+void wb_anim_set_fog(wb_anim *a, float z_near, float z_far,
+                     uint8_t r, uint8_t g, uint8_t b);
+int wb_anim_event_add(wb_anim *a, double t, int id);
+int wb_anim_events_due(const wb_anim *a, double t_prev, double t_now,
+                       int *out_ids, int max_out);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* WUBUS_WBUS_ANIM_H */

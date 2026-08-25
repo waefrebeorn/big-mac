@@ -41,12 +41,12 @@ failure, missing feature, and quality gap found on the way is a gap.
 33. G-SF033 [FIXED hop113] Z-buffer precision unconfigurable; far plane clipping at z=-160 observed **[FIXED]**
 34. G-SF034 No wireframe/debug draw mode **[FIXED]**
 35. G-SF035 No viewport scissor/region rendering
-36. G-SF036 No motion blur accumulation buffer
+36. G-SF036 No motion blur accumulation buffer **[FIXED]**
 37. G-SF037 No post-FX chain inside 3D (bloom on engine glow)
 38. G-SF038 Rasterizer perf: no scanline SIMD; 15fps@640x360 was near budget
 39. G-SF039 No back-face material variation (two-sided lighting wrong) **[FIXED]**
-40. G-SF040 No anti-aliasing option (SSAA would help tiny stars)
-41. G-SF041 No screenshot/frame grab API from live session
+40. G-SF040 No anti-aliasing option (SSAA would help tiny stars) **[FIXED]**
+41. G-SF041 No screenshot/frame grab API from live session **[FIXED]**
 42. G-SF042 No multi-scene compositing with per-layer Z
 43. G-SF043 No skybox/environment map
 44. G-SF044 No screen-space reflections
@@ -62,7 +62,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 52. G-SF052 No scanline emulator filter node (CRT look) **[FIXED]**
 53. G-SF053 No chromatic aberration / VHS node **[FIXED]**
 54. G-SF054 Frame source has no fps/timebase metadata
-55. G-SF055 No audio-reactive hooks into 3D anim (CGI bands exist but not wired here)
+55. G-SF055 No audio-reactive hooks into 3D anim (CGI bands exist but not wired here) **[FIXED]**
 56. G-SF056 No per-object visibility track (blink/pulse objects) **[FIXED]**
 57. G-SF057 Composite order fixed by add order — no reorder API **[FIXED]**
 58. G-SF058 No nested comp caching (bg re-pulled per frame)

@@ -1350,6 +1350,43 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 80: anisotropic elliptical window via win_rx/win_ry */
+    {
+        wb_node *src = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *cv = wb_node_effect(11, 0.0f);
+        struct { const char *n; float v; } ps[] = {
+            {"hue_c", 0.0f}, {"hue_w", 30.0f}, {"sec_sat", 0.2f},
+            {"win_r", 0.25f}, {"win_shape", 2.0f},
+            {"win_rx", 0.40f}, {"win_ry", 0.10f},
+            {"win_cx", 0.5f}, {"win_cy", 0.5f},
+        };
+        for (unsigned k = 0; k < sizeof ps / sizeof ps[0]; k++) {
+            wb_param_track *tp = wb_param_track_create();
+            wb_param_track_set(tp, 0.0, ps[k].v, WB_KF_HOLD);
+            wb_node_add_param(cv, ps[k].n, tp);
+        }
+        cv->inputs[0] = src;
+        wb_frame *f = cv ? wb_node_pull(cv, 0.0, 0, 0, 64, 64) : NULL;
+        CHECK(f != NULL, "anell: pulled");
+        if (f) {
+            float rC = f->px[32*64+32].r;   /* center: in */
+            int by = (int)((0.5f - 0.18f) * 64);            /* y≈20 above */
+            float rB = f->px[by*64+32].r;   /* vertical offset: out */
+            int bx = (int)((0.5f + 0.258f) * 64);           /* x≈48 */
+            float rX = f->px[32*64+bx].r;   /* horizontal offset: in */
+            CHECK(rC < 0.6f, "anell: center desaturated");
+            CHECK(rB > 0.9f, "anell: vertical extent spared");
+            CHECK(rX < 0.6f, "anell: wide x extent covered");
+            printf("         anell: c=%.2f voff=%.2f hoff=%.2f\n",
+                   rC, rB, rX);
+            wb_frame_free(f);
+        }
+        if (cv) wb_node_destroy(cv);
+        if (src) wb_node_destroy(src);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

@@ -404,9 +404,18 @@ static wb_frame *eff_pull(wb_node *self, double t,
                                                     "win_shape", t);
                     float dist;
                     if (wsh > 1.5f) {
-                        /* ellipse: normalized elliptical radius */
-                        float ex = nx / (wr > 1e-3f ? wr : 1e-3f);
-                        float ey = ny / (wr > 1e-3f ? wr : 1e-3f);
+                        /* R073 hop 80: anisotropic ellipse — win_rx/win_ry
+                         * override win_r when bound (value > 0). */
+                        float wrx = wb_node_param_value(self,
+                                                        "win_rx", t);
+                        float wry = wb_node_param_value(self,
+                                                        "win_ry", t);
+                        if (wrx <= 0.0f) wrx = wr;
+                        if (wry <= 0.0f) wry = wr;
+                        float ex = nx / (wrx > 1e-3f ? wrx : 1e-3f);
+                        float ey = ny / (wry > 1e-3f ? wry : 1e-3f);
+                        /* scale back to win_r units so the soft band and
+                         * threshold logic stay shared with circle/rect */
                         dist = hypotf(ex, ey) * wr;
                     } else if (wsh > 0.5f) {
                         dist = fmaxf(fabsf(nx), fabsf(ny));   /* rect */

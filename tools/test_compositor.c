@@ -2013,6 +2013,42 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 102: numbered PPM sequence export */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 16, 16);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 16, 16);
+        wb_node *tr = wb_node_transition(0, 2.0);   /* crossfade */
+        wb_transition_add(tr, ga);
+        wb_transition_add(tr, gb);
+        int written = 0;
+        float first_mid = -1.0f, last_mid = -1.0f;
+        for (int k = 0; k < 8; k++) {
+            double tt = (double)k / 7.0 * 2.0;   /* 0..2s */
+            wb_frame *f = wb_node_pull(tr, tt, 0, 0, 16, 16);
+            if (!f) continue;
+            char path[128];
+            snprintf(path, sizeof path,
+                     "/tmp/bigmac_seq_%04d.ppm", k);
+            if (wb_frame_write_ppm(f, path) == 0) {
+                written++;
+                float midr = f->px[8*16+8].r;
+                if (k == 0) first_mid = midr;
+                if (k == 7) last_mid = midr;
+            }
+            wb_frame_free(f);
+        }
+        CHECK(written == 8, "seq: all 8 frames exported");
+        CHECK(first_mid > 0.9f && last_mid < 0.1f,
+              "seq: crossfade progresses across the sequence");
+        printf("         seq: 8 frames, mid r %.2f -> %.2f\n",
+               first_mid, last_mid);
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

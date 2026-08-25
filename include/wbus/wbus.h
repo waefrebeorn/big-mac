@@ -24,6 +24,8 @@ extern "C" {
 #endif
 
 #define WB_SAMPLE_RATE 44100
+/* R074 fix: build version for CLI outputs. */
+#define WB_VERSION "R074-fix1"
 #define WB_MAX_CHANNELS 2
 #define WB_MAX_BLOCK 4096
 #define WB_MAX_TRACKS 128

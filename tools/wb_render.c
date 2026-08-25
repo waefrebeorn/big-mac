@@ -19,6 +19,7 @@
 #include "wbus/wbus_limiter.h"
 
 int main(int argc, char **argv) {
+    fprintf(stderr, "Big Mac renderer %s\n", WB_VERSION);
     const char *outpath = argc > 1 ? argv[1] : "render.wav";
     double lufs_target = 0.0;   /* 0 = off; --lufs N enables */
     for (int i = 1; i < argc; i++)

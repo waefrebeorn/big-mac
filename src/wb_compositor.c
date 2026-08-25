@@ -348,9 +348,15 @@ static wb_frame *eff_pull(wb_node *self, double t,
                         wb_px *p = &in->px[y*in->w + x];
                         float dx = x - cx2, dy = y - cy2;
                         float dnorm = sqrtf(dx*dx + dy*dy) / maxd;
-                        /* darkening starts past 50% radius */
-                        float fall = dnorm < 0.5f ? 0.0f
-                                   : (dnorm - 0.5f) / 0.5f;
+                        /* R074 fix: start radius keyframable via
+                         * "vig_start" (fraction of corner distance). */
+                        float vstart = wb_node_param_value(self,
+                                                   "vig_start", t);
+                        if (vstart <= 0.0f) vstart = 0.5f;
+                        float span = 1.0f - vstart;
+                        float fall = dnorm < vstart ? 0.0f
+                                   : (dnorm - vstart)
+                                   / (span > 1e-3f ? span : 1e-3f);
                         float k = 1.0f - vig * fall * fall;
                         p->r *= k; p->g *= k; p->b *= k;
                     }
@@ -1368,6 +1374,15 @@ int wb_frame_write_ppm(const wb_frame *f, const char *path) {
 
 /* R073 hop 104: render a transition graph to an mp4 via the vendored
  * ffmpeg binary (image2 demuxer over a temp PPM sequence). */
+/* R074 fix: refuse shell metacharacters in ffmpeg-bound paths */
+static int path_shell_safe(const char *s) {
+    if (!s) return 0;
+    for (; *s; s++)
+        if (*s == ';' || *s == '&' || *s == '|' || *s == '`' ||
+            *s == '$' || *s == '\n' || *s == '>' || *s == '<')
+            return 0;
+    return 1;
+}
 int wb_compositor_export_mp4_audio(wb_node *trans, const char *mp4_path,
                                    const char *wav_path,
                                    double dur, int fps, int w, int h);
@@ -1382,15 +1397,28 @@ int wb_compositor_export_mp4_audio(wb_node *trans, const char *mp4_path,
                                    const char *wav_path,
                                    double dur, int fps, int w, int h) {
     if (!trans || !mp4_path || dur <= 0 || fps <= 0) return -1;
+    if (!path_shell_safe(mp4_path)) return -1;
+    if (wav_path && !path_shell_safe(wav_path)) return -1;
     char dir[256];
     snprintf(dir, sizeof dir, "/tmp/bigmac_cseq_%d", (int)getpid());
     /* crude mkdir -p equivalent: single level under /tmp */
     if (mkdir(dir, 0755) != 0 && errno != EEXIST) return -1;
     int nframes = (int)(dur * fps);
+    /* R074 fix: 0.4s fade-from-black / fade-to-black bookends */
+    double fade = dur > 1.2 ? 0.4 : dur * 0.25;
     for (int kk = 0; kk < nframes; kk++) {
         double tt = (double)kk / fps;
         wb_frame *f = wb_node_pull(trans, tt, 0, 0, w, h);
         if (!f) return -1;
+        float gaink = 1.0f;
+        if (tt < fade)          gaink = (float)(tt / fade);
+        else if (tt > dur-fade) gaink = (float)((dur-tt)/fade);
+        if (gaink < 1.0f)
+            for (int i2 = 0; i2 < f->w*f->h; i2++) {
+                f->px[i2].r *= gaink;
+                f->px[i2].g *= gaink;
+                f->px[i2].b *= gaink;
+            }
         char p[512];
         snprintf(p, sizeof p, "%s/f_%05d.ppm", dir, kk);
         int wr = wb_frame_write_ppm(f, p);
@@ -1548,8 +1576,12 @@ static wb_frame *trans_pull(wb_node *self, double t,
             out->px[i].b = pa.b*(1-sB) + pb.b*sB;
             out->px[i].a = pa.a*(1-sB) + pb.a*sB;
         } else if (tr->op == 3) {
-            /* iris: circle reveals B from center outward */
-            float cx2 = a->w * 0.5f, cy2 = a->h * 0.5f;
+            /* iris: circle reveals B from a movable center (iris_cx/cy) */
+            float icx = wb_node_param_value(self, "iris_cx", t);
+            float icy = wb_node_param_value(self, "iris_cy", t);
+            if (icx <= 0.0f) icx = 0.5f;
+            if (icy <= 0.0f) icy = 0.5f;
+            float cx2 = a->w * icx, cy2 = a->h * icy;
             float dx = px_i - cx2, dy = py_i - cy2;
             float dist = sqrtf(dx*dx + dy*dy);
             float maxd = sqrtf(cx2*cx2 + cy2*cy2);
@@ -1560,8 +1592,16 @@ static wb_frame *trans_pull(wb_node *self, double t,
              * per-pixel threshold (Photoshop gradient-wipe technique). */
             float lum = 0.2126f*mapf->px[i].r + 0.7152f*mapf->px[i].g
                       + 0.0722f*mapf->px[i].b;
-            if (mB > lum) out->px[i] = pb;
-            else          out->px[i] = pa;
+            /* R074 fix: soft knee over the feather band instead of a
+             * hard threshold */
+            float feath_md = wb_node_param_value(self, "grad_feather", t);
+            if (feath_md <= 0.0f) feath_md = 0.05f;
+            float kmd = (mB - lum) / feath_md + 0.5f;
+            if (kmd < 0) kmd = 0; if (kmd > 1) kmd = 1;
+            out->px[i].r = pa.r*(1-kmd) + pb.r*kmd;
+            out->px[i].g = pa.g*(1-kmd) + pb.g*kmd;
+            out->px[i].b = pa.b*(1-kmd) + pb.b*kmd;
+            out->px[i].a = pa.a*(1-kmd) + pb.a*kmd;
         } else if (tr->op == 6) {
             /* R073 hop 67: noise dissolve — deterministic per-pixel hash
              * offsets the local switch time, giving the classic grainy
@@ -1666,9 +1706,15 @@ static wb_frame *trans_pull(wb_node *self, double t,
             float punch = sinf(mB * 3.14159265f);
             float cx = a->w * 0.5f, cy = a->h * 0.5f;
             float ra = 0, ga_ = 0, ba = 0, rb = 0, gb = 0, bb = 0;
-            for (int tap = 0; tap < 5; tap++) {
+            float sq = wb_node_param_value(self, "blur_taps", t);
+            int taps_s = sq > 1.0f ? (int)sq : 5;
+            if (taps_s > 16) taps_s = 16;
+            if (taps_s < 1) taps_s = 1;
+            for (int tap = 0; tap < taps_s; tap++) {
                 float ang = (punch * 0.12f) *
-                            ((float)tap / 4.0f - 0.5f) * 3.14159265f;
+                            (taps_s > 1
+                             ? ((float)tap / (taps_s - 1) - 0.5f)
+                             : 0.0f) * 3.14159265f;
                 float ca = cosf(ang), sa = sinf(ang);
                 float fx = (float)px_i - cx, fy = (float)py_i - cy;
                 int axx = (int)(cx + fx * ca - fy * sa);
@@ -1685,7 +1731,8 @@ static wb_frame *trans_pull(wb_node *self, double t,
                 q = b->px[byy * b->w + bxx];
                 rb += q.r; gb += q.g; bb += q.b;
             }
-            ra /= 5; ga_ /= 5; ba /= 5; rb /= 5; gb /= 5; bb /= 5;
+            ra /= taps_s; ga_ /= taps_s; ba /= taps_s;
+            rb /= taps_s; gb /= taps_s; bb /= taps_s;
             out->px[i].r = ra*(1-mM) + rb*mM;
             out->px[i].g = ga_*(1-mM) + gb*mM;
             out->px[i].b = ba*(1-mM) + bb*mM;
@@ -1701,8 +1748,13 @@ static wb_frame *trans_pull(wb_node *self, double t,
              * half reads B zoomed in — crossfade the two reads by mB */
             float ra = 0.0f, ga_ = 0.0f, ba = 0.0f;
             float rb = 0.0f, gb = 0.0f, bb = 0.0f;
-            for (int tap = 0; tap < 5; tap++) {
-                float f = (float)tap / 4.0f;
+            float tq = wb_node_param_value(self, "blur_taps", t);
+            int taps_z = tq > 1.0f ? (int)tq : 5;
+            if (taps_z > 16) taps_z = 16;
+            if (taps_z < 1) taps_z = 1;
+            for (int tap = 0; tap < taps_z; tap++) {
+                float f = taps_z > 1
+                        ? (float)tap / (taps_z - 1) : 0.0f;
                 int axx = (int)(cx + (sx0 - cx)
                           * (1.0f - punch * 0.15f * f));
                 int ayy = (int)(cy + (sy0 - cy)

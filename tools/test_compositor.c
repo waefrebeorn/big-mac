@@ -2274,9 +2274,15 @@ int main(void) {
             uint32_t nf = WB_SAMPLE_RATE * 3;
             wb_sample *buf = malloc(nf*2*sizeof(wb_sample));
             if (buf) {
+                /* R074 fix: per-tone attack/release envelopes — no clicks */
                 for (uint32_t i = 0; i < nf; i++) {
                     double tt = (double)i / WB_SAMPLE_RATE;
-                    float v = sinf(2*M_PI*(tt<1?294:(tt<2?370:440))*tt)*0.3f;
+                    float f0 = tt<1?294:(tt<2?370:440);
+                    float v = sinf(2*M_PI*f0*tt)*0.3f;
+                    double tf = fmod(tt,1.0);
+                    float env = (float)(tf<0.03 ? tf/0.03 :
+                                 tf>0.9 ? (1.0-tf)/0.1 : 1.0);
+                    v *= env;
                     buf[i*2]=(wb_sample)v; buf[i*2+1]=(wb_sample)v;
                 }
                 wb_wav_write_pcm16("/tmp/demo108.wav", buf, nf, 2,

@@ -2249,6 +2249,61 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 108: showcase v2 — scenes + nested transitions + title
+     * overlay + soundtrack, one MP4. */
+    {
+        wb_node *s1 = wb_node_source_color(0.9f,0.2f,0.1f,1,64,64);
+        wb_node *s2 = wb_node_source_color(0.1f,0.8f,0.3f,1,64,64);
+        wb_node *s3 = wb_node_source_color(0.2f,0.3f,0.9f,1,64,64);
+        wb_node *t1 = wb_transition_preset(1, 1.0);   /* News wipe */
+        wb_node *t2 = wb_transition_preset(0, 1.0);   /* crossfade */
+        wb_node *txt = wb_node_source_text("BIG MAC", 2,
+                                          1,1,1,1, 64, 64);
+        wb_node *comp = wb_node_composite();
+        CHECK(t1 && t2 && txt && comp, "v2: all nodes built");
+        if (t1 && t2 && txt && comp) {
+            wb_node_source_text_anim(txt, 4, 2.5);   /* fade-in/out */
+            wb_transition_add(t1, s1);
+            wb_transition_add(t1, s2);
+            wb_transition_add(t2, t1);
+            wb_transition_add(t2, s3);
+            wb_composite_add(comp, t2);   /* bottom: video chain */
+            wb_composite_add(comp, txt);  /* top: title */
+            /* soundtrack */
+            uint32_t nf = WB_SAMPLE_RATE * 3;
+            wb_sample *buf = malloc(nf*2*sizeof(wb_sample));
+            if (buf) {
+                for (uint32_t i = 0; i < nf; i++) {
+                    double tt = (double)i / WB_SAMPLE_RATE;
+                    float v = sinf(2*M_PI*(tt<1?294:(tt<2?370:440))*tt)*0.3f;
+                    buf[i*2]=(wb_sample)v; buf[i*2+1]=(wb_sample)v;
+                }
+                wb_wav_write_pcm16("/tmp/demo108.wav", buf, nf, 2,
+                                   WB_SAMPLE_RATE);
+                free(buf);
+            }
+            remove("/tmp/bigmac_showcase.mp4");
+            int rc = wb_compositor_export_mp4_audio(comp,
+                    "/tmp/bigmac_showcase.mp4", "/tmp/demo108.wav",
+                    3.0, 10, 64, 64);
+            CHECK(rc == 0, "v2: exported");
+            FILE *fp = fopen("/tmp/bigmac_showcase.mp4","rb");
+            CHECK(fp != NULL, "v2: file exists");
+            if (fp) {
+                fseek(fp,0,SEEK_END);
+                long sz = ftell(fp);
+                fclose(fp);
+                printf("         v2: %ld bytes\n", sz);
+            }
+            wb_node_destroy(comp);   /* owns t2 -> t1 + txt */
+        }
+        if (s1) wb_node_destroy(s1);
+        if (s2) wb_node_destroy(s2);
+        if (s3) wb_node_destroy(s3);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

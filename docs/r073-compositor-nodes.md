@@ -19,7 +19,7 @@ param bus (`wb_node_add_param`). Gate: `build/wb_test_compositor`.
 | 8 | Primary grade | lift/gamma/gain/sat | gamma on positives, sat around Rec.709 luma |
 | 9 | White balance | temp/tint | RGB channel gains (positive temp = warm) |
 | 10 | Tone curves | cur_blk/shd/hig/wht | piecewise-smoothstep, identity when unbound |
-| 11 | HSL secondary | hue_c/hue_w/sec_sat + win_* | hue qualifier with soft selection + power window; win_shape 0=circle 1=rect (Chebyshev) |
+| 11 | HSL secondary | hue_c/hue_w/sec_sat + win_* | hue qualifier with soft selection + power window; win_shape 0=circle 1=rect (Chebyshev) 2=ellipse |
 
 ## Transitions (`wb_node_transition(op, dur)` + `wb_transition_add` A,B)
 

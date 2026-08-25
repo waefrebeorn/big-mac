@@ -12,13 +12,13 @@ failure, missing feature, and quality gap found on the way is a gap.
 6. G-SF006 No path/curve animation (bezier flight paths for ships) **[FIXED]**
 7. G-SF007 Camera has no FOV/focal control **[FIXED]**
 8. G-SF008 Camera can't be parented or shake-composed per-frame cleanly
-9. G-SF009 No look-at constraint (rings should face camera)
-10. G-SF010 No billboard sprites (explosions/stars should always face camera)
+9. G-SF009 No look-at constraint (rings should face camera) **[FIXED]**
+10. G-SF010 No billboard sprites (explosions/stars should always face camera) **[FIXED]**
 11. G-SF011 Mesh primitives only box/sphere/cyl/cone/torus/plane/arrow — no capsule, no wedge **[FIXED]**
 12. G-SF012 No mesh boolean/CSG
 13. G-SF013 No vertex colors beyond single paint color per object
 14. G-SF014 No texture mapping / UV coords at all
-15. G-SF015 No emissive materials (engine glow faked with bright color)
+15. G-SF015 No emissive materials (engine glow faked with bright color) **[FIXED]**
 16. G-SF016 No transparency in 3D (no alpha-sorted transparent pass)
 17. G-SF017 No fog/atmospheric depth fade **[FIXED]**
 18. G-SF018 No particle system (explosions, engine trails, sparks) **[FIXED]**

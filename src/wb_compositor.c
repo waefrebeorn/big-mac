@@ -339,7 +339,35 @@ static wb_frame *eff_pull(wb_node *self, double t,
             break;
         }
     }
-    for (int y = ry; y < ry + rh; y++)
+        /* R074 hop 126 (#40/#43/#44): hoist ALL keyframable param fetches
+     * above the per-pixel loop. wb_node_param_value walks param track
+     * lists — calling it per pixel dominated the profile. */
+    float p_lift = wb_node_param_value(self, "lift", t);
+    float p_gam  = wb_node_param_value(self, "gamma", t);
+    float p_gnv  = wb_node_param_value(self, "gain", t);
+    float p_sat  = wb_node_param_value(self, "sat", t);
+    float p_vig  = wb_node_param_value(self, "vig", t);
+    float p_vstart = wb_node_param_value(self, "vig_start", t);
+    float p_hue_w  = wb_node_param_value(self, "hue_w", t);
+    float p_hue_sh = wb_node_param_value(self, "hue_shift", t);
+    float p_sec_sat= wb_node_param_value(self, "sec_sat", t);
+    float p_win_r  = wb_node_param_value(self, "win_r", t);
+    float p_win_cx = wb_node_param_value(self, "win_cx", t);
+    float p_win_cy = wb_node_param_value(self, "win_cy", t);
+    float p_win_soft = wb_node_param_value(self, "win_soft", t);
+    float p_glow_thr = wb_node_param_value(self, "glow_thr", t);
+    float p_lum_thr  = wb_node_param_value(self, "lum_thr", t);
+    float p_temp = wb_node_param_value(self, "temp", t);
+    float p_tint = wb_node_param_value(self, "tint", t);
+    float p_cur_blk = wb_node_param_value(self, "cur_blk", t);
+    float p_cur_shd = wb_node_param_value(self, "cur_shd", t);
+    float p_cur_hig = wb_node_param_value(self, "cur_hig", t);
+    float p_cur_wht = wb_node_param_value(self, "cur_wht", t);
+    float p_hue_c   = wb_node_param_value(self, "hue_c", t);
+    float p_key_tol = wb_node_param_value(self, "key_tol", t);
+    float p_key_color = wb_node_param_value(self, "key_color", t);
+    if (p_gam <= 0.0f) p_gam = 1.0f;
+for (int y = ry; y < ry + rh; y++)
         for (int x = rx; x < rx + rw; x++) {
             wb_px *p = &in->px[y*in->w + x];
             if (e->op == 1) { p->r*=gain; p->g*=gain; p->b*=gain; }
@@ -352,7 +380,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
             else if (e->op == 6) {
                 /* R073 hop 47a: vignette — radial darkening; strength via
                  * keyframable "vig" param, radius fixed at frame corner */
-                float vig = wb_node_param_value(self, "vig", t);
+                float vig = p_vig;
                 if (vig <= 0.0f) vig = gain;
                 float cx2 = in->w * 0.5f, cy2 = in->h * 0.5f;
                 /* R074 hop 116 (#12): Vegas-style falloff — normalize
@@ -366,8 +394,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
                         float dnorm = sqrtf(dx*dx + dy*dy) / maxd;
                         /* R074 fix: start radius keyframable via
                          * "vig_start" (fraction of corner distance). */
-                        float vstart = wb_node_param_value(self,
-                                                   "vig_start", t);
+                        float vstart = p_vstart;
                         if (vstart <= 0.0f) vstart = 0.5f;
                         float span = 1.0f - vstart;
                         float fall = dnorm < vstart ? 0.0f
@@ -380,10 +407,10 @@ static wb_frame *eff_pull(wb_node *self, double t,
             else if (e->op == 8) {
                 /* R073 hop 52: primary grade — lift/gamma/gain/saturation,
                  * all keyframable via params of the same names. */
-                float lift = wb_node_param_value(self, "lift", t);
-                float gam  = wb_node_param_value(self, "gamma", t);
-                float gnv  = wb_node_param_value(self, "gain", t);
-                float sat  = wb_node_param_value(self, "sat", t);
+                float lift = p_lift;
+                float gam  = p_gam;
+                float gnv  = p_gnv;
+                float sat  = p_sat;
                 if (gam <= 0.0f) gam = 1.0f;
                 if (gnv <= 0.0f) gnv = 1.0f;
                 if (sat <= 0.0f) sat = e->gain > 0 ? e->gain : 1.0f;
@@ -417,18 +444,18 @@ static wb_frame *eff_pull(wb_node *self, double t,
                  * (positive = warmer), tint shifts G. Both keyframable.
                  * Implemented as RGB gain per the grading practice that
                  * temp/tint are effectively channel-gain moves. */
-                float temp = wb_node_param_value(self, "temp", t);
-                float tint = wb_node_param_value(self, "tint", t);
+                float temp = p_temp;
+                float tint = p_tint;
                 p->r *= 1.0f + temp;
                 p->b *= 1.0f - temp;
                 p->g *= 1.0f + tint;
             }
             else if (e->op == 10) {
                 /* R073 hop 74: tone curves — keyframable blk/shd/hig/wht */
-                float blk = wb_node_param_value(self, "cur_blk", t);
-                float shd = wb_node_param_value(self, "cur_shd", t);
-                float hig = wb_node_param_value(self, "cur_hig", t);
-                float wht = wb_node_param_value(self, "cur_wht", t);
+                float blk = p_cur_blk;
+                float shd = p_cur_shd;
+                float hig = p_cur_hig;
+                float wht = p_cur_wht;
                 if (blk != 0.0f || shd != 0.0f || hig != 0.0f ||
                     wht != 0.0f) {
                     if (shd < blk) shd = blk;
@@ -466,14 +493,14 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 /* R073 hop 75: HSL secondary — qualify a hue center +
                  * width, then apply hue_shift / sat_mul only to qualified
                  * pixels (soft edges in the hue domain). All keyframable. */
-                float hc   = wb_node_param_value(self, "hue_c", t);
-                float hw   = wb_node_param_value(self, "hue_w", t);
-                float hsh  = wb_node_param_value(self, "hue_shift", t);
-                float smul = wb_node_param_value(self, "sec_sat", t);
+                float hc   = p_hue_c;
+                float hw   = p_hue_w;
+                float hsh  = p_hue_sh;
+                float smul = p_sec_sat;
                 if (hw <= 0.0f) break;   /* unbound: identity */
                 /* R073 hop 76: power window — circular soft mask limits
                  * the secondary to a screen region (win_cx/cy/r/soft). */
-                float wr = wb_node_param_value(self, "win_r", t);
+                float wr = p_win_r;
                 float wsel = 1.0f;
                 if (wr > 0.0f) {
                     /* R074 hop 116 (#11): aspect-correct distance —
@@ -481,11 +508,11 @@ static wb_frame *eff_pull(wb_node *self, double t,
                      * win_cx/cy stay in normalized [0,1] space */
                     float aspect = in->h > 0 ? (float)in->w / (float)in->h : 1.0f;
                     float nx = ((float)x + 0.5f) / in->w
-                             - wb_node_param_value(self, "win_cx", t);
+                             - p_win_cx;
                     float ny = ((float)y + 0.5f) / in->h
-                             - wb_node_param_value(self, "win_cy", t);
+                             - p_win_cy;
                     nx *= aspect;
-                    float ws = wb_node_param_value(self, "win_soft", t);
+                    float ws = p_win_soft;
                     if (ws <= 0.0f) ws = 0.15f;
                     /* R073 hop 79: win_shape 1=rect, 2=ellipse, else circle */
                     float wsh = wb_node_param_value(self,
@@ -589,7 +616,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 /* R073 hop 47b: glow — threshold bright pixels, blur them,
                  * screen-add back. Simplified: per-pixel soft-knee bloom on
                  * luminance above the keyframable "glow_thr" param. */
-                float thr = wb_node_param_value(self, "glow_thr", t);
+                float thr = p_glow_thr;
                 if (thr <= 0.0f) thr = 0.7f;
                 for (int y = ry; y < ry + rh; y++)
                     for (int x = rx; x < rx + rw; x++) {
@@ -612,7 +639,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
                 /* R073 hop 45: luma key — dark pixels go transparent
                  * (screen-blend style, ideal over black-bg CGI renders).
                  * threshold from keyframable "lum_thr" param. */
-                float thr = wb_node_param_value(self, "lum_thr", t);
+                float thr = p_lum_thr;
                 if (thr <= 0.0f) thr = gain > 0 ? gain : 0.15f;
                 float lum = wb_lin_luma(p->r, p->g, p->b);  /* #29/#31 linear */
                 if (lum <= thr)       p->a = 0.0f;

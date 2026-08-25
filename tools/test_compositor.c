@@ -1647,6 +1647,36 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 88: checkerboard dissolve (op 11) */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *tr = wb_node_transition(11, 2.0);
+        wb_transition_add(tr, ga);
+        wb_transition_add(tr, gb);
+        wb_frame *mid = wb_node_pull(tr, 1.0, 0, 0, 64, 64);
+        CHECK(mid != NULL, "chk: pulled mid");
+        if (mid) {
+            int nB = 0;
+            for (int y = 0; y < 64; y += 4)
+                for (int x = 0; x < 64; x += 4)
+                    if (mid->px[y*64+x].b > 0.5f) nB++;
+            CHECK(nB > 40 && nB < 200,
+                  "chk: mixed cells at midpoint");
+            printf("         chk: %d/256 sampled cells are B at mid\n", nB);
+            wb_frame_free(mid);
+        }
+        wb_frame *end = wb_node_pull(tr, 2.0, 0, 0, 64, 64);
+        CHECK(end != NULL && end->px[32*64+32].b > 0.9f,
+              "chk: fully B at end");
+        if (end) wb_frame_free(end);
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

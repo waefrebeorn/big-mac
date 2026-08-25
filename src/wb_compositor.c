@@ -1387,6 +1387,17 @@ static wb_frame *trans_pull(wb_node *self, double t,
                 if (bx >= 0 && bx < a->w) out->px[i] = pb;
                 else                      out->px[i] = pa;
             }
+        } else if (tr->op == 11) {
+            /* R073 hop 88: checkerboard dissolve — each cell (16 px)
+             * switches A->B at its own hashed time within the transition
+             * (deterministic per-position hash, no state). */
+            unsigned ch = ((unsigned)(px_i / 16) * 73856093u)
+                        ^ ((unsigned)(py_i / 16) * 19349663u);
+            ch ^= ch >> 13; ch *= 0x5bd1e995u; ch ^= ch >> 15;
+            float th = mM + ((float)(ch & 0xFFFF) / 65535.0f - 0.5f)
+                     * 0.6f;
+            if (th > 0.5f) { out->px[i] = pb; }
+            else           { out->px[i] = pa; }
         } else if (tr->op == 10) {
             /* R073 hop 87: clock wipe — B revealed in the sector swept
              * clockwise from 12 o'clock; mB*2π is the hand angle. */

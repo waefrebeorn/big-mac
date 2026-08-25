@@ -49,7 +49,8 @@ param bus (`wb_node_add_param`). Gate: `build/wb_test_compositor`.
 - Frame export: `wb_frame_write_ppm` writes binary P6 images; the CLI
   exposes `wb_render out.wav --transition-frames OP N PREFIX`.
 - Nested transitions compose as graph inputs (T2(T1(A,B),C)) — proven
-  by the hop-106 showcase demo.
+  by the hop-106 showcase demo. Titles overlay via
+  `wb_node_composite` (bottom..top, alpha-over); composite owns children.
 - MP4 export: `wb_compositor_export_mp4` encodes a transition graph
   straight to H.264 (temp PPM seq + vendored ffmpeg). Audio muxing:
   `wb_compositor_export_mp4_audio` adds a WAV as AAC. Numbered sequences

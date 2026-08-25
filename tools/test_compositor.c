@@ -1704,6 +1704,31 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 90: Venetian-blind dissolve (op 13) */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 64, 64);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 64, 64);
+        wb_node *tr = wb_node_transition(13, 2.0);
+        wb_transition_add(tr, ga);
+        wb_transition_add(tr, gb);
+        wb_frame *f = wb_node_pull(tr, 1.0, 0, 0, 64, 64);
+        CHECK(f != NULL, "ven: pulled");
+        if (f) {
+            wb_px top = f->px[4*64+32];     /* strip v~0.1 -> B */
+            wb_px bot = f->px[59*64+32];    /* strip v~0.93 -> A */
+            CHECK(top.b > 0.9f, "ven: top strips revealed");
+            CHECK(bot.r > 0.9f, "ven: bottom strips pending");
+            printf("         ven: top b=%.2f | bot r=%.2f\n",
+                   top.b, bot.r);
+            wb_frame_free(f);
+        }
+        if (tr) wb_node_destroy(tr);
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

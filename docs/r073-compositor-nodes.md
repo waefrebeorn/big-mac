@@ -38,6 +38,7 @@ param bus (`wb_node_add_param`). Gate: `build/wb_test_compositor`.
 | 10 | Clock wipe — sector swept clockwise from 12 o'clock reveals B; feathered hand |
 | 11 | Checkerboard dissolve — 16px cells flip at deterministic hashed times |
 | 12 | Four-box wipe — quadrants fill from outer corners toward center |
+| 13 | Venetian-blind dissolve — 16px horizontal strips flip in a top-down wave |
 - R073 hop 83: the third (map) input is optional for ALL transition ops —
   its Rec.709 luma modulates per-pixel progress (luma-masked crossfade,
   wipe, iris, slide, push, noise dissolve); op 7 keeps hard threshold. |

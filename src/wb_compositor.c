@@ -1588,6 +1588,41 @@ wb_node *wb_node_transition(int op, double duration_secs) {
     return n;
 }
 
+/* R073 hop 96: transition style presets. */
+wb_node *wb_transition_preset(int preset, double duration_secs) {
+    int op = 0;
+    struct { const char *name; float v; } ps[4];
+    int nps = 0;
+    switch (preset) {
+    case 0:                                   /* MusicVideo */
+        op = 0;                                /* crossfade */
+        ps[nps].name = "grad_feather"; ps[nps++].v = 0.02f;
+        break;
+    case 1:                                   /* News */
+        op = 2;                                /* linear wipe */
+        ps[nps].name = "grad_feather"; ps[nps++].v = 0.01f;
+        break;
+    case 2:                                   /* Cinematic */
+        op = 1;                                /* dip-to-black */
+        if (duration_secs < 1.5) duration_secs = 1.5;  /* linger */
+        break;
+    case 3:                                   /* VJ */
+        op = 14;                               /* zoom-blur */
+        ps[nps].name = "grad_feather"; ps[nps++].v = 0.10f;
+        break;
+    default:
+        return NULL;
+    }
+    wb_node *n = wb_node_transition(op, duration_secs);
+    if (!n) return NULL;
+    for (int i = 0; i < nps; i++) {
+        wb_param_track *tp = wb_param_track_create();
+        wb_param_track_set(tp, 0.0, ps[i].v, WB_KF_HOLD);
+        wb_node_add_param(n, ps[i].name, tp);
+    }
+    return n;
+}
+
 /* R073 hop 82: bind win_cx/win_cy from paired sample arrays (linear). */
 int wb_node_window_track_path(wb_node *win_effect,
                               const double *ts, const float xs[],

@@ -1795,6 +1795,46 @@ int main(void) {
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);
+
+    /* R073 hop 96: transition style presets */
+    {
+        wb_node *ga = wb_node_source_color(1.0f, 0.0f, 0.0f, 1.0f, 32, 32);
+        wb_node *gb = wb_node_source_color(0.0f, 0.0f, 1.0f, 1.0f, 32, 32);
+        int ok = 1;
+        for (int pset = 0; pset < 4; pset++) {
+            wb_node *tr = wb_transition_preset(pset, 2.0);
+            if (!tr) { ok = 0; break; }
+            wb_transition_add(tr, ga);
+            wb_transition_add(tr, gb);
+            wb_frame *m = wb_node_pull(tr, 1.0, 0, 0, 32, 32);
+            if (!m) { ok = 0; break; }
+            wb_frame_free(m);
+            wb_node_destroy(tr);
+        }
+        CHECK(ok, "tpre: all four presets build+pull");
+        CHECK(wb_transition_preset(99, 1.0) == NULL,
+              "tpre: invalid preset rejected");
+        /* cinematic enforces a minimum duration */
+        wb_node *cin = wb_transition_preset(2, 0.5);
+        CHECK(cin != NULL, "tpre: cinematic built");
+        if (cin) {
+            /* at t=0.25 of a >=1.5s dip we're near full black */
+            wb_transition_add(cin, ga);
+            wb_transition_add(cin, gb);
+            wb_frame *m = wb_node_pull(cin, 0.75, 0, 0, 32, 32);
+            if (m) {
+                float lum = m->px[16*32+16].r;
+                CHECK(lum < 0.3f, "tpre: cinematic dips low at mid");
+                printf("         tpre: cinematic mid r=%.2f\n", lum);
+                wb_frame_free(m);
+            }
+            wb_node_destroy(cin);
+        }
+        if (ga) wb_node_destroy(ga);
+        if (gb) wb_node_destroy(gb);
+    }
+
+    printf("\n%d checks, %d failures\n", checks, failures);
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

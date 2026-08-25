@@ -2529,6 +2529,20 @@ wb_node *wb_transition_preset(int preset, double duration_secs) {
         op = 14;                               /* zoom-blur */
         ps[nps].name = "grad_feather"; ps[nps++].v = 0.10f;
         break;
+    case 4:                                   /* R074 hop 138 (#87): Clock */
+        op = 10;                               /* clock wipe */
+        ps[nps].name = "wipe_cx"; ps[nps++].v = 0.5f;
+        ps[nps].name = "wipe_cy"; ps[nps++].v = 0.5f;
+        break;
+    case 5:                                   /* Slide (directional smear) */
+        op = 13;                               /* directional-blur wipe */
+        break;
+    case 6:                                   /* Barn Door */
+        op = 3;                                /* barn-door split */
+        break;
+    case 7:                                   /* Glitch (chromatic) */
+        op = 17;                               /* glitch/chromatic op */
+        break;
     default:
         return NULL;
     }

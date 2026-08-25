@@ -2007,10 +2007,11 @@ static wb_frame *trans_pull(wb_node *self, double t,
     /* R073 hop 68/83: map input. Required (3rd input) for op 7; optional
      * for any other transition — when present it modulates the per-pixel
      * progress spatially by the map's Rec.709 luma (masked transition). */
-    /* R074 hop 134 (#41): lazy mapf — only pulled for ops that read it
-     * (7 = map dissolve). Other ops skip the third-input cost. */
+    /* R074 hop 135 (#41): lazy mapf — pulled only when a third input is
+     * wired (map modulation is generic across ops); bare op-7 without a
+     * map still errors below. Ops with no map input skip the cost. */
     wb_frame *mapf = NULL;
-    if (self->n_inputs >= 3 && self->inputs[2] && tr->op == 7) {
+    if (self->n_inputs >= 3 && self->inputs[2]) {
         mapf = wb_node_pull(self->inputs[2], t, rx, ry, rw, rh);
         if (!mapf) { wb_frame_free(a); wb_frame_free(b); return NULL; }
     } else if (tr->op == 7) {

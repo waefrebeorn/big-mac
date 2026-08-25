@@ -47,7 +47,9 @@ param bus (`wb_node_add_param`). Gate: `build/wb_test_compositor`.
 - Hop 100 milestone: end-to-end graph (preset transition -> windowed
   HSL secondary) pulled and verified as one chain.
 - Frame export: `wb_frame_write_ppm` writes binary P6 images; the CLI
-  exposes `wb_render out.wav --transition-frames OP N PREFIX`. Numbered sequences
+  exposes `wb_render out.wav --transition-frames OP N PREFIX`.
+- MP4 export: `wb_compositor_export_mp4` encodes a transition graph
+  straight to H.264 (temp PPM seq + vendored ffmpeg). Numbered sequences
   (frame_0000.ppm...) render transition timelines for external encoders.
 - Cut-on-beat: `wb_session_snap_to_beat(t, bpm)` snaps any transition
   midpoint to the session's nearest beat (pairs with the hop-15 estimator)

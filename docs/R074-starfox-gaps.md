@@ -27,14 +27,14 @@ failure, missing feature, and quality gap found on the way is a gap.
 21. G-SF021 No morph targets
 22. G-SF022 Rotation interpolation is Euler-only — gimbal artifacts possible **[FIXED]**
 23. G-SF023 No animation events/callbacks at key times (spawn SFX at ring pass) **[FIXED]**
-24. G-SF024 anim render output alpha-keyed but no depth composite against bg Z
+24. G-SF024 anim render output alpha-keyed but no depth composite against bg Z **[FIXED]**
 25. G-SF025 No LOD system
 
 ## B. Renderer / rasterizer (26-45)
 26. G-SF026 No resolution scale option (locked to anim WxH) **[FIXED]**
 27. G-SF027 Flat shading only — no gouraud/phong interpolation option **[FIXED]**
-28. G-SF028 Single directional sun — no point lights
-29. G-SF029 No shadow casting (ship has no ground shadow)
+28. G-SF028 Single directional sun — no point lights **[FIXED]**
+29. G-SF029 No shadow casting (ship has no ground shadow) **[FIXED]**
 30. G-SF030 [FIXED hop113] No dithering mode (SNES had ordered dither!) **[FIXED]**
 31. G-SF031 [FIXED hop113] No palette quantize render target (true SNES 256-color mode) **[FIXED]**
 32. G-SF032 No affine texture warp (the actual Mode-7 effect) **[FIXED]**

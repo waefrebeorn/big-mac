@@ -132,3 +132,6 @@ int  wb_anim_get_rate(void);
 const char *wb_anim_error_str(wb_anim *a);   /* G-SF089 */
 void wb_anim_set_progress(void (*fn)(double frac, void *user), void *user); /* G-SF060 */
 void wb_anim_progress(double frac);
+
+/* G-SF008: camera shake composition (additive, deterministic). */
+int wb_anim_set_shake(wb_anim *a, float amt);

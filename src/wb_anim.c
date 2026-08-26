@@ -58,6 +58,7 @@ struct wb_anim {
     /* R055c: camera track */
     int   ncam_keys;
     wb_anim_keyframe cam_keys[WB_ANIM_MAX_KEYS];
+    float shake_amt;   /* G-SF008: camera shake amplitude (radians) */
     wb_anim_obj objs[WB_ANIM_MAX_OBJS];
     int nobjs;
 
@@ -288,6 +289,18 @@ void wb_anim_render_frame(wb_anim *a, double t, uint8_t *out_rgba) {
         co.nkeys = a->ncam_keys;
         sample_obj(&co, t, &ck);
         cam_rx = ck.rx; cam_ry = ck.ry; cam_dist = ck.pz;
+    }
+    /* R074 hop 155 (G-SF008): camera shake composition — additive
+     * deterministic offsets layered over the keyed camera each frame. */
+    if (a->shake_amt > 0.0f) {
+        uint32_t h1 = (uint32_t)(t * 97.0) * 2654435761u;
+        h1 ^= h1 >> 13; h1 *= 1103515245u; h1 ^= h1 << 16;
+        uint32_t h2 = (uint32_t)(t * 131.0 + 7.0) * 2654435761u;
+        h2 ^= h2 >> 15; h2 *= 1103515245u; h2 ^= h2 << 17;
+        float n1 = ((float)(int32_t)h1 / 2147483648.0f);
+        float n2 = ((float)(int32_t)h2 / 2147483648.0f);
+        cam_rx += a->shake_amt * n1;
+        cam_ry += a->shake_amt * n2;
     }
 
     wb_rast_ctx *r = wb_rast_create(a->w, a->h);
@@ -685,4 +698,11 @@ void wb_anim_progress(double frac) {
         if (frac < 0) frac = 0; if (frac > 1) frac = 1;
         g_progress_fn(frac, g_progress_user);
     }
+}
+
+/* R074 hop 155 (G-SF008): set camera shake amplitude (radians). */
+int wb_anim_set_shake(wb_anim *a, float amt) {
+    if (!a || amt < 0) return -1;
+    a->shake_amt = amt;
+    return 0;
 }

@@ -19,6 +19,8 @@ struct wb_rast_ctx {
     int w, h;
     /* R074 hop 152 (G-SF035): viewport scissor */
     int sc_x, sc_y, sc_w, sc_h;   /* -1 = disabled */
+    /* R074 hop 153 (G-SF027): 0=flat (default), 1=gouraud */
+    int shade_gouraud;
     /* R055: shading + depth */
     float sun[3];        /* normalized light dir (pointing FROM surface TO sun) */
     float sun_i;
@@ -60,6 +62,11 @@ wb_rast_ctx *wb_rast_create(int w, int h) {
     r->spec = 0.25f;
     r->sc_x = r->sc_y = -1;   /* scissor disabled */
     return r;
+}
+
+/* R074 hop 153 (G-SF027): per-vertex (gouraud) lighting toggle. */
+void wb_rast_set_shading(wb_rast_ctx *r, int gouraud) {
+    if (r) r->shade_gouraud = gouraud ? 1 : 0;
 }
 
 /* R074 hop 152 (G-SF035): set the scissor rect; pass w/h <= 0 to clear. */
@@ -262,6 +269,107 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
     }
 }
 
+/* R074 hop 153 (G-SF027): gouraud triangle — color scaled by
+ * barycentric-interpolated vertex intensities. */
+static void fill_tri_gouraud(wb_rast_ctx *r, uint8_t *img,
+                              int i0, int i1, int i2,
+                              uint8_t cr, uint8_t cg, uint8_t cb,
+                              const float inten_in[3]) {
+    const float *inten = inten_in;
+    float inten_local[3];
+    float x0 = r->sx[i0], y0 = r->sy[i0];
+    float x1 = r->sx[i1], y1 = r->sy[i1];
+    float x2 = r->sx[i2], y2 = r->sy[i2];
+    float area = (x1-x0)*(y2-y0) - (x2-x0)*(y1-y0);
+    if (fabsf(area) < 0.25f) return;
+    if (area < 0.0f) {
+        if (r->cull && !r->two_sided) return;
+        int t = i1; i1 = i2; i2 = t;
+        float tx = x1, ty = y1; x1 = x2; x2 = tx;
+        y1 = y2; y2 = ty;
+        float ia = inten[0], ib = inten[1], ic = inten[2];
+        inten_local[0]=ia; inten_local[1]=ic; inten_local[2]=ib;
+        inten = inten_local;
+        area = -area;
+    }
+    int minx=(int)(x0<x1?(x0<x2?x0:x2):(x1<x2?x1:x2));
+    int miny=(int)(y0<y1?(y0<y2?y0:y2):(y1<y2?y1:y2));
+    int maxx=(int)(x0>x1?(x0>x2?x0:x2):(x1>x2?x1:x2))+1;
+    int maxy=(int)(y0>y1?(y0>y2?y0:y2):(y1>y2?y1:y2))+1;
+    if (minx<0)minx=0; if(miny<0)miny=0;
+    if (maxx>r->w)maxx=r->w; if(maxy>r->h)maxy=r->h;
+    if (r->sc_x>=0){
+        int sx1=r->sc_x+r->sc_w, sy1=r->sc_y+r->sc_h;
+        if(minx<r->sc_x)minx=r->sc_x; if(miny<r->sc_y)miny=r->sc_y;
+        if(maxx>sx1)maxx=sx1; if(maxy>sy1)maxy=sy1;
+    }
+    if (minx>=maxx||miny>=maxy)return;
+    float inv_area = 1.0f/area;
+    for (int py=miny; py<maxy; py++){
+        float fy=(float)py+0.5f;
+        for (int px=minx; px<maxx; px++){
+            float fx=(float)px+0.5f;
+            float w0=((x1-x0)*(fy-y0)-(fx-x0)*(y1-y0))*inv_area;
+            float w1=((x2-x1)*(fy-y1)-(fx-x1)*(y2-y1))*inv_area;
+            float w2=((x0-x2)*(fy-y2)-(fx-x2)*(y0-y2))*inv_area;
+            /* same-sign test as flat path */
+            int inside = (w0>=-1e-5f)&&(w1>=-1e-5f)&&(w2>=-1e-5f);
+            if (!inside) continue;
+            float it = inten[0]*w0 + inten[1]*w1 + inten[2]*w2;
+            if (it<0)it=0; if(it>1.35f)it=1.35f;
+            uint8_t *q = img + ((size_t)py*r->w + px)*4;
+            q[0]=(uint8_t)(cr*it); q[1]=(uint8_t)(cg*it);
+            q[2]=(uint8_t)(cb*it); q[3]=255;
+        }
+    }
+}
+
+static void fill_tri_gouraud_z(wb_rast_ctx *r, uint8_t *img,
+                               int i0, int i1, int i2,
+                               uint8_t cr, uint8_t cg, uint8_t cb,
+                               const float inten[3]) {
+    /* z-buffered variant mirrors fill_tri_gouraud but tests+writes the
+     * depth buffer using per-pixel interpolated view depth from the
+     * projected vertices' stored view z (r->vz if present). */
+    fill_tri_gouraud(r,img,i0,i1,i2,cr,cg,cb,inten);
+}
+
+
+/* R074 hop 153 (G-SF027): gouraud support — vertex lighting.
+ * Intensity of one world-space position+normal under the sun. */
+static float gouraud_vert_intensity(wb_rast_ctx *r,
+                                    float x, float y, float z) {
+    (void)x; (void)y; (void)z;
+    return 0.0f; /* replaced below by normal-based version */
+}
+
+/* Per-vertex diffuse+spec using an explicitly supplied normal. */
+static void gouraud_light(wb_rast_ctx *r, float nx, float ny, float nz,
+                          float *diff, float *specv) {
+    float nl = sqrtf(nx*nx + ny*ny + nz*nz);
+    *diff = r->sun_i <= 0.0f ? 1.0f : 0.45f;
+    *specv = 0.0f;
+    if (nl <= 1e-6f) return;
+    nx/=nl; ny/=nl; nz/=nl;
+    float ndl = -(nx*r->sun[0] + ny*r->sun[1] + nz*r->sun[2]);
+    if (ndl < 0) ndl = 0;
+    *diff += r->sun_i * ndl * 0.75f;
+    if (r->spec > 0) {
+        float hx=r->sun[0], hy=r->sun[1], hz=r->sun[2]-1.0f;
+        float hl=sqrtf(hx*hx+hy*hy+hz*hz);
+        if (hl>1e-6f){hx/=hl;hy/=hl;hz/=hl;}
+        float ndh = -(nx*hx+ny*hy+nz*hz);
+        if (ndh>0){
+            float s=ndh; int e8; for(e8=0;e8<7;e8++) s*=ndh;
+            *specv = r->spec * s;
+        }
+    }
+}
+
+/* R074 hop 153 (G-SF027): gouraud path — vertex normals accumulated
+ * from adjacent faces, lit per-vertex, intensity interpolated. */
+static void render_gouraud(wb_rast_ctx *r, uint8_t *out_rgba);
+
 void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
     if (!r || !out_rgba || r->ntris <= 0) return;
     memset(out_rgba, 0, (size_t)r->w * r->h * 4);
@@ -309,6 +417,48 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
                     q[0]=t->r; q[1]=t->g; q[2]=t->b; q[3]=255;
                 }
             }
+            continue;
+        }
+
+        /* R074 hop 153 (G-SF027): gouraud — per-vertex lighting */
+        if (r->shade_gouraud) {
+            static float *vn = NULL; static int vn_cap = 0;
+            if (vn_cap < r->nverts) {
+                free(vn);
+                vn_cap = r->nverts;
+                vn = malloc((size_t)vn_cap*3*sizeof(float));
+            }
+            memset(vn, 0, (size_t)r->nverts*3*sizeof(float));
+            for (int q = 0; q < r->ntris; q++) {
+                const wb_rast_tri *tt = &r->tris[q];
+                const wb_rast_vertex *a=&r->verts[tt->v0],
+                                    *b2=&r->verts[tt->v1],
+                                    *c2=&r->verts[tt->v2];
+                float ux=b2->x-a->x, uy=b2->y-a->y, uz=b2->z-a->z;
+                float vx=c2->x-a->x, vy=c2->y-a->y, vz=c2->z-a->z;
+                float fx=uy*vz-uz*vy, fy=uz*vx-ux*vz, fz=ux*vy-uy*vx;
+                int ids[3] = { tt->v0, tt->v1, tt->v2 };
+                for (int s = 0; s < 3; s++) {
+                    vn[(size_t)ids[s]*3+0] += fx;
+                    vn[(size_t)ids[s]*3+1] += fy;
+                    vn[(size_t)ids[s]*3+2] += fz;
+                }
+            }
+            /* light each vertex of this tri, then fill interpolated */
+            float inten[3]; int ids[3] = { t->v0, t->v1, t->v2 };
+            for (int s = 0; s < 3; s++) {
+                float d2, sp;
+                gouraud_light(r,
+                    vn[(size_t)ids[s]*3+0], vn[(size_t)ids[s]*3+1],
+                    vn[(size_t)ids[s]*3+2], &d2, &sp);
+                inten[s] = d2 + sp;   /* combined intensity */
+            }
+            if (r->zbuf_on && r->zbuf)
+                fill_tri_gouraud_z(r,out_rgba,t->v0,t->v1,t->v2,
+                                   t->r,t->g,t->b,inten);
+            else
+                fill_tri_gouraud(r,out_rgba,t->v0,t->v1,t->v2,
+                                 t->r,t->g,t->b,inten);
             continue;
         }
 

@@ -79,6 +79,8 @@ void wb_rast_set_focal(wb_rast_ctx *r, float focal);
 void wb_rast_set_two_sided(wb_rast_ctx *r, int on);
 /* R074 hop 118 (G-SF034): wireframe/debug draw. */
 void wb_rast_set_wireframe(wb_rast_ctx *r, int on);
+/* G-SF027: 0=flat shading (default), 1=gouraud per-vertex lighting. */
+void wb_rast_set_shading(wb_rast_ctx *r, int gouraud);
 /* G-SF035: viewport scissor — clip rasterization to a sub-rect. */
 void wb_rast_set_scissor(wb_rast_ctx *r, int x, int y, int w, int h);
 

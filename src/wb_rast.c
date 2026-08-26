@@ -288,6 +288,15 @@ static void fill_tri(wb_rast_ctx *r, uint8_t *img,
     float x1 = r->sx[i1], y1 = r->sy[i1];
     float x2 = r->sx[i2], y2 = r->sy[i2];
 
+    /* bug #101 fix: near-plane guard — same rationale as fill_tri_z.
+     * Vertices clamped at the near plane project to enormous coords;
+     * without this the bbox loop runs effectively forever. */
+    {
+        float z0 = r->sz[i0], z1 = r->sz[i1], z2 = r->sz[i2];
+        float zmin = z0 < z1 ? (z0 < z2 ? z0 : z2) : (z2 < z1 ? z2 : z1);
+        if (zmin < r->dist * 0.05f) return;
+    }
+
     /* signed area (edge function of the whole tri) — cull backfaces */
     float area = (x1-x0)*(y2-y0) - (x2-x0)*(y1-y0);
     if (fabsf(area) < 0.25f) return;
@@ -375,13 +384,14 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
     float x0=r->sx[i0], y0=r->sy[i0], z0=r->sz[i0];
     float x1=r->sx[i1], y1=r->sy[i1], z1=r->sz[i1];
     float x2=r->sx[i2], y2=r->sy[i2], z2=r->sz[i2];
-    /* G-SF099 v3 fix (strengthened): near-plane guard. Vertices even
-     * slightly in front get clamped by project_vert; a triangle mixing
-     * near-clamped and far vertices projects to an enormous bbox and
-     * stalls the fill for minutes. Skip if ANY vertex is nearer than
-     * 5% of the camera distance. */
-    float zmin = z0 < z1 ? (z0 < z2 ? z0 : z2) : (z2 < z1 ? z2 : z1);
-    if (zmin < r->dist * 0.05f) return;
+    /* G-SF099 v3 fix: reject triangles whose projected coordinates are
+     * absurd (vertices were clamped at the near plane by project_vert,
+     * producing focal/zd magnitudes in the tens of thousands). Such a
+     * triangle's bbox spans megapixels and stalls the fill loop. */
+    const float lim = (float)r->w * 64.0f + (float)r->h * 64.0f;
+    if (fabsf(x0) > lim || fabsf(y0) > lim ||
+        fabsf(x1) > lim || fabsf(y1) > lim ||
+        fabsf(x2) > lim || fabsf(y2) > lim) return;
     float area = (x1-x0)*(y2-y0) - (x2-x0)*(y1-y0);
     if (fabsf(area) < 0.25f) return;
     if (area < 0.0f) {

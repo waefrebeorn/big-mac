@@ -493,7 +493,8 @@ for (int y = ry; y < ry + rh; y++)
                  * by corner distance so edges stay in [0,1]; the
                  * vig_start radius provides the width/2 feel */
                 float maxd = sqrtf(cx2*cx2 + cy2*cy2);
-                for (int y = ry; y < ry + rh; y++)
+
+                for (int y = ry; y < ry + rh; y++) {
                     for (int x = rx; x < rx + rw; x++) {
                         wb_px *p = &in->px[y*in->w + x];
                         float dx = x - cx2, dy = y - cy2;
@@ -509,6 +510,7 @@ for (int y = ry; y < ry + rh; y++)
                         float k = 1.0f - vig * fall * fall;
                         p->r *= k; p->g *= k; p->b *= k;
                     }
+                }
             }
             else if (e->op == 8) {
                 /* R073 hop 52: primary grade — lift/gamma/gain/saturation,
@@ -1578,6 +1580,11 @@ wb_node *wb_node_source_anim(wb_anim *anim, int w, int h) {
     s->h = h > 0 ? h : 240;
     n->user = s;
     n->pull = src_anim_pull;
+    /* bug #101 fix: declare the format! Without it, node_resolve_format
+     * fell back to the 4096x4096 legacy bound and per-pixel effect ops
+     * wrote far past the anim frame (heap corruption / multi-minute
+     * "hangs"). */
+    wb_node_set_format(n, s->w, s->h);
     return n;
 }
 
@@ -2649,8 +2656,8 @@ wb_node *wb_node_transition(int op, double duration_secs) {
     tr->op = op; tr->dur = duration_secs > 0.01 ? duration_secs : 0.01;
     n->user = tr;
     n->pull = trans_pull;
-    n->n_inputs = 0;                 /* filled by wb_transition_add (max 2) */
-    n->inputs = calloc(2, sizeof(wb_node*));
+    n->n_inputs = 0;                 /* filled by wb_transition_add / map */
+    n->inputs = calloc(3, sizeof(wb_node*));  /* A, B, optional map */
     return n;
 }
 

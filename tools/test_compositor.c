@@ -2636,7 +2636,9 @@ int main(void) {
                   "scenedemo: 2 ring objects");
             /* render a mid-flight frame */
             uint8_t *buf = calloc((size_t)320*180, 4);
-            wb_anim_render_frame(fa, 2.0, buf);
+            printf("scenedemo: rendering...\n"); fflush(stdout);
+            wb_anim_render_frame(fa, 3.9, buf);   /* rings near camera */
+            printf("scenedemo: rendered\n"); fflush(stdout);
             int drawn = 0;
             for (int i = 0; i < 320*180; i++)
                 if (buf[i*4+3] > 0) drawn++;
@@ -2646,6 +2648,6 @@ int main(void) {
         }
     }
 
-        printf("\n%d checks, %d failures\n", checks, failures);
+    printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

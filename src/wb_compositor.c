@@ -256,6 +256,34 @@ wb_frame *wb_node_pull(wb_node *n, double t, int rx, int ry, int rw, int rh) {
     return n->pull(n, t, rx, ry, rw, rh, 1);
 }
 
+/* R074 hop 145 (#48): tile-based rendering — split large ROIs into
+ * cache-friendly tiles, pull each, stitch into one frame. Spatial ops
+ * are ROI-local so tiles compose exactly. */
+wb_frame *wb_node_pull_tiled(wb_node *n, double t, int rx, int ry,
+                             int rw, int rh) {
+    if (!n) return NULL;
+    int ts = wb_compositor_tile_size();
+    if (rw <= 0 || rh <= 0 || (rw <= ts && rh <= ts))
+        return wb_node_pull(n, t, rx, ry, rw, rh);
+    wb_frame *out = wb_frame_alloc(rw, rh);
+    if (!out) return NULL;
+    out->roi_x = rx; out->roi_y = ry; out->roi_w = rw; out->roi_h = rh;
+    for (int ty = 0; ty < rh; ty += ts) {
+        int th = (ty + ts <= rh) ? ts : rh - ty;
+        for (int tx = 0; tx < rw; tx += ts) {
+            int tw = (tx + ts <= rw) ? ts : rw - tx;
+            wb_frame *tile = wb_node_pull(n, t, rx + tx, ry + ty, tw, th);
+            if (!tile) continue;
+            for (int y = 0; y < th; y++)
+                memcpy(&out->px[(size_t)(ty + y) * rw + tx],
+                       &tile->px[(size_t)y * tw],
+                       (size_t)tw * sizeof(wb_px));
+            wb_frame_free(tile);
+        }
+    }
+    return out;
+}
+
 /* G3: phase 0 = request/prepare (schedule decodes, no frame yet). Walk the
  * graph requesting inputs so slow sources (decode) can run ahead; the
  * subsequent wb_node_pull (phase 1) then computes. VapourSynth-style

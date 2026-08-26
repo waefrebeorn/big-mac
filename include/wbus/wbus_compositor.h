@@ -99,6 +99,10 @@ int  wb_roi_clip(int w, int h, int *rx, int *ry, int *rw, int *rh);
 
 /* generic pull entry: handles identity short-circuit + forwarding. */
 wb_frame *wb_node_pull(wb_node *n, double t, int rx, int ry, int rw, int rh);
+/* #48: tile-based pull — renders in tile_size chunks and stitches.
+ * Falls back to a single pull when the ROI already fits one tile. */
+wb_frame *wb_node_pull_tiled(wb_node *n, double t, int rx, int ry,
+                             int rw, int rh);
 
 /* ---- G11 param bus: bind a keyframed track to a named node param ------ */
 /* Returns the param slot index (>=0), or -1. Name stored for debugging. */

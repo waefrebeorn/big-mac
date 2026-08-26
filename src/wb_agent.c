@@ -2,6 +2,7 @@
  * Drives the editor via the real session/export/EDL/voice-polish APIs. */
 
 #include "wbus/wbus_agent.h"
+#include "wbus/wbus_clip_edit.h"   /* G-SF091 */
 #include "wbus/wbus_video.h"
 #include "wbus/wbus_compositor.h"
 #include "wbus/wbus_voice_polish.h"
@@ -221,6 +222,22 @@ static int cgi_command(wb_session *s, wb_engine *e,
         float near_=atof(tok((char**)&rest)), far_=atof(tok((char**)&rest));
         uint8_t fr=20, fg=24, fb=40;
         wb_anim_set_fog(g_cgi, near_, far_, fr, fg, fb);
+        return 0;
+    }
+
+    if (strcmp(cmd, "cgi-bind") == 0) {
+        /* G-SF091 agent control: cgi-bind <track> <clip> — attach the
+         * agent CGI scene (g_cgi) to a video clip's scene3d slot so
+         * exports composite it over the media. */
+        if (!g_cgi || !s || !e) return -1;
+        int track = atoi(tok((char**)&rest));
+        int clip = atoi(tok((char**)&rest));
+        if (track < 0 || (uint32_t)track >= s->track_count) return -1;
+        if (clip < 0 || (uint32_t)clip >= s->tracks[track].clip_count)
+            return -1;
+        wb_clip_edit_set_scene3d(wb_engine_clip_edit(e), track, clip,
+                                 g_cgi);
+        printf("cgi: scene bound to track %d clip %d\n", track, clip);
         return 0;
     }
 

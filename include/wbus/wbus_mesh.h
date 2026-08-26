@@ -110,3 +110,8 @@ wb_mesh *wb_mesh_wedge(float hx, float hy, float hz,
 #endif
 
 #endif /* WUBUS_WBUS_MESH_H */
+
+/* G-SF021: morph targets — blend positions toward target by t (0..1);
+ * capture a snapshot of current positions as a new mesh. */
+int      wb_mesh_morph_apply(wb_mesh *m, const wb_mesh *target, float t);
+wb_mesh *wb_mesh_morph_capture(const wb_mesh *m);

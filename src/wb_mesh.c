@@ -478,3 +478,33 @@ wb_mesh *wb_mesh_wedge(float hx, float hy, float hz,
     };
     return wb_mesh_build(v, 6, t, 8);
 }
+
+/* R074 hop 187 (G-SF021): morph targets — blend this mesh's vertex
+ * positions toward `target`'s by weight t (0 = unchanged, 1 = target).
+ * Meshes must share vertex count; tris/colors untouched. */
+int wb_mesh_morph_apply(wb_mesh *m, const wb_mesh *target, float t) {
+    if (!m || !target) return -1;
+    if (m->nverts != target->nverts) return -2;
+    if (t <= 0) return 0;
+    if (t > 1) t = 1;
+    for (int i = 0; i < m->nverts; i++) {
+        m->verts[i].x += (target->verts[i].x - m->verts[i].x) * t;
+        m->verts[i].y += (target->verts[i].y - m->verts[i].y) * t;
+        m->verts[i].z += (target->verts[i].z - m->verts[i].z) * t;
+    }
+    return 0;
+}
+
+/* Snapshot current positions as a morph target mesh (same topology). */
+wb_mesh *wb_mesh_morph_capture(const wb_mesh *m) {
+    if (!m) return NULL;
+    wb_mesh *c = wb_mesh_create();
+    if (!c) return NULL;
+    for (int i = 0; i < m->nverts; i++)
+        if (mesh_add_vert(c, m->verts[i].x, m->verts[i].y, m->verts[i].z) < 0)
+            { wb_mesh_free(c); return NULL; }
+    for (int i = 0; i < m->ntris; i++)
+        mesh_add_tri(c, m->tris[i].v0, m->tris[i].v1, m->tris[i].v2,
+                     m->tris[i].r, m->tris[i].g, m->tris[i].b);
+    return c;
+}

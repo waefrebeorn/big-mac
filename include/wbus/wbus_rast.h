@@ -64,6 +64,9 @@ void wb_rast_set_camera(wb_rast_ctx *r,
  * (w*h*4 bytes, caller-allocated). Pixels are straight alpha=255 where
  * drawn, 0 where untouched — so the compositor can key on alpha. */
 void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba);
+/* G-SF099: two-thread parallel fill (deterministic, exact same output
+ * class as render; splits the sorted tri list across cores). */
+void wb_rast_render_mt(wb_rast_ctx *r, uint8_t *out_rgba);
 
 /* Back-face culling toggle (default on). */
 void wb_rast_set_cull(wb_rast_ctx *r, int on);

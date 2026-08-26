@@ -693,10 +693,12 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
     for (int i = 0; i < r->nverts; i++) project_vert(r, i);
 
     /* painter's sort: far-to-near by centroid depth */
-    int order[512];
-    int n = r->ntris < 512 ? r->ntris : 512;
+    /* G-SF099 companion fix: no more 512-tri cap — allocate for all */
+    int n = r->ntris;
+    int *order = malloc((size_t)n * sizeof(int));
+    float *depth = malloc((size_t)n * sizeof(float));
+    if (!order || !depth) { free(order); free(depth); return; }
     for (int i = 0; i < n; i++) order[i] = i;
-    float depth[512];
     for (int i = 0; i < n; i++) {
         wb_rast_tri *t = &r->tris[i];
         depth[i] = (r->sz[t->v0] + r->sz[t->v1] + r->sz[t->v2]) / 3.0f;
@@ -710,6 +712,7 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
     }
     for (int k2 = 0; k2 < n; k2++)
         render_one_tri(r, out_rgba, order[k2]);
+    free(order); free(depth);
 }
 
 
@@ -728,4 +731,92 @@ void wb_rast_get_depth(wb_rast_ctx *r, float *dst) {
         dst[i] = z >= 1e8f ? 1.0f
                : (z - zn) / (zf - zn);
     }
+}
+
+/* ---- R074 hop 186 (G-SF099): two-thread parallel rasterization ------- */
+#include <pthread.h>
+
+typedef struct {
+    wb_rast_ctx ctx;      /* shallow copy: owns its scratch + zbuf ptr */
+    uint8_t    *img;
+    float      *zbuf;
+    const int  *order;
+    int         lo, hi;
+} mt_arg;
+
+static void *mt_worker(void *argp) {
+    mt_arg *m = argp;
+    for (int k2 = m->lo; k2 < m->hi; k2++)
+        render_one_tri(&m->ctx, m->img, m->order[k2]);
+    return NULL;
+}
+
+void wb_rast_render_mt(wb_rast_ctx *r, uint8_t *out_rgba) {
+    if (!r || !out_rgba || r->ntris <= 0) return;
+    size_t npix = (size_t)r->w * r->h;
+    if (r->ntris < 128) { wb_rast_render(r, out_rgba); return; }
+
+    /* project into the base ctx so depth[] is valid (G-SF099 fix) */
+    if (!r->sx || !r->sy || !r->sz) { wb_rast_render(r, out_rgba); return; }
+    for (int i = 0; i < r->nverts; i++) project_vert(r, i);
+    /* build the shared sort order once (deterministic) */
+    int *order = malloc((size_t)r->ntris * sizeof(int));
+    float *depth = malloc((size_t)r->ntris * sizeof(float));
+    if (!order || !depth) { free(order); free(depth);
+                            wb_rast_render(r, out_rgba); return; }
+    for (int i = 0; i < r->ntris; i++) order[i] = i;
+    for (int i = 0; i < r->ntris; i++) {
+        wb_rast_tri *t = &r->tris[i];
+        depth[i] = (r->sz[t->v0] + r->sz[t->v1] + r->sz[t->v2]) / 3.0f;
+        if (t->a < 255) depth[i] -= 1000.0f;
+    }
+    /* insertion sort (matches single-thread path ordering) */
+    for (int i = 1; i < r->ntris; i++) {
+        int oi = order[i]; float d = depth[i];
+        int q = i - 1;
+        while (q >= 0 && depth[order[q]] < d) { order[q+1] = order[q]; q--; }
+        order[q+1] = oi;
+    }
+
+    /* per-thread state */
+    wb_rast_ctx ca = *r, cb = *r;
+    ca.sx=malloc((size_t)r->nverts*sizeof(float));
+    ca.sy=malloc((size_t)r->nverts*sizeof(float));
+    ca.sz=malloc((size_t)r->nverts*sizeof(float));
+    cb.sx=malloc((size_t)r->nverts*sizeof(float));
+    cb.sy=malloc((size_t)r->nverts*sizeof(float));
+    cb.sz=malloc((size_t)r->nverts*sizeof(float));
+    for (int i = 0; i < r->nverts; i++) project_vert(&ca, i);
+    for (int i = 0; i < r->nverts; i++) project_vert(&cb, i);
+
+    uint8_t *ia = calloc(npix, 4), *ib = calloc(npix, 4);
+    float   *za = malloc(npix*sizeof(float)), *zb = malloc(npix*sizeof(float));
+    for (size_t i = 0; i < npix; i++) { za[i]=1e9f; zb[i]=1e9f; }
+    ca.zbuf = za; cb.zbuf = zb;
+    /* G-SF099: force depth testing in MT mode — painter's order is not
+     * preserved across the tri split, but with a zbuffer each pixel
+     * resolves identically regardless of which half drew it. */
+    ca.zbuf_on = 1; cb.zbuf_on = 1;
+    /* also clear the sort: with a zbuffer, draw order is irrelevant */
+    (void)0;
+
+    int half = r->ntris / 2;
+    mt_arg ma = { ca, ia, za, order, 0, half };
+    mt_arg mb = { cb, ib, zb, order, half, r->ntris };
+    pthread_t th;
+    pthread_create(&th, NULL, mt_worker, &mb);
+    mt_worker(&ma);
+    pthread_join(th, NULL);
+
+    /* composite nearest-depth */
+    for (size_t i = 0; i < npix; i++) {
+        const uint8_t *s = (za[i] <= zb[i]) ? ia+i*4 : ib+i*4;
+        out_rgba[i*4+0]=s[0]; out_rgba[i*4+1]=s[1];
+        out_rgba[i*4+2]=s[2]; out_rgba[i*4+3]=s[3];
+    }
+
+    free(ca.sx); free(ca.sy); free(ca.sz);
+    free(cb.sx); free(cb.sy); free(cb.sz);
+    free(ia); free(ib); free(za); free(zb);
+    free(order); free(depth);
 }

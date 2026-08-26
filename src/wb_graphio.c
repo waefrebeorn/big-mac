@@ -120,6 +120,7 @@ int wb_graphio_build_recipe(const char *path, wb_node **root,
 
     enum { CAP = 16 };
     wb_node *nodes[CAP];
+    int is_transition[CAP] = {0};
     int n = 0;
     char line[512];
     int lineno = 0;
@@ -156,6 +157,13 @@ int wb_graphio_build_recipe(const char *path, wb_node **root,
                 if (op >= 0 && op <= 11)
                     nd = wb_node_effect(op, g2v);
             }
+            else if (!strcmp(kind,"transition")) {
+                /* G-SF080 v5: transition nodes — wire with
+                 * wb_transition_add(A then B) instead of inputs[]. */
+                nd = wb_node_transition((int)a,
+                                        b2 > 0 ? (double)b2 : 1.0);
+                is_transition[n] = 1;
+            }
             if (!nd || n >= CAP) { fclose(f); return -lineno; }
             nodes[n++] = nd;
             continue;
@@ -168,7 +176,12 @@ int wb_graphio_build_recipe(const char *path, wb_node **root,
             if (from<0||from>=n||to<0||to>=n||k<0||k>=4) {
                 fclose(f); return -lineno;
             }
-            wb_node_connect(nodes[to], nodes[from], k);
+            if (is_transition[to]) {
+                /* transitions take A then B via wb_transition_add */
+                wb_transition_add(nodes[to], nodes[from]);
+            } else {
+                wb_node_connect(nodes[to], nodes[from], k);
+            }
             continue;
         }
         if (!strcmp(kw, "output")) {

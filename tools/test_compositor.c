@@ -10,6 +10,8 @@
 #include "wbus/wbus_param_track.h"
 #include "wbus/wbus_compositor.h"
 #include "wbus/wbus_graphio.h"
+#include "wbus/wbus_pattern.h"
+#include "wbus/wbus_tga.h"
 #include "wbus/wbus_cgi_bands.h"
 #include "wbus/wbus_mesh.h"
 
@@ -2519,6 +2521,45 @@ int main(void) {
             }
         }
         remove("/tmp/recipe.bmr");
+    }
+
+    /* ---- R074 hop 204: new-module gates (pattern/tga/csg) ---------- */
+    printf("\n-- new module gates --\n");
+    {
+        /* pattern: 4-on-the-floor fires 4 times per bar */
+        wb_pattern_state ps;
+        wb_pattern_init(&ps, 60, 120.0);
+        wb_pattern_set_step(&ps, 0, 100);
+        wb_pattern_set_step(&ps, 4, 100);
+        wb_pattern_set_step(&ps, 8, 100);
+        wb_pattern_set_step(&ps, 12, 100);
+        int stp[16]; uint8_t vel[16];
+        int fired = wb_pattern_fire(&ps, 0.0, 88200, 44100,
+                                    stp, vel, 16);
+        CHECK(fired == 4, "pattern: 4-on-floor fires 4/bar");
+
+        /* tga: synthetic file roundtrip */
+        FILE *tf = fopen("/tmp/gate.tga", "wb");
+        if (tf) {
+            uint8_t hdr[18] = {0};
+            hdr[2] = 2;                 /* uncompressed true-color */
+            hdr[12] = 4; hdr[14] = 4;   /* 4x4 */
+            hdr[16] = 32;               /* 32bpp */
+            hdr[17] = 0x20;             /* top-left origin */
+            fwrite(hdr, 1, 18, tf);
+            for (int i = 0; i < 16; i++) {
+                uint8_t bgra[4] = {50, 60, 70, 255};
+                fwrite(bgra, 1, 4, tf);
+            }
+            fclose(tf);
+        }
+        wb_tga t;
+        CHECK(wb_tga_load(&t, "/tmp/gate.tga") == 0 && t.w == 4 &&
+              t.h == 4 && t.px[0] == 70 && t.px[2] == 50 &&
+              t.px[3] == 255,
+              "tga: load + BGR->RGBA + alpha");
+        wb_tga_free(&t);
+        remove("/tmp/gate.tga");
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);

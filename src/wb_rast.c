@@ -558,39 +558,11 @@ static inline float srgb_enc(float v) {
     return v <= 0.0031308f ? v * 12.92f : 1.055f*powf(v, 1.0f/2.4f)-0.055f;
 }
 
-void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
-    if (!r || !out_rgba || r->ntris <= 0) return;
-    if (r->sky_on) sky_fill(r, out_rgba);
-    else memset(out_rgba, 0, (size_t)r->w * r->h * 4);
-    if (r->zbuf_on && !r->zbuf) { r->zbuf = malloc((size_t)r->w*r->h*sizeof(float)); }
-    if (r->zbuf_on && r->zbuf)
-        for (int i = 0; i < r->w*r->h; i++) r->zbuf[i] = 1e9f;
-
-    for (int i = 0; i < r->nverts; i++) project_vert(r, i);
-
-    /* painter's sort: far-to-near by centroid depth (no alloc: insertion
-     * sort on a small index array on the stack — Jet-style fixed budget).
-     * Cap: scenes beyond 512 tris render unsorted (still correct for
-     * opaque geometry thanks to the later-drawn-wins overwrite). */
-    int order[512];
-    int n = r->ntris < 512 ? r->ntris : 512;
-    for (int i = 0; i < n; i++) order[i] = i;
-    float depth[512];
-    for (int i = 0; i < n; i++) {
-        wb_rast_tri *t = &r->tris[i];
-        depth[i] = (r->sz[t->v0] + r->sz[t->v1] + r->sz[t->v2]) / 3.0f;
-        /* G-SF016: transparent pass draws after the opaque pass */
-        if (t->a < 255) depth[i] -= 1000.0f;
-    }
-    for (int i = 1; i < n; i++) {
-        int oi = order[i]; float d = depth[i];
-        int j = i - 1;
-        while (j >= 0 && depth[order[j]] < d) { order[j+1] = order[j]; j--; }
-        order[j+1] = oi;
-    }
-
-    for (int k = 0; k < n; k++) {
-        wb_rast_tri *t = &r->tris[order[k]];
+/* R074 hop 185 (G-SF099): fill a single triangle by index. Thread-safe
+ * when the ctx scratch (sx/sy/sz) and output buffers are thread-local. */
+static void render_one_tri(wb_rast_ctx *r, uint8_t *out_rgba, int ti) {
+    if (ti < 0 || ti >= r->ntris) return;
+    wb_rast_tri *t = &r->tris[ti];
                 /* R074 hop 118 (G-SF034): wireframe — draw edges only */
         if (r->wireframe) {
             int vidx[3] = { t->v0, t->v1, t->v2 };
@@ -608,7 +580,7 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
                     q[0]=t->r; q[1]=t->g; q[2]=t->b; q[3]=255;
                 }
             }
-            continue;
+            return;
         }
 
         /* R074 hop 153 (G-SF027): gouraud — per-vertex lighting */
@@ -650,7 +622,7 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
             else
                 fill_tri_gouraud(r,out_rgba,t->v0,t->v1,t->v2,
                                  t->r,t->g,t->b,inten);
-            continue;
+            return;
         }
 
         /* R055: face normal in WORLD space (pre-projection model coords) */
@@ -700,7 +672,7 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
                 fill_tri_z(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t->a,t);
             else
                 fill_tri(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t);
-            continue;
+            return;
         }
         int rr=(int)(t->r*diff + 255*specv); if(rr>255)rr=255;
         int gg=(int)(t->g*diff + 255*specv); if(gg>255)gg=255;
@@ -708,9 +680,38 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
         if (r->zbuf_on && r->zbuf)
             fill_tri_z(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t->a,t);
         else
-            fill_tri(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t);
+            fill_tri(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t);}
+
+void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
+    if (!r || !out_rgba || r->ntris <= 0) return;
+    if (r->sky_on) sky_fill(r, out_rgba);
+    else memset(out_rgba, 0, (size_t)r->w * r->h * 4);
+    if (r->zbuf_on && !r->zbuf) { r->zbuf = malloc((size_t)r->w*r->h*sizeof(float)); }
+    if (r->zbuf_on && r->zbuf)
+        for (int i = 0; i < r->w*r->h; i++) r->zbuf[i] = 1e9f;
+
+    for (int i = 0; i < r->nverts; i++) project_vert(r, i);
+
+    /* painter's sort: far-to-near by centroid depth */
+    int order[512];
+    int n = r->ntris < 512 ? r->ntris : 512;
+    for (int i = 0; i < n; i++) order[i] = i;
+    float depth[512];
+    for (int i = 0; i < n; i++) {
+        wb_rast_tri *t = &r->tris[i];
+        depth[i] = (r->sz[t->v0] + r->sz[t->v1] + r->sz[t->v2]) / 3.0f;
+        if (t->a < 255) depth[i] -= 1000.0f;
     }
+    for (int i = 1; i < n; i++) {
+        int oi = order[i]; float d = depth[i];
+        int q = i - 1;
+        while (q >= 0 && depth[order[q]] < d) { order[q+1] = order[q]; q--; }
+        order[q+1] = oi;
+    }
+    for (int k2 = 0; k2 < n; k2++)
+        render_one_tri(r, out_rgba, order[k2]);
 }
+
 
 /* R074 hop 162 (G-SF024): export the z-buffer normalized to 0(near)..1(far).
  * Pixels with no geometry get 1. dst must hold w*h floats. */

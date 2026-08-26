@@ -59,6 +59,12 @@ struct wb_rast_ctx {
      * referred path. */
     int linear_light;
 
+    /* R074 hop 192 (G-SF099): thread y-band — pixels outside are
+     * skipped; 0/0 = full frame. Enables band-parallel MT with no
+     * composite pass. */
+    int band_y0, band_y1;
+    uint8_t *img_override;   /* MT: write target (else caller's) */
+
     /* per-frame scratch (sized to nverts) */
     float *sx, *sy, *sz;   /* screen x/y + view depth */
 };
@@ -79,6 +85,7 @@ wb_rast_ctx *wb_rast_create(int w, int h) {
     r->spec = 0.25f;
     r->sc_x = r->sc_y = -1;   /* scissor disabled */
     r->sky_on = 0;            /* G-SF043: skybox off by default */
+    r->band_y0 = 0; r->band_y1 = 0;   /* full frame */
     r->linear_light = 0;
     r->tex_px = NULL; r->tex_w = r->tex_h = 0;
     return r;
@@ -300,6 +307,11 @@ static void fill_tri(wb_rast_ctx *r, uint8_t *img,
     if (miny < 0) miny = 0;
     if (maxx > r->w) maxx = r->w;
     if (maxy > r->h) maxy = r->h;
+    /* G-SF099: thread band filter */
+    if (r->band_y1 > 0) {
+        if (miny < r->band_y0) miny = r->band_y0;
+        if (maxy > r->band_y1) maxy = r->band_y1;
+    }
     /* G-SF035: scissor clip */
     if (r->sc_x >= 0) {
         int sx0 = r->sc_x, sy0 = r->sc_y;
@@ -377,6 +389,11 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
     int maxy=(int)(y0>y1?(y0>y2?y0:y2):(y1>y2?y1:y2))+1;
     if (minx<0)minx=0; if(miny<0)miny=0;
     if(maxx>r->w)maxx=r->w; if(maxy>r->h)maxy=r->h;
+    /* G-SF099: thread band filter */
+    if (r->band_y1 > 0) {
+        if (miny < r->band_y0) miny = r->band_y0;
+        if (maxy > r->band_y1) maxy = r->band_y1;
+    }
     if (minx>=maxx||miny>=maxy) return;
     float inv=1.0f/area;
     /* R074 hop 173 (G-SF038): incremental edge stepping — edge values
@@ -733,90 +750,107 @@ void wb_rast_get_depth(wb_rast_ctx *r, float *dst) {
     }
 }
 
-/* ---- R074 hop 186 (G-SF099): two-thread parallel rasterization ------- */
+/* ---- R074 hop 192 (G-SF099 v2): band-parallel rasterization ----------
+ * The frame is split into horizontal bands, one per thread. Each thread
+ * renders ALL triangles but only writes its own rows (band clamp in the
+ * fills). Rows are disjoint -> no locks, no composite pass, exact same
+ * output as single-threaded. */
 #include <pthread.h>
 
 typedef struct {
-    wb_rast_ctx ctx;      /* shallow copy: owns its scratch + zbuf ptr */
+    wb_rast_ctx ctx;     /* shallow copy w/ band + own scratch */
     uint8_t    *img;
-    float      *zbuf;
     const int  *order;
-    int         lo, hi;
+    int         n;
 } mt_arg;
 
 static void *mt_worker(void *argp) {
     mt_arg *m = argp;
-    for (int k2 = m->lo; k2 < m->hi; k2++)
+    for (int k2 = 0; k2 < m->n; k2++)
         render_one_tri(&m->ctx, m->img, m->order[k2]);
     return NULL;
 }
 
 void wb_rast_render_mt(wb_rast_ctx *r, uint8_t *out_rgba) {
     if (!r || !out_rgba || r->ntris <= 0) return;
-    size_t npix = (size_t)r->w * r->h;
-    if (r->ntris < 128) { wb_rast_render(r, out_rgba); return; }
+    if (r->h < 64) { wb_rast_render(r, out_rgba); return; }
 
-    /* project into the base ctx so depth[] is valid (G-SF099 fix) */
-    if (!r->sx || !r->sy || !r->sz) { wb_rast_render(r, out_rgba); return; }
+    /* clear + project once in base ctx */
+    if (r->sky_on) sky_fill(r, out_rgba);
+    else memset(out_rgba, 0, (size_t)r->w * r->h * 4);
+    if (!r->zbuf) { r->zbuf = malloc((size_t)r->w*r->h*sizeof(float));
+                    r->zbuf_on = 1; }
+    for (int i = 0; i < r->w*r->h; i++) r->zbuf[i] = 1e9f;
     for (int i = 0; i < r->nverts; i++) project_vert(r, i);
-    /* build the shared sort order once (deterministic) */
-    int *order = malloc((size_t)r->ntris * sizeof(int));
-    float *depth = malloc((size_t)r->ntris * sizeof(float));
+
+    /* shared sort order */
+    int n = r->ntris;
+    int *order = malloc((size_t)n * sizeof(int));
+    float *depth = malloc((size_t)n * sizeof(float));
     if (!order || !depth) { free(order); free(depth);
                             wb_rast_render(r, out_rgba); return; }
-    for (int i = 0; i < r->ntris; i++) order[i] = i;
-    for (int i = 0; i < r->ntris; i++) {
+    for (int i = 0; i < n; i++) order[i] = i;
+    for (int i = 0; i < n; i++) {
         wb_rast_tri *t = &r->tris[i];
         depth[i] = (r->sz[t->v0] + r->sz[t->v1] + r->sz[t->v2]) / 3.0f;
         if (t->a < 255) depth[i] -= 1000.0f;
     }
-    /* insertion sort (matches single-thread path ordering) */
-    for (int i = 1; i < r->ntris; i++) {
+    for (int i = 1; i < n; i++) {
         int oi = order[i]; float d = depth[i];
         int q = i - 1;
         while (q >= 0 && depth[order[q]] < d) { order[q+1] = order[q]; q--; }
         order[q+1] = oi;
     }
 
-    /* per-thread state */
-    wb_rast_ctx ca = *r, cb = *r;
-    ca.sx=malloc((size_t)r->nverts*sizeof(float));
-    ca.sy=malloc((size_t)r->nverts*sizeof(float));
-    ca.sz=malloc((size_t)r->nverts*sizeof(float));
-    cb.sx=malloc((size_t)r->nverts*sizeof(float));
-    cb.sy=malloc((size_t)r->nverts*sizeof(float));
-    cb.sz=malloc((size_t)r->nverts*sizeof(float));
-    for (int i = 0; i < r->nverts; i++) project_vert(&ca, i);
-    for (int i = 0; i < r->nverts; i++) project_vert(&cb, i);
+    /* G-SF099 v3: partition tris by projected centroid band so each
+     * thread only touches its own subset; straddlers go to both. */
+    int mid = r->h / 2;
+    int *oa = malloc((size_t)n * sizeof(int)), *ob = malloc((size_t)n * sizeof(int));
+    int na = 0, nb2 = 0;
+    if (!oa || !ob) { free(oa); free(ob); free(order); free(depth); return; }
+    for (int i = 0; i < n; i++) {
+        wb_rast_tri *t = &r->tris[order[i]];
+        float ys[3] = { r->sy[t->v0], r->sy[t->v1], r->sy[t->v2] };
+        float lo = ys[0], hi = ys[0];
+        for (int v = 1; v < 3; v++) { if (ys[v]<lo)lo=ys[v]; if(ys[v]>hi)hi=ys[v]; }
+        int crosses_top = hi >= (float)mid;   /* touches upper band */
+        int crosses_bot = lo <  (float)r->h;  /* and lower half exists */
+        int touches_lower = hi >= (float)mid || lo >= (float)mid;
+        (void)crosses_bot;
+        if (lo < (float)mid && hi >= 0.0f) oa[na++] = order[i];       /* upper */
+        if (hi >= (float)mid && lo <= (float)r->h) ob[nb2++] = order[i]; /* lower */
+    }
+    /* two bands, top / bottom half */
+    mt_arg ma = { *r, out_rgba, oa, na };
+    mt_arg mb = { *r, out_rgba, ob, nb2 };
+    ma.ctx.band_y0 = 0;            ma.ctx.band_y1 = r->h / 2;
+    mb.ctx.band_y0 = r->h / 2;     mb.ctx.band_y1 = r->h;
+    /* each thread needs its OWN scratch (project_vert already done in
+     * base; copy projections into both copies) */
+    size_t sv = (size_t)r->nverts * sizeof(float);
+    ma.ctx.sx = malloc(sv); ma.ctx.sy = malloc(sv); ma.ctx.sz = malloc(sv);
+    mb.ctx.sx = malloc(sv); mb.ctx.sy = malloc(sv); mb.ctx.sz = malloc(sv);
+    if (!ma.ctx.sx || !mb.ctx.sx) {
+        free(ma.ctx.sx); free(mb.ctx.sx);
+        free(order); free(depth);
+        wb_rast_render(r, out_rgba); return;
+    }
+    memcpy(ma.ctx.sx, r->sx, sv); memcpy(ma.ctx.sy, r->sy, sv);
+    memcpy(ma.ctx.sz, r->sz, sv);
+    memcpy(mb.ctx.sx, r->sx, sv); memcpy(mb.ctx.sy, r->sy, sv);
+    memcpy(mb.ctx.sz, r->sz, sv);
+    ma.ctx.zbuf = NULL;   /* threads share base zbuf via render_one_tri's
+                             r->zbuf? No — render_one_tri uses ctx zbuf.
+                             Both must point at base zbuf. */
+    ma.ctx.zbuf = r->zbuf; ma.ctx.zbuf_on = 1;
+    mb.ctx.zbuf = r->zbuf; mb.ctx.zbuf_on = 1;
 
-    uint8_t *ia = calloc(npix, 4), *ib = calloc(npix, 4);
-    float   *za = malloc(npix*sizeof(float)), *zb = malloc(npix*sizeof(float));
-    for (size_t i = 0; i < npix; i++) { za[i]=1e9f; zb[i]=1e9f; }
-    ca.zbuf = za; cb.zbuf = zb;
-    /* G-SF099: force depth testing in MT mode — painter's order is not
-     * preserved across the tri split, but with a zbuffer each pixel
-     * resolves identically regardless of which half drew it. */
-    ca.zbuf_on = 1; cb.zbuf_on = 1;
-    /* also clear the sort: with a zbuffer, draw order is irrelevant */
-    (void)0;
-
-    int half = r->ntris / 2;
-    mt_arg ma = { ca, ia, za, order, 0, half };
-    mt_arg mb = { cb, ib, zb, order, half, r->ntris };
     pthread_t th;
     pthread_create(&th, NULL, mt_worker, &mb);
     mt_worker(&ma);
     pthread_join(th, NULL);
 
-    /* composite nearest-depth */
-    for (size_t i = 0; i < npix; i++) {
-        const uint8_t *s = (za[i] <= zb[i]) ? ia+i*4 : ib+i*4;
-        out_rgba[i*4+0]=s[0]; out_rgba[i*4+1]=s[1];
-        out_rgba[i*4+2]=s[2]; out_rgba[i*4+3]=s[3];
-    }
-
-    free(ca.sx); free(ca.sy); free(ca.sz);
-    free(cb.sx); free(cb.sy); free(cb.sz);
-    free(ia); free(ib); free(za); free(zb);
-    free(order); free(depth);
+    free(ma.ctx.sx); free(ma.ctx.sy); free(ma.ctx.sz);
+    free(mb.ctx.sx); free(mb.ctx.sy); free(mb.ctx.sz);
+    free(oa); free(ob); free(order); free(depth);
 }

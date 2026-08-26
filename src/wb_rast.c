@@ -332,15 +332,22 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
     if(maxx>r->w)maxx=r->w; if(maxy>r->h)maxy=r->h;
     if (minx>=maxx||miny>=maxy) return;
     float inv=1.0f/area;
+    /* R074 hop 173 (G-SF038): incremental edge stepping — edge values
+     * computed once at the row start, advanced by constant x-deltas.
+     * Removes 3 multiplies + 6 adds per pixel from the inner loop. */
+    float ddx01=x1-x0, ddy01=y1-y0;
+    float ddx12=x2-x1, ddy12=y2-y1;
+    float ddx20=x0-x2, ddy20=y0-y2;
     for (int py=miny; py<maxy; py++) {
         float fy=(float)py+0.5f;
         uint8_t *row=img+((size_t)py*r->w+minx)*4;
         float *zrow=r->zbuf+((size_t)py*r->w+minx);
+        float fx=(float)minx+0.5f;
+        float w0=ddx01*(fy-y0)-(fx-x0)*ddy01;
+        float w1=ddx12*(fy-y1)-(fx-x1)*ddy12;
+        float w2=ddx20*(fy-y2)-(fx-x2)*ddy20;
+        float s01=-ddy01, s12=-ddy12, s20=-ddy20;  /* x-step deltas */
         for (int px=minx; px<maxx; px++) {
-            float fx=(float)px+0.5f;
-            float w0=(x1-x0)*(fy-y0)-(fx-x0)*(y1-y0);
-            float w1=(x2-x1)*(fy-y1)-(fx-x1)*(y2-y1);
-            float w2=(x0-x2)*(fy-y2)-(fx-x2)*(y0-y2);
             float b0=w0*inv,b1=w1*inv,b2=w2*inv;
             if (b0>=0 && b1>=0 && b2>=0) {
                 float z=z0*b0+z1*b1+z2*b2;
@@ -371,6 +378,7 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
                 }
             }
             row+=4; zrow++;
+            w0+=s01; w1+=s12; w2+=s20;
         }
     }
 }

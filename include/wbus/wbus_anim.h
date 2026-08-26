@@ -152,3 +152,7 @@ double wb_anim_time_from_samples(double song_pos_samples);
 
 /* G-SF025: distance-based LOD mesh substitution. */
 int wb_anim_set_lod(wb_anim *a, int obj, const struct wb_mesh *m, float dist);
+
+/* G-SF091: render a clip-bound scene letterboxed into a caller frame. */
+void wb_anim_render_clip_scene(struct wb_anim *a, double t,
+                               uint8_t *out, int out_w, int out_h);

@@ -849,3 +849,36 @@ int wb_anim_set_lod(wb_anim *a, int obj, const wb_mesh *m, float dist) {
     a->lod[obj].dist = dist;
     return 0;
 }
+
+/* R074 hop 205 (G-SF091): render a clip-bound 3D scene into out.
+ * Single integration point for video tracks with attached CGI scenes:
+ * callers fetch the pointer via wb_clip_edit_scene3d and convert the
+ * engine clock via wb_anim_time_from_samples. Frame renders at the
+ * anim's native size, centered/letterboxed on black into out. */
+void wb_anim_render_clip_scene(struct wb_anim *a, double t,
+                               uint8_t *out, int out_w, int out_h) {
+    if (!a || !out || out_w <= 0 || out_h <= 0) return;
+    memset(out, 0, (size_t)out_w * out_h * 4);
+    int aw = a->w, ah = a->h;
+    if (aw <= 0 || ah <= 0) return;
+    uint8_t *buf = malloc((size_t)aw * ah * 4);
+    if (!buf) return;
+    wb_anim_render_frame(a, t, buf);
+    int dx = (out_w - aw) / 2, dy = (out_h - ah) / 2;
+    for (int y = 0; y < ah; y++) {
+        int ty = y + dy;
+        if (ty < 0 || ty >= out_h) continue;
+        for (int x = 0; x < aw; x++) {
+            int tx = x + dx;
+            if (tx < 0 || tx >= out_w) continue;
+            const uint8_t *s = buf + ((size_t)y*aw + x)*4;
+            uint8_t *d = out + ((size_t)ty*out_w + tx)*4;
+            float al = s[3] / 255.0f;
+            d[0] = (uint8_t)(s[0]*al + d[0]*(1-al));
+            d[1] = (uint8_t)(s[1]*al + d[1]*(1-al));
+            d[2] = (uint8_t)(s[2]*al + d[2]*(1-al));
+            d[3] = 255;
+        }
+    }
+    free(buf);
+}

@@ -20,6 +20,10 @@ struct wb_rast_ctx {
     /* R074 hop 154 (G-SF043): vertical-gradient skybox */
     int sky_on;
     uint8_t sky_top[3], sky_bot[3];
+    /* R074 hop 163 (G-SF028): point lights (world space) */
+    int   n_pt;
+    float pt_pos[8][3];
+    float pt_col[8][3];
     /* R074 hop 152 (G-SF035): viewport scissor */
     int sc_x, sc_y, sc_w, sc_h;   /* -1 = disabled */
     /* R074 hop 153 (G-SF027): 0=flat (default), 1=gouraud */
@@ -93,6 +97,35 @@ static void sky_fill(const wb_rast_ctx *r, uint8_t *out_rgba) {
         for (int x = 0; x < r->w; x++) {
             row[x*4+0]=rr; row[x*4+1]=gg; row[x*4+2]=bb2; row[x*4+3]=255;
         }
+    }
+}
+
+/* R074 hop 163 (G-SF028): point lights — up to 8, world space,
+ * distance attenuation 1/(1+0.05*d^2). Returns index or -1. */
+void wb_rast_clear_point_lights(wb_rast_ctx *r) { if (r) r->n_pt = 0; }
+int  wb_rast_add_point_light(wb_rast_ctx *r,
+                             float x, float y, float z,
+                             float ir, float ig, float ib) {
+    if (!r || r->n_pt >= 8) return -1;
+    int i = r->n_pt++;
+    r->pt_pos[i][0]=x; r->pt_pos[i][1]=y; r->pt_pos[i][2]=z;
+    r->pt_col[i][0]=ir; r->pt_col[i][1]=ig; r->pt_col[i][2]=ib;
+    return i;
+}
+static void pt_light_acc(const wb_rast_ctx *r, float px, float py, float pz,
+                         float nx, float ny, float nz, float *out) {
+    for (int i = 0; i < r->n_pt; i++) {
+        float dx=r->pt_pos[i][0]-px, dy=r->pt_pos[i][1]-py,
+              dz=r->pt_pos[i][2]-pz;
+        float d2=dx*dx+dy*dy+dz*dz;
+        if (d2 < 1e-6f) continue;
+        float att = 1.0f/(1.0f+0.05f*d2);
+        float inv = 1.0f/sqrtf(d2);
+        float ndl = (nx*(dx*inv)+ny*(dy*inv)+nz*(dz*inv));
+        if (ndl < 0) ndl = 0;
+        out[0]+=r->pt_col[i][0]*ndl*att;
+        out[1]+=r->pt_col[i][1]*ndl*att;
+        out[2]+=r->pt_col[i][2]*ndl*att;
     }
 }
 
@@ -533,6 +566,15 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
                 float ndh = -(nx*hx+ny*hy+nz*hz);
                 if (ndh>0) specv = r->spec * ndh*ndh*ndh*ndh*ndh*ndh*ndh*ndh;
             }
+        }
+        /* G-SF028: point-light contribution at face centroid */
+        if (r->n_pt > 0) {
+            float cxw=(A->x+B->x+C->x)/3.0f, cyw=(A->y+B->y+C->y)/3.0f,
+                  czw=(A->z+B->z+C->z)/3.0f;
+            float acc[3]={0,0,0};
+            pt_light_acc(r,cxw,cyw,czw,nx,ny,nz,acc);
+            diff += 0.6f*(acc[0]+acc[1]+acc[2]);
+            if (diff>1.5f) diff=1.5f;
         }
         int rr=(int)(t->r*diff + 255*specv); if(rr>255)rr=255;
         int gg=(int)(t->g*diff + 255*specv); if(gg>255)gg=255;

@@ -13,6 +13,7 @@
  */
 
 #include "wbus/wbus_cgiexport.h"
+#include "wbus/wbus_clip_edit.h"
 #include "wbus/wbus_delivery.h"
 #include "wbus/wbus_perfclip.h"
 #include <unistd.h>

@@ -71,6 +71,12 @@ struct wb_anim {
     /* R074 hop 164 (G-SF029): planar ground shadow */
     int   shadow_on;
     float shadow_y;
+    /* R074 hop 177 (G-SF025): per-object LOD — alternate mesh used when
+     * the object's baked centroid is farther than the threshold. */
+    struct {
+        const wb_mesh *mesh;
+        float dist;      /* switch when camera distance > this */
+    } lod[WB_ANIM_MAX_OBJS];
     wb_anim_obj objs[WB_ANIM_MAX_OBJS];
     int nobjs;
 
@@ -342,10 +348,17 @@ for (int i = 0; i < a->nobjs; i++) {
             kf.px += pkf.px; kf.py += pkf.py; kf.pz += pkf.pz;
         }
         bake_obj(o, &kf);
+        int mv0 = wb_mesh_vert_count(o->mesh);
+        /* G-SF025: swap in the LOD mesh beyond the distance threshold.
+         * kf.pz is the baked view-space depth (camera looks down -z). */
+        const wb_mesh *draw_mesh = o->mesh;
+        if (a->lod[i].mesh && -kf.pz > a->lod[i].dist
+            && wb_mesh_vert_count(a->lod[i].mesh) <= mv0)
+            draw_mesh = a->lod[i].mesh;
         int base = nv;
-        int mv = wb_mesh_vert_count(o->mesh);
-        int mt = wb_mesh_tri_count(o->mesh);
-        const wb_rast_tri *src_tris = wb_mesh_tri_src(o->mesh);
+        int mv = wb_mesh_vert_count(draw_mesh);
+        int mt = wb_mesh_tri_count(draw_mesh);
+        const wb_rast_tri *src_tris = wb_mesh_tri_src(draw_mesh);
         for (int v = 0; v < mv; v++)
             draw_vert(a, o->xverts[v].x, o->xverts[v].y, o->xverts[v].z, &nv);
         for (int q = 0; q < mt; q++) {
@@ -787,4 +800,15 @@ int wb_anim_set_ground_shadow(wb_anim *a, float y) {
  * by their own constants. */
 double wb_anim_time_from_samples(double song_pos_samples) {
     return song_pos_samples / 44100.0;   /* WB_SAMPLE_RATE */
+}
+
+/* R074 hop 177 (G-SF025): set a distance-based LOD mesh for an object.
+ * When the object's view distance exceeds `dist`, the LOD mesh renders
+ * instead of the primary mesh (keys/transform still apply). dist<=0 clears. */
+int wb_anim_set_lod(wb_anim *a, int obj, const wb_mesh *m, float dist) {
+    if (!a || obj < 0 || obj >= a->nobjs) return -1;
+    if (!m || dist <= 0) { a->lod[obj].mesh = NULL; return 0; }
+    a->lod[obj].mesh = m;
+    a->lod[obj].dist = dist;
+    return 0;
 }

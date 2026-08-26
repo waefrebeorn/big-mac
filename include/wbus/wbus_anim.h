@@ -149,3 +149,6 @@ int wb_anim_set_ground_shadow(wb_anim *a, float y);
 
 /* G-SF092: the clock contract — engine samples -> anim seconds. */
 double wb_anim_time_from_samples(double song_pos_samples);
+
+/* G-SF025: distance-based LOD mesh substitution. */
+int wb_anim_set_lod(wb_anim *a, int obj, const struct wb_mesh *m, float dist);

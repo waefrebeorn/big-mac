@@ -325,10 +325,21 @@ void wb_anim_render_frame(wb_anim *a, double t, uint8_t *out_rgba) {
     wb_rast_ctx *r = wb_rast_create(a->w, a->h);
     if (!r) return;
     for (int pass = 1; pass <= 2; pass++) {
+    /* R074 hop 199 (G-SF015 fix): pass 1 renders LIT non-emissive
+     * objects; pass 2 renders ONLY emissive objects additively over
+     * pass 1 (previously pass 2 fully overwrote the lit frame). Skip
+     * pass 2 when nothing is emissive — halves render time. */
+    int has_emissive = 0;
+    for (int i = 0; i < a->nobjs; i++)
+        if (a->flags[i] & 0x04) { has_emissive = 1; break; }
+    if (pass == 2 && !has_emissive) break;
     nv = 0; nt = 0;
 for (int i = 0; i < a->nobjs; i++) {
         wb_anim_obj *o = &a->objs[i];
         if (o->nkeys == 0) continue;   /* no keys: object not on stage yet */
+        /* G-SF015: emissive objs only in pass 2, lit objs only in pass 1 */
+        int is_emissive = (a->flags[i] & 0x04) != 0;
+        if ((pass == 1) == is_emissive) continue;
         /* G-SF056: visibility window */
         if (a->vis_to[i] > a->vis_from[i]
             && ((double)t < a->vis_from[i] || (double)t > a->vis_to[i]))
@@ -414,10 +425,32 @@ for (int i = 0; i < a->nobjs; i++) {
     if (nt > 0) {
         wb_rast_set_scene(r, a->draw_verts, nv, a->draw_tris, nt);
         if (pass == 2) {
-            /* G-SF015: unlit */
+            /* G-SF015 fix: emissive pass renders unlit into scratch,
+             * then adds over the lit frame. */
+            static uint8_t *em_buf = NULL;
+            static size_t em_cap = 0;
+            size_t need = (size_t)a->w * a->h * 4;
+            if (em_cap < need) { free(em_buf);
+                em_buf = malloc(need); em_cap = need; }
+            if (!em_buf) continue;
             float none[3] = {0,0,0};
             wb_rast_set_sun(r, 0,0,0, 0);
-            (void)none;
+            memset(em_buf, 0, need);
+            wb_rast_render(r, em_buf);
+            wb_rast_set_sun(r, 0.45f, 0.75f, 0.5f, 1.0f);
+            for (size_t px3 = 0; px3 < (size_t)a->w*a->h; px3++) {
+                uint8_t aa = em_buf[px3*4+3];
+                if (aa == 0) continue;
+                float w2 = aa / 255.0f * 0.85f;
+                out_rgba[px3*4+0] = (uint8_t)(out_rgba[px3*4+0]*(1-w2)
+                    + em_buf[px3*4+0]*w2);
+                out_rgba[px3*4+1] = (uint8_t)(out_rgba[px3*4+1]*(1-w2)
+                    + em_buf[px3*4+1]*w2);
+                out_rgba[px3*4+2] = (uint8_t)(out_rgba[px3*4+2]*(1-w2)
+                    + em_buf[px3*4+2]*w2);
+                out_rgba[px3*4+3] = 255;
+            }
+            continue;
         }
 #ifdef WB_ANIM_USE_MT
         wb_rast_render_mt(r, out_rgba);   /* G-SF099: opt-in via define */

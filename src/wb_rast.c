@@ -402,15 +402,19 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
     float ddx01=x1-x0, ddy01=y1-y0;
     float ddx12=x2-x1, ddy12=y2-y1;
     float ddx20=x0-x2, ddy20=y0-y2;
+    /* G-SF038 v2: full incremental evaluation — row starts are also
+     * stepped (F changes by ddx per +1 y), so the y-loop body has zero
+     * multiplies outside the pixel writes. */
+    float fx0=(float)minx+0.5f, fy0=(float)miny+0.5f;
+    float w0r=ddx01*(fy0-y0)-(fx0-x0)*ddy01;
+    float w1r=ddx12*(fy0-y1)-(fx0-x1)*ddy12;
+    float w2r=ddx20*(fy0-y2)-(fx0-x2)*ddy20;
+    float s01=-ddy01, s12=-ddy12, s20=-ddy20;   /* x-step deltas */
+    float t01=ddx01, t12=ddx12, t20=ddx20;      /* y-step deltas */
     for (int py=miny; py<maxy; py++) {
-        float fy=(float)py+0.5f;
         uint8_t *row=img+((size_t)py*r->w+minx)*4;
         float *zrow=r->zbuf+((size_t)py*r->w+minx);
-        float fx=(float)minx+0.5f;
-        float w0=ddx01*(fy-y0)-(fx-x0)*ddy01;
-        float w1=ddx12*(fy-y1)-(fx-x1)*ddy12;
-        float w2=ddx20*(fy-y2)-(fx-x2)*ddy20;
-        float s01=-ddy01, s12=-ddy12, s20=-ddy20;  /* x-step deltas */
+        float w0=w0r, w1=w1r, w2=w2r;
         for (int px=minx; px<maxx; px++) {
             float b0=w0*inv,b1=w1*inv,b2=w2*inv;
             if (b0>=0 && b1>=0 && b2>=0) {
@@ -456,6 +460,7 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
             row+=4; zrow++;
             w0+=s01; w1+=s12; w2+=s20;
         }
+        w0r+=t01; w1r+=t12; w2r+=t20;
     }
 }
 

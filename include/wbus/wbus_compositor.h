@@ -34,7 +34,11 @@ typedef struct wb_frame {
     int roi_x, roi_y, roi_w, roi_h;  /* valid sub-rect */
     wb_px *px;                        /* w*h pixels */
     int gpu;                          /* G12 backend-ownership flag */
+    int refs;                         /* R074 hop 144 (#47/#82) */
 } wb_frame;
+/* Take a shared reference (frame is freed when the last ref drops).
+ * Returns the same pointer for chaining. */
+wb_frame *wb_frame_ref(wb_frame *f);
 
 /* G12: render backend (the offload boundary). CPU is authoritative today;
  * GPU is the future Metal-interop slot — pixel buffers are swappable so a

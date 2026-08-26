@@ -96,10 +96,19 @@ wb_frame *wb_frame_alloc(int w, int h) {
     f->w = w; f->h = h;
     f->px = calloc((size_t)w * h, sizeof(wb_px));
     if (!f->px) { free(f); return NULL; }
+    f->refs = 1;
+    return f;
+}
+/* R074 hop 144 (#47/#82): refcounted frames — cache/composite can share
+ * instead of deep-copying. Existing single-owner call sites are
+ * unchanged (alloc starts at refs=1, free decrements). */
+wb_frame *wb_frame_ref(wb_frame *f) {
+    if (f) f->refs++;
     return f;
 }
 void wb_frame_free(wb_frame *f) {
     if (!f) return;
+    if (f->refs > 1) { f->refs--; return; }   /* still shared */
     free(f->px);
     free(f);
 }
@@ -1038,13 +1047,10 @@ static wb_frame *cache_pull(wb_node *self, double t,
         if (c->ents[i].hash == h) {
             c->ents[i].last = ++c->clock;   /* refresh LRU */
             c->hits++;                      /* G2: count the hit */
-            /* return a copy (caller owns) */
-            wb_frame *cp = wb_frame_alloc(c->ents[i].f->w, c->ents[i].f->h);
-            if (cp) { memcpy(cp, c->ents[i].f, sizeof(*cp));
-                      cp->px = malloc((size_t)cp->w*cp->h*sizeof(wb_px));
-                      memcpy(cp->px, c->ents[i].f->px,
-                             (size_t)cp->w*cp->h*sizeof(wb_px)); }
-            return cp;
+            /* R074 hop 144 (#47/#82): share the cached frame via
+             * refcount — no deep copy on hits. Frames are immutable
+             * once cached. */
+            return wb_frame_ref(c->ents[i].f);
         }
     }
     /* miss: pull child, store */
@@ -1061,15 +1067,12 @@ static wb_frame *cache_pull(wb_node *self, double t,
         c->count--;
     }
     c->ents[c->count].hash = h;
-    c->ents[c->count].f = f;
+    /* R074 hop 144 (#47/#82): store our own reference; hand the
+     * caller's ref straight through — zero copies on the miss path. */
+    c->ents[c->count].f = wb_frame_ref(f);
     c->ents[c->count].last = ++c->clock;
     c->count++;
-    /* return a copy (keep stored original) */
-    wb_frame *cp = wb_frame_alloc(f->w, f->h);
-    if (cp) { memcpy(cp, f, sizeof(*cp));
-              cp->px = malloc((size_t)cp->w*cp->h*sizeof(wb_px));
-              memcpy(cp->px, f->px, (size_t)f->w*f->h*sizeof(wb_px)); }
-    return cp;
+    return f;
 }
 static void cache_free(wb_node *self) {
     cache_t *c = self->user;

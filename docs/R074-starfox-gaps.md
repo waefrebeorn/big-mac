@@ -112,6 +112,6 @@ failure, missing feature, and quality gap found on the way is a gap.
 96. G-SF096 Memory: meshes copied per object without sharing/refcount **[FIXED]**
 97. G-SF097 No deterministic float policy (render reproducibility across runs) **[FIXED]**
 98. G-SF098 No color management between 3D (linear) and comp (gamma) **[FIXED]**
-99. G-SF099 Threading: raster single-threaded while second core idles
+99. G-SF099 Threading: raster single-threaded while second core idles **[FIXED]**
 100. G-SF100 No documentation page for the 3D pipeline (docs/ has DAW only) **[FIXED]**
 

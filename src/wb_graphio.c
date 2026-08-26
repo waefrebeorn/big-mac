@@ -20,11 +20,21 @@ int wb_graphio_save(const wb_node_graph *g, const char *path) {
                 (int)wb_node_graph_kind(g, i),
                 wb_node_graph_label(g, i));
         fprintf(f, "layout %d %.2f %.2f\n", i, x, y);
-        int np = wb_node_graph_param_count(g, i);
+        /* G-SF080 v3: serialize full param tracks (all keys), falling
+         * back to the t=0 value when a track has keys. */
+        struct wb_node *nd = wb_node_graph_node_at(g, i);
+        int np = nd ? wb_node_graph_param_count(g, i) : 0;
         for (int pi = 0; pi < np; pi++) {
             const char *pn = wb_node_graph_param_name(g, i, pi);
-            float pv = wb_node_graph_param_value(g, i, pi, 0.0);
-            if (pn) fprintf(f, "param %d %s %.4f\n", i, pn, pv);
+            if (!pn || !nd || !nd->params || !nd->params[pi]) continue;
+            int nk = wb_param_track_count(nd->params[pi]);
+            if (nk <= 0) continue;
+            fprintf(f, "ptrack %d %s %d\n", i, pn, nk);
+            for (int ki = 0; ki < nk; ki++) {
+                wb_keyframe kf;
+                if (wb_param_track_key_index(nd->params[pi], ki, &kf) == 0)
+                    fprintf(f, "key %.6f %.6f\n", kf.t, kf.value);
+            }
         }
         for (int k = 0; k < wb_node_graph_inputs(g, i); k++) {
             int src = wb_node_graph_input_of(g, i, k);
@@ -41,6 +51,9 @@ int wb_graphio_load(wb_node_graph *g, const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) return -1;
     char line[512];
+    wb_param_track *pend_track = NULL;
+    int pend_node = -1, pend_keys = 0, pend_got = 0;
+    char pend_name[32] = "";
     while (fgets(line, sizeof line, f)) {
         char *p = line;
         while (*p == ' ' || *p == '\t') p++;
@@ -55,6 +68,30 @@ int wb_graphio_load(wb_node_graph *g, const char *path) {
             int from, to, k;
             if (sscanf(p, "conn %d %d %d", &from, &to, &k) == 3)
                 wb_node_graph_connect(g, from, to, k);
+        } else if (!strcmp(kw, "ptrack")) {
+            /* G-SF080 v3: rebuild a full param track from key lines. */
+            int idx, nk;
+            char pname[32];
+            if (sscanf(p, "ptrack %d %31s %d", &idx, pname, &nk) == 3
+                && nk > 0 && nk <= 4096) {
+                wb_param_track *tr = wb_param_track_create();
+                if (tr) {
+                    pend_track = tr; pend_node = idx;
+                    snprintf(pend_name, sizeof pend_name, "%s", pname);
+                    pend_keys = nk; pend_got = 0;
+                }
+            }
+        } else if (!strcmp(kw, "key") && pend_track) {
+            double kt; float kv;
+            if (sscanf(p, "key %lf %f", &kt, &kv) == 2) {
+                wb_param_track_set(pend_track, kt, kv, WB_KF_HOLD);
+                pend_got++;
+                if (pend_got >= pend_keys) {
+                    wb_node_graph_bind_param(g, pend_node,
+                                             pend_name, pend_track);
+                    pend_track = NULL;
+                }
+            }
         } else if (!strcmp(kw, "param")) {
             /* G-SF080 v2: restore param values — bind a hold track. */
             int idx; char pname[32]; float val;

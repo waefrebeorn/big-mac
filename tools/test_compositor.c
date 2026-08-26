@@ -2455,6 +2455,38 @@ int main(void) {
             wb_node_graph_pos(g, 0, &x, &y);
             CHECK(x == 111.0f && y == 222.0f,
                   "graphio: layout restored");
+            /* G-SF080 v3: animated param track roundtrip */
+            wb_param_track *tr = wb_param_track_create();
+            wb_param_track_set(tr, 0.0, 0.0f, WB_KF_HOLD);
+            wb_param_track_set(tr, 1.0, 1.0f, WB_KF_HOLD);
+            wb_node_graph_bind_param(g, 0, "gain", tr);
+            CHECK(wb_graphio_save(g, "/tmp/gate2.bmgraph") == 0,
+                  "graphio: save with ptrack");
+            wb_node_graph *g2 = wb_node_graph_create();
+            if (g2) {
+                CHECK(wb_graphio_load(g2, "/tmp/gate2.bmgraph") == 0,
+                      "graphio: load with ptrack");
+                struct wb_node *n0 = wb_node_graph_node_at(g2, 0);
+                int found = 0;
+                if (n0 && n0->params) {
+                    for (int pi = 0; pi < n0->n_params; pi++)
+                        if (strcmp(n0->param_names[pi], "gain") == 0) {
+                            found = 1;
+                            /* keys saved as HOLD: value at t=1 is the
+                             * last key's value; at t=0 it's the first */
+                            float v0 = wb_param_track_value_at(
+                                n0->params[pi], 0.0);
+                            float v1 = wb_param_track_value_at(
+                                n0->params[pi], 1.0);
+                            CHECK(fabsf(v0 - 0.0f) < 0.02f &&
+                                  fabsf(v1 - 1.0f) < 0.02f,
+                                  "graphio: track keyframes restored");
+                        }
+                }
+                CHECK(found, "graphio: gain param rebound");
+                wb_node_graph_destroy(g2);
+            }
+            wb_param_track_free(tr);
             wb_node_graph_destroy(g);
         }
     }

@@ -240,3 +240,83 @@ int wb_graphio_build_recipe(const char *path, wb_node **root,
     } else if (out_n) *out_n = n;
     return 0;
 }
+
+
+/* ---- R074 hop 222 v2: recipe with external input (ownership-safe) ----- */
+#include <stdlib.h>
+
+int wb_graphio_recipe_with_input(const char *path, wb_node *input,
+                                 wb_graph_recipe_result *out) {
+    if (!path || !input || !out) return -1;
+    memset(out, 0, sizeof *out);
+    FILE *f = fopen(path, "r");
+    if (!f) return -1;
+
+    enum { CAP = 16 };
+    wb_node *nodes[CAP] = {0};
+    int is_trans[CAP] = {0};
+    int owned_flag[CAP] = {0};   /* 1 = builder created it */
+    int n = 0, out_idx = -1;
+    char line[512];
+
+    while (fgets(line, sizeof line, f)) {
+        char *p2 = line;
+        while (*p2 == ' ' || *p2 == '\t') p2++;
+        if (*p2 == '#' || *p2 == '\n' || !*p2) continue;
+        char kw[16];
+        if (sscanf(p2, "%15s", kw) != 1) continue;
+
+        if (!strcmp(kw, "input")) {
+            int slot = -1;
+            sscanf(p2, "input %d", &slot);
+            if (slot < 0 || slot >= CAP) { fclose(f); return -1; }
+            nodes[slot] = input;         /* not owned */
+            owned_flag[slot] = 0;
+            if (n <= slot) n = slot + 1;
+            continue;
+        }
+        if (!strcmp(kw, "make")) {
+            char kind[24];
+            float a=0,b=0,c=0,d=1,e=0,g=0;
+            int cnt = sscanf(p2, "make %23s %f %f %f %f %f %f",
+                             kind,&a,&b,&c,&d,&e,&g);
+            if (cnt < 2 || n >= CAP) { fclose(f); return -1; }
+            wb_node *nd = NULL;
+            if (!strcmp(kind,"gain"))          nd = wb_node_effect(1, a>0?a:1.0f);
+            else if (!strcmp(kind,"effect"))   nd = ((int)a>=0&&(int)a<=11)
+                                                    ? wb_node_effect((int)a, b>0?b:1.0f)
+                                                    : NULL;
+            else if (!strcmp(kind,"composite"))nd = wb_node_composite();
+            else if (!strcmp(kind,"transition"))
+                nd = wb_node_transition((int)a, b>0?(double)b:1.0);
+            if (!nd) { fclose(f); return -1; }
+            nodes[n] = nd; is_trans[n] = 0; owned_flag[n] = 1;
+            n++;
+            continue;
+        }
+        if (!strcmp(kw, "wire") && n >= 2) {
+            int from, to, k;
+            if (sscanf(p2, "wire %d %d %d", &from,&to,&k) != 3) continue;
+            if (from<0||from>=n||to<0||to>=n) continue;
+            /* transitions take A then B via wb_transition_add */
+            wb_node_connect(nodes[to], nodes[from], k);
+            continue;
+        }
+        if (!strcmp(kw, "output")) {
+            sscanf(p2, "output %d", &out_idx);
+            continue;
+        }
+    }
+    fclose(f);
+
+    if (out_idx < 0 || out_idx >= n || !nodes[out_idx]) return -1;
+    out->root = nodes[out_idx];
+    out->n_owned = 0;
+    for (int i = 0; i < n; i++) {
+        if (nodes[i] && nodes[i] != input && owned_flag[i]) {
+            if (out->n_owned < 16)
+                out->owned[out->n_owned++] = nodes[i];
+        }
+    }
+    return 0;
+}

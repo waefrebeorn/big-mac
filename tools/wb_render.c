@@ -17,6 +17,7 @@
 #include "wb_internal.h"
 #include "wbus/wbus_lufs.h"
 #include "wbus/wbus_scenedesc.h"   /* G-SF079 */
+#include "wbus/wbus_graphio.h"   /* G-SF080 v8 */
 #include "wbus/wbus_delivery.h"
 #include "wbus/wbus_compositor.h"
 #include "wbus/wbus_mesh.h"
@@ -580,11 +581,15 @@ int main(int argc, char **argv) {
      * — render a file-defined scene without any C changes. */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--scene") == 0 && i + 1 < argc) {
-            const char *spath = argv[++i];
-            double sdur = (i + 1 < argc && argv[i+1][0] != '-')
-                          ? atof(argv[++i]) : 6.0;
-            const char *out_mp4 = (i + 1 < argc) ? argv[i+1]
-                                                 : "/tmp/scene.mp4";
+            /* G-SF099 fix: positional args stop at any '-' flag so
+             * trailing options (--recipe etc.) aren't eaten. */
+            const char *spath = argv[i + 1];   /* the .bmscene path */
+            int ai = i + 1;
+            double sdur = 6.0;
+            if (ai < argc && argv[ai][0] != '-') { sdur = atof(argv[ai]); ai++; }
+            const char *out_mp4 = "/tmp/scene.mp4";
+            if (ai < argc && argv[ai][0] != '-') { out_mp4 = argv[ai]; ai++; }
+            (void)spath;
             wb_anim *an = wb_anim_create(640, 360);
             if (!an) return 1;
             int rc6 = wb_scenedesc_load(an, spath);
@@ -594,11 +599,40 @@ int main(int argc, char **argv) {
                 return 1;
             }
             printf("scene: %d objects\n", wb_anim_object_count(an));
-            wb_node *comp2 = wb_node_source_anim(an, 640, 360);
+            /* G-SF080 v8: optional --recipe <file> wraps the scene in
+             * a post chain. Ownership-safe: anim source stays
+             * caller-owned; only builder nodes get destroyed after
+             * render. */
+            wb_node *comp2 = NULL;
+            wb_graph_recipe_result rr;
+            int have_rr = 0;
+            for (int q = 1; q < argc; q++) {
+                if (strcmp(argv[q], "--recipe") == 0 && q + 1 < argc) {
+                    wb_node *src_anim =
+                        wb_node_source_anim(an, 640, 360);
+                    memset(&rr, 0, sizeof rr);
+                    if (wb_graphio_recipe_with_input(argv[q+1],
+                            src_anim, &rr) == 0 && rr.root) {
+                        comp2 = rr.root;
+                        have_rr = 1;
+                    } else {
+                        wb_node_destroy(src_anim);
+                        fprintf(stderr,
+                            "recipe build failed; using raw scene\n");
+                    }
+                    break;
+                }
+            }
+            if (!comp2) comp2 = wb_node_source_anim(an, 640, 360);
             uint8_t *fr = malloc((size_t)640*360*4);
             int rc7 = sf_render_loop_range(an, comp2, fr, out_mp4,
                                            sdur, 24, 640, 360, 0, -1);
             printf("scene render rc=%d\n", rc7);
+            if (have_rr) {
+                for (int oi = 0; oi < rr.n_owned; oi++)
+                    wb_node_destroy(rr.owned[oi]);
+                wb_node_destroy(comp2);
+            }
             /* G-SF080 v7: optional soundtrack — "<scene>.music" holds
              * a .mid path; rendered through the engine and muxed. */
             char mside[512];

@@ -111,3 +111,5 @@
 98. showcase.mp4 has no faststart flag (moov at end — stalls web playback)  **[FIXED]**
 99. no poster/thumbnail extraction alongside exports  **[FIXED]**
 100. demo graph built ad-hoc in test file — no reusable builder API for apps  **[FIXED]**
+
+101. vignette (op 6) over source_anim at 640x360 hangs/corrupts heap — repro in test_compositor "vig over anim" block; wb_frame_free checksum abort. Suspect RoI/format mismatch or em_buf static sharing. **[OPEN]**

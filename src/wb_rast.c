@@ -375,6 +375,13 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
     float x0=r->sx[i0], y0=r->sy[i0], z0=r->sz[i0];
     float x1=r->sx[i1], y1=r->sy[i1], z1=r->sz[i1];
     float x2=r->sx[i2], y2=r->sy[i2], z2=r->sz[i2];
+    /* G-SF099 v3 fix (strengthened): near-plane guard. Vertices even
+     * slightly in front get clamped by project_vert; a triangle mixing
+     * near-clamped and far vertices projects to an enormous bbox and
+     * stalls the fill for minutes. Skip if ANY vertex is nearer than
+     * 5% of the camera distance. */
+    float zmin = z0 < z1 ? (z0 < z2 ? z0 : z2) : (z2 < z1 ? z2 : z1);
+    if (zmin < r->dist * 0.05f) return;
     float area = (x1-x0)*(y2-y0) - (x2-x0)*(y1-y0);
     if (fabsf(area) < 0.25f) return;
     if (area < 0.0f) {

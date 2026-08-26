@@ -2646,6 +2646,6 @@ int main(void) {
         }
     }
 
-    printf("\n%d checks, %d failures\n", checks, failures);
+        printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

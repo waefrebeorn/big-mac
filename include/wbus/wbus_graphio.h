@@ -1,14 +1,16 @@
-/* wbus_graphio.h — R074 hop 206+: compositor graph save/load + recipes.
+/* wbus_graphio.h — R074: compositor graph save/load + recipes.
  *
- * Graph state (labels/layout/connections) for the fixed editor chain,
- * plus standalone recipe builds:
+ * Editor-chain state serialization, plus standalone recipe builds:
  *   make color <r> <g> <b> <a> <w> <h>
  *   make gain  <gain>
  *   make effect <op> <gain>
+ *   make transition <op> <dur>
  *   make composite
- *   wire <from_idx> <to_idx> <input_k>
+ *   make text <string>
+ *   make scene <path> [w] [h]
+ *   input <slot>            (recipe_with_input only)
+ *   wire <from> <to> <input_k>
  *   output <idx>
- * The last wired node marked `output` is returned as the pull root.
  */
 #ifndef WUBUS_GRAPHIO_H
 #define WUBUS_GRAPHIO_H
@@ -27,4 +29,22 @@ int  wb_graphio_load(wb_node_graph *g, const char *path);
 int  wb_graphio_build_recipe(const char *path, wb_node **root,
                              wb_node **out_nodes, int *out_n);
 
-#endif
+/* v8 (redesigned): recipe with an externally-provided input node.
+ *
+ * OWNERSHIP CONTRACT (the fix for the earlier hang):
+ *   - result->owned[] lists every node the builder created; the caller
+ *     destroys each via wb_node_destroy
+ *   - `input` is NEVER owned or destroyed by the builder
+ *   - destroy order: owned nodes first, caller's input last
+ * Grammar adds:  input <slot>
+ * Returns 0 on success; negative line number on parse/build error. */
+typedef struct {
+    wb_node *root;
+    wb_node *owned[16];
+    int      n_owned;
+} wb_graph_recipe_result;
+
+int wb_graphio_recipe_with_input(const char *path, wb_node *input,
+                                 wb_graph_recipe_result *out);
+
+#endif /* WUBUS_GRAPHIO_H */

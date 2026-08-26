@@ -91,7 +91,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 
 ## E. CLI / workflow (79-90)
 79. G-SF079 --starfox hardcoded scene — needs a scene description format **[FIXED]**
-80. G-SF080 No project save/load for compositor+anim graphs (session-only)
+80. G-SF080 No project save/load for compositor+anim graphs (session-only) **[FIXED]**
 81. G-SF081 No render queue (batch multiple demos) **[FIXED]**
 82. G-SF082 No --quality flag (draft vs final passes) **[FIXED]**
 83. G-SF083 No resume/checkpoint for long renders **[FIXED]**

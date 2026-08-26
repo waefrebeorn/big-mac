@@ -293,6 +293,26 @@ void wb_mesh_paint(wb_mesh *m, uint8_t r, uint8_t g, uint8_t b) {
     }
 }
 
+/* R074 hop 157 (G-SF013): per-face vertex coloring. */
+void wb_mesh_paint_face(wb_mesh *m, int tri,
+                        uint8_t r, uint8_t g, uint8_t b) {
+    if (!m || tri < 0 || tri >= m->ntris) return;
+    m->tris[tri].r = r; m->tris[tri].g = g; m->tris[tri].b = b;
+}
+
+/* Gradient paint across faces: face i gets lerp(c0,c1,i/(n-1)). */
+void wb_mesh_paint_gradient(wb_mesh *m,
+                            uint8_t r0, uint8_t g0, uint8_t b0,
+                            uint8_t r1, uint8_t g1, uint8_t b1) {
+    if (!m || m->ntris <= 0) return;
+    for (int i = 0; i < m->ntris; i++) {
+        float t = m->ntris > 1 ? (float)i / (float)(m->ntris - 1) : 0.0f;
+        m->tris[i].r=(uint8_t)(r0+(r1-r0)*t);
+        m->tris[i].g=(uint8_t)(g0+(g1-g0)*t);
+        m->tris[i].b=(uint8_t)(b0+(b1-b0)*t);
+    }
+}
+
 int wb_mesh_append(wb_mesh *dst, const wb_mesh *src) {
     if (!dst || !src) return -1;
     int base = dst->nverts;

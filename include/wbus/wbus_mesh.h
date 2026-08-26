@@ -81,6 +81,10 @@ void wb_mesh_translate(wb_mesh *m, float dx, float dy, float dz);
 void wb_mesh_scale(wb_mesh *m, float sx, float sy, float sz);
 void wb_mesh_rotate_y(wb_mesh *m, float radians);
 void wb_mesh_paint(wb_mesh *m, uint8_t r, uint8_t g, uint8_t b);
+/* G-SF013: per-face color + gradient paint. */
+void wb_mesh_paint_face(wb_mesh *m, int tri, uint8_t r, uint8_t g, uint8_t b);
+void wb_mesh_paint_gradient(wb_mesh *m, uint8_t r0, uint8_t g0, uint8_t b0,
+                            uint8_t r1, uint8_t g1, uint8_t b1);
 
 /* Merge src into dst (dst keeps its identity). src is untouched so a
  * template primitive can be stamped many times. */

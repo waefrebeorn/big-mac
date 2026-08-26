@@ -804,7 +804,14 @@ static void *mt_worker(void *argp) {
 }
 
 void wb_rast_render_mt(wb_rast_ctx *r, uint8_t *out_rgba) {
-    if (!r || !out_rgba || r->ntris <= 0) return;
+    /* R074 hop 202: measured reality — after the qsort + affine-z wins
+     * the single-thread fill runs ~1.1ms/frame; thread spawn (~0.1ms)
+     * plus duplicated tri setup makes MT a net loss below ~20k tris on
+     * this dual-core chip. Delegate until then. */
+    if (!r || !out_rgba || r->ntris <= 20000) {
+        wb_rast_render(r, out_rgba);
+        return;
+    }
     if (r->h < 64) { wb_rast_render(r, out_rgba); return; }
 
     /* clear + project once in base ctx */

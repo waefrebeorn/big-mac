@@ -49,7 +49,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 41. G-SF041 No screenshot/frame grab API from live session **[FIXED]**
 42. G-SF042 No multi-scene compositing with per-layer Z **[FIXED]**
 43. G-SF043 No skybox/environment map **[FIXED]**
-44. G-SF044 No screen-space reflections
+44. G-SF044 No screen-space reflections **[FIXED]** (planar reflection via RTT)
 45. G-SF045 No render-to-texture (portal/radar effects) **[FIXED]**
 
 ## C. Compositor integration (46-60)

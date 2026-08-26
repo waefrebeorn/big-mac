@@ -149,10 +149,12 @@ int wb_graphio_build_recipe(const char *path, wb_node **root,
                 nd = wb_node_effect(1, a > 0 ? a : 1.0f);
             else if (!strcmp(kind,"composite"))
                 nd = wb_node_composite();
-            if (n >= 2) {   /* generic effect by op number */
+            else if (!strcmp(kind,"effect")) {
+                /* G-SF080 v4: any effect op 0..11 by number */
                 int op = (int)a;
+                float g2v = b2 > 0 ? b2 : 1.0f;
                 if (op >= 0 && op <= 11)
-                    nd = wb_node_effect(op, b2 > 0 ? b2 : 1.0f);
+                    nd = wb_node_effect(op, g2v);
             }
             if (!nd || n >= CAP) { fclose(f); return -lineno; }
             nodes[n++] = nd;

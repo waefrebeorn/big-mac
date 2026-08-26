@@ -9,6 +9,7 @@ static wb_mesh *make_prim(const char *kind, float a, float b, float c) {
     if (!strcmp(kind, "box"))    return wb_mesh_box(a, b, c, 200,200,200);
     if (!strcmp(kind, "cone"))   return wb_mesh_cone(a, b, (int)c, 220,220,220);
     if (!strcmp(kind, "sphere")) return wb_mesh_sphere(a, (int)b, (int)b/2, 210,210,210);
+    if (!strcmp(kind, "torus"))  return wb_mesh_torus(a, b, (int)c, (int)c/2, 60,200,255);
     return NULL;
 }
 
@@ -30,13 +31,17 @@ int wb_scenedesc_load(wb_anim *a, const char *path) {
                         kind, &v[0],&v[1],&v[2],&v[3],&v[4],&v[5],&v[6],&v[7]);
         if (nv <= 0) continue;
         if (!strcmp(kind, "box") || !strcmp(kind, "cone") ||
-            !strcmp(kind, "sphere")) {
+            !strcmp(kind, "sphere") || !strcmp(kind, "torus")) {
             wb_mesh *m = make_prim(kind, v[0], v[1], v[2]);
-            if (!m) { fclose(f); return -lineno; }
+            if (!m) { fprintf(stderr, "scenedesc: prim '%s' failed\n",
+                              kind); fclose(f); return -lineno; }
             int id = wb_anim_add_object(a, m,
                                         (uint8_t)v[3],(uint8_t)v[4],
                                         (uint8_t)v[5]);
-            if (id < 0) { fclose(f); return -lineno; }
+            if (id < 0) { fprintf(stderr,
+                "scenedesc: add_object failed line %d\n", lineno);
+                fclose(f); return -lineno; }
+            fprintf(stderr, "scenedesc: added obj %d (%s)\n", id, kind);
             nobjs++;
             /* optional static key on the same line: x y z scale */
             if (nv >= 9)

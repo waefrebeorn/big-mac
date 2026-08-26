@@ -9,6 +9,7 @@
 #include "wbus/wbus.h"
 #include "wbus/wbus_param_track.h"
 #include "wbus/wbus_compositor.h"
+#include "wbus/wbus_scenedesc.h"
 #include "wbus/wbus_graphio.h"
 #include "wbus/wbus_pattern.h"
 #include "wbus/wbus_tga.h"
@@ -2620,6 +2621,29 @@ int main(void) {
               "tga: load + BGR->RGBA + alpha");
         wb_tga_free(&t);
         remove("/tmp/gate.tga");
+    }
+
+    /* ---- R074 hop 219: file-defined demo scene gate ---------------- */
+    printf("\n-- file-defined scene (flythrough) --\n");
+    {
+        wb_anim *fa = wb_anim_create(320, 180);
+        CHECK(fa != NULL, "scenedemo: anim alloc");
+        if (fa) {
+            int rc = wb_scenedesc_load(fa,
+                "projects/flythrough.bmscene");
+            CHECK(rc == 0, "scenedemo: loaded from projects/");
+            CHECK(wb_anim_object_count(fa) == 2,
+                  "scenedemo: 2 ring objects");
+            /* render a mid-flight frame */
+            uint8_t *buf = calloc((size_t)320*180, 4);
+            wb_anim_render_frame(fa, 2.0, buf);
+            int drawn = 0;
+            for (int i = 0; i < 320*180; i++)
+                if (buf[i*4+3] > 0) drawn++;
+            CHECK(drawn > 50, "scenedemo: rings rasterize");
+            free(buf);
+            wb_anim_free(fa);
+        }
     }
 
     printf("\n%d checks, %d failures\n", checks, failures);

@@ -11,7 +11,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 5. G-SF005 [FIXED hop113] No looping/wrap keys (floor strips need manual cycle hacks) **[FIXED]**
 6. G-SF006 No path/curve animation (bezier flight paths for ships) **[FIXED]**
 7. G-SF007 Camera has no FOV/focal control **[FIXED]**
-8. G-SF008 Camera can't be parented or shake-composed per-frame cleanly
+8. G-SF008 Camera can't be parented or shake-composed per-frame cleanly **[FIXED]**
 9. G-SF009 No look-at constraint (rings should face camera) **[FIXED]**
 10. G-SF010 No billboard sprites (explosions/stars should always face camera) **[FIXED]**
 11. G-SF011 Mesh primitives only box/sphere/cyl/cone/torus/plane/arrow — no capsule, no wedge **[FIXED]**
@@ -22,7 +22,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 16. G-SF016 No transparency in 3D (no alpha-sorted transparent pass)
 17. G-SF017 No fog/atmospheric depth fade **[FIXED]**
 18. G-SF018 No particle system (explosions, engine trails, sparks) **[FIXED]**
-19. G-SF019 No instancing (24 starfield boxes = 24 objects instead of 1 draw)
+19. G-SF019 No instancing (24 starfield boxes = 24 objects instead of 1 draw) **[FIXED]**
 20. G-SF020 No skeletal animation / bones
 21. G-SF021 No morph targets
 22. G-SF022 Rotation interpolation is Euler-only — gimbal artifacts possible **[FIXED]**
@@ -32,7 +32,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 
 ## B. Renderer / rasterizer (26-45)
 26. G-SF026 No resolution scale option (locked to anim WxH) **[FIXED]**
-27. G-SF027 Flat shading only — no gouraud/phong interpolation option
+27. G-SF027 Flat shading only — no gouraud/phong interpolation option **[FIXED]**
 28. G-SF028 Single directional sun — no point lights
 29. G-SF029 No shadow casting (ship has no ground shadow)
 30. G-SF030 [FIXED hop113] No dithering mode (SNES had ordered dither!) **[FIXED]**
@@ -48,7 +48,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 40. G-SF040 No anti-aliasing option (SSAA would help tiny stars) **[FIXED]**
 41. G-SF041 No screenshot/frame grab API from live session **[FIXED]**
 42. G-SF042 No multi-scene compositing with per-layer Z
-43. G-SF043 No skybox/environment map
+43. G-SF043 No skybox/environment map **[FIXED]**
 44. G-SF044 No screen-space reflections
 45. G-SF045 No render-to-texture (portal/radar effects)
 

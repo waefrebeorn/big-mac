@@ -4,6 +4,7 @@
  * Pure C11, stdio only. */
 #include "wbus/wbus_graphio.h"
 #include "wbus/wbus_param_track.h"
+#include "wbus/wbus_scenedesc.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -156,6 +157,24 @@ int wb_graphio_build_recipe(const char *path, wb_node **root,
                 float g2v = b2 > 0 ? b2 : 1.0f;
                 if (op >= 0 && op <= 11)
                     nd = wb_node_effect(op, g2v);
+            }
+            else if (!strcmp(kind,"text")) {
+                /* make text <string...> — scale 2, white, 320x180 */
+                const char *txt = p + 9;   /* skip "make text " */
+                nd = wb_node_source_text(txt, 2, 1,1,1, 1.0f, 320, 180);
+            }
+            else if (!strcmp(kind,"scene")) {
+                /* G-SF080 v6: load a .bmscene as an animated source.
+                 * make scene <path> <w> <h> */
+                char spath[256];
+                int sw = 320, sh = 180;
+                if (sscanf(p, "make scene %255s %d %d",
+                           spath, &sw, &sh) >= 1) {
+                    wb_anim *an = wb_anim_create(sw, sh);
+                    if (an && wb_scenedesc_load(an, spath) == 0)
+                        nd = wb_node_source_anim(an, sw, sh);
+                    else if (an) wb_anim_free(an);
+                }
             }
             else if (!strcmp(kind,"transition")) {
                 /* G-SF080 v5: transition nodes — wire with

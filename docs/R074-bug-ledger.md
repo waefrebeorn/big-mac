@@ -51,7 +51,7 @@
 44. window params (win_*) re-fetched per pixel inside HSL loop  **[FIXED]**
 45. sinf/cosf/powf/sqrtf per pixel — no lookup tables for gamma/vignette  **[FIXED]**
 46. two-phase pull_request implemented but most nodes ignore phase 0 semantics  **[FIXED]**
-47. wb_frame lacks refcount — every stage copies or re-walks buffers
+47. wb_frame lacks refcount — every stage copies or re-walks buffers  **[FIXED]**
 48. no tile-based rendering despite wb_compositor_tile_size() existing (dead API)  **[FIXED]**
 49. GPU backend flag exists but nothing checks it (dead enum)  **[FIXED]**
 
@@ -90,7 +90,7 @@
 79. wb_node_add_param returns slot idx but -1 on dup? duplicates silently replace (undocumented)  **[FIXED]**
 80. param tracks owned by caller but node keeps raw pointers — dangling if caller frees early  **[FIXED]**
 81. transition dir field overloaded (wipe direction vs barn-door axis)  **[FIXED]**
-82. no refcounting on wb_frame across cache/composite (documented ownership maze)
+82. no refcounting on wb_frame across cache/composite (documented ownership maze)  **[FIXED]**
 83. selftest still probes stderr D78 line (test depends on debug spam)  **[FIXED]**
 84. test suite never tests ROI < frame anywhere (ROI paths untested)  **[FIXED]**
 85. no test for size-mismatched transition inputs (crash class uncovered)  **[FIXED]**

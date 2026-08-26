@@ -9,3 +9,6 @@ key 0 4.0 0 0 -6 1
 torus 1.0 0.3 8
 key 1 0.0 0 0 -40 1
 key 1 4.0 0 0 -16 1
+
+# soundtrack
+music projects/starfox_theme.mid

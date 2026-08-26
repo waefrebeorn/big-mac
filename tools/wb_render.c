@@ -599,6 +599,34 @@ int main(int argc, char **argv) {
             int rc7 = sf_render_loop_range(an, comp2, fr, out_mp4,
                                            sdur, 24, 640, 360, 0, -1);
             printf("scene render rc=%d\n", rc7);
+            /* G-SF080 v7: optional soundtrack — "<scene>.music" holds
+             * a .mid path; rendered through the engine and muxed. */
+            char mside[512];
+            snprintf(mside, sizeof mside, "%s.music", spath);
+            FILE *mf = fopen(mside, "r");
+            if (mf) {
+                char mid[512] = "";
+                if (fgets(mid, sizeof mid, mf)) {
+                    mid[strcspn(mid, "\r\n")] = 0;
+                    char wav[512];
+                    snprintf(wav, sizeof wav, "/tmp/scene_audio.wav");
+                    int arc = sf_render_audio(mid, wav);
+                    printf("soundtrack: %s (%d)\n", mid, arc);
+                    if (arc == 0) {
+                        char cmd[1536];
+                        snprintf(cmd, sizeof cmd,
+                            "\"%s\" -y -loglevel error -i \"%s\" "
+                            "-i \"%s\" -map 0:v -map 1:a "
+                            "-c:v copy -c:a aac -shortest \"%s\"",
+                            "/Users/waefrebeorn/.local/bin/ffmpeg",
+                            out_mp4, wav, "/tmp/scene_mux.mp4");
+                        if (system(cmd) == 0)
+                            rename("/tmp/scene_mux.mp4", out_mp4);
+                    }
+                }
+                fclose(mf);
+                remove(mside);
+            }
             wb_anim_free(an);
             free(fr);
             return rc7 == 0 ? 0 : 1;

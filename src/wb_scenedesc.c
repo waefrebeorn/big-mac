@@ -62,6 +62,19 @@ int wb_scenedesc_load(wb_anim *a, const char *path) {
             wb_anim_set_shake(a, v[0]);
             continue;
         }
+        if (!strcmp(kind, "music")) {
+            /* G-SF080 v7: soundtrack path stored for the renderer via
+             * a side-channel file next to the scene (simplest contract:
+             * the renderer checks "<scene>.music"). */
+            char mpath[256] = "";
+            if (sscanf(p, "music %255s", mpath) == 1) {
+                char side[300];
+                snprintf(side, sizeof side, "%s.music", path);
+                FILE *mf = fopen(side, "w");
+                if (mf) { fputs(mpath, mf); fputc('\n', mf); fclose(mf); }
+            }
+            continue;
+        }
         fclose(f); return -lineno;   /* unknown directive */
     }
     fclose(f);

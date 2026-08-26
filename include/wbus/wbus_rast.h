@@ -39,6 +39,7 @@ typedef struct {
 typedef struct {
     int   v0, v1, v2;     /* indices into the vertex array */
     uint8_t r, g, b;      /* flat-shade color for this triangle */
+    uint8_t a;            /* R074 hop 158 (G-SF016): 255 = opaque */
 } wb_rast_tri;
 
 /* Set the frame's geometry. Copies both arrays (caller may free after).

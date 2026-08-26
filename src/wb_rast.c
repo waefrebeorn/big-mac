@@ -128,6 +128,9 @@ int wb_rast_set_scene(wb_rast_ctx *r,
     if (!nt) return -1;
     r->tris = nt; memcpy(nt, tris, (size_t)ntris * sizeof(*nt));
     r->ntris = ntris;
+    /* G-SF016: callers that leave a==0 (calloc'd or legacy) mean opaque */
+    for (int i = 0; i < ntris; i++)
+        if (nt[i].a == 0) nt[i].a = 255;
 
     /* resize scratch */
     free(r->sx); free(r->sy); free(r->sz);
@@ -258,7 +261,8 @@ static void fill_tri(wb_rast_ctx *r, uint8_t *img,
 
 static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
                        int i0, int i1, int i2,
-                       uint8_t cr, uint8_t cg, uint8_t cb) {
+                       uint8_t cr, uint8_t cg, uint8_t cb,
+                       uint8_t ca) {
     /* like fill_tri but with depth test + interpolated depth */
     float x0=r->sx[i0], y0=r->sy[i0], z0=r->sz[i0];
     float x1=r->sx[i1], y1=r->sy[i1], z1=r->sz[i1];
@@ -292,8 +296,18 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
             if (b0>=0 && b1>=0 && b2>=0) {
                 float z=z0*b0+z1*b1+z2*b2;
                 if (z < zrow[0]) {
-                    zrow[0]=z;
-                    row[0]=cr; row[1]=cg; row[2]=cb; row[3]=255;
+                    if (ca >= 255 || row[3] == 0) {
+                        zrow[0]=z;
+                        row[0]=cr; row[1]=cg; row[2]=cb; row[3]=ca;
+                    } else {
+                        /* G-SF016: transparent over opaque keeps depth of
+                         * the opaque surface but blends color */
+                        float a = ca / 255.0f;
+                        row[0]=(uint8_t)(cr*a+row[0]*(1-a));
+                        row[1]=(uint8_t)(cg*a+row[1]*(1-a));
+                        row[2]=(uint8_t)(cb*a+row[2]*(1-a));
+                        row[3]=(uint8_t)(ca + row[3]*(1-a));
+                    }
                 }
             }
             row+=4; zrow++;
@@ -423,6 +437,8 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
     for (int i = 0; i < n; i++) {
         wb_rast_tri *t = &r->tris[i];
         depth[i] = (r->sz[t->v0] + r->sz[t->v1] + r->sz[t->v2]) / 3.0f;
+        /* G-SF016: transparent pass draws after the opaque pass */
+        if (t->a < 255) depth[i] -= 1000.0f;
     }
     for (int i = 1; i < n; i++) {
         int oi = order[i]; float d = depth[i];
@@ -522,7 +538,7 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
         int gg=(int)(t->g*diff + 255*specv); if(gg>255)gg=255;
         int bb=(int)(t->b*diff + 255*specv); if(bb>255)bb=255;
         if (r->zbuf_on && r->zbuf)
-            fill_tri_z(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb);
+            fill_tri_z(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t->a);
         else
             fill_tri(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb);
     }

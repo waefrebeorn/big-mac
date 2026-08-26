@@ -526,6 +526,21 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* R074 hop 159 (G-SF085): --poster mp4 t out.jpg — grab a poster
+     * frame from a finished render without manual ffmpeg work. */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--poster") == 0 && i + 3 < argc) {
+            char cmd[1024];
+            snprintf(cmd, sizeof cmd,
+                "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
+                "-ss %s -i '%s' -frames:v 1 -q:v 2 '%s'",
+                argv[i+2], argv[i+1], argv[i+3]);
+            int rc4 = system(cmd);
+            printf("poster rc=%d\n", rc4);
+            return rc4 == 0 ? 0 : 1;
+        }
+    }
+
     /* R074 hop 112: --starfox — corridor run demo */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--starfox") == 0) {

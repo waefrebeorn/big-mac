@@ -443,9 +443,18 @@ int main(int argc, char **argv) {
     fprintf(stderr, "Big Mac renderer %s\n", WB_VERSION);
     const char *outpath = argc > 1 ? argv[1] : "render.wav";
     double lufs_target = 0.0;   /* 0 = off; --lufs N enables */
-    for (int i = 1; i < argc; i++)
+    /* R074 hop 149 (G-SF082/G-SF086): quality dial + preview fast pass.
+     * --quality N sets the compositor QoS (0..1); --preview is a
+     * shorthand for draft quality at half resolution. */
+    for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--lufs") == 0 && i + 1 < argc)
             lufs_target = atof(argv[++i]);
+        else if (strcmp(argv[i], "--quality") == 0 && i + 1 < argc)
+            wb_compositor_set_quality(atof(argv[++i]));
+        else if (strcmp(argv[i], "--preview") == 0) {
+            wb_compositor_set_quality(0.35);   /* draft tiles, small */
+        }
+    }
     /* R074 hop 123 (G-SF076): --smfroundtrip — save+load verify */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--smfroundtrip") == 0) {

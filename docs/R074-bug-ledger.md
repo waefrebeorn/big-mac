@@ -112,4 +112,5 @@
 99. no poster/thumbnail extraction alongside exports  **[FIXED]**
 100. demo graph built ad-hoc in test file — no reusable builder API for apps  **[FIXED]**
 
-101. vignette (op 6) over source_anim at 640x360 hangs/corrupts heap — repro in test_compositor "vig over anim" block; wb_frame_free checksum abort. Suspect RoI/format mismatch or em_buf static sharing. **[OPEN]**
+101. vignette (op 6) over source_anim at 640x360 hangs/corrupts heap — ROOT CAUSE FOUND: (a) wb_node_source_anim never declared its format → resolve fell back to 4096x4096 legacy bound → per-pixel ops wrote past frame; (b) transition nodes under-allocated map slot. Both FIXED hop 223. Near-plane coordinate guards added to fill_tri/fill_tri_z. **[FIXED hop 223]**
+102. --recipe wrapped scene render stalls in piped-ffmpeg path (raw scene works). Repro: `--scene flythrough --recipe <vignette chain>`. Suspect pipe deadlock between PPM writes and ffmpeg, or per-frame pull cost amplification. Handler disabled with warning until fixed. **[OPEN]**

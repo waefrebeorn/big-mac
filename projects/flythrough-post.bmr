@@ -1,5 +1,4 @@
-# flythrough-post.bmr — graded post chain for flythrough
-# node 0 = provided scene render (via `input 0`)
+# flythrough-post.bmr — graded post chain
 input 0
 make effect 6 1.0
 wire 0 1 0

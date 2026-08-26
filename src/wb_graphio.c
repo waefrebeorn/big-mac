@@ -297,9 +297,11 @@ int wb_graphio_recipe_with_input(const char *path, wb_node *input,
         if (!strcmp(kw, "wire") && n >= 2) {
             int from, to, k;
             if (sscanf(p2, "wire %d %d %d", &from,&to,&k) != 3) continue;
-            if (from<0||from>=n||to<0||to>=n) continue;
-            /* transitions take A then B via wb_transition_add */
-            wb_node_connect(nodes[to], nodes[from], k);
+            if (from<0||from>=n||to<0||to>=n||!nodes[from]||!nodes[to]) continue;
+            int crc2 = wb_node_connect(nodes[to], nodes[from], k);
+            if (crc2 != 0)
+                fprintf(stderr, "recipe: connect %d->%d failed (%d)\n",
+                        from, to, crc2);
             continue;
         }
         if (!strcmp(kw, "output")) {

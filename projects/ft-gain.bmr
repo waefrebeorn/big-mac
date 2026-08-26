@@ -1,0 +1,4 @@
+input 0
+make gain 1.5
+wire 0 1 0
+output 1

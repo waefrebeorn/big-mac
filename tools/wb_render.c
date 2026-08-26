@@ -146,7 +146,10 @@ int sf_render_loop_range(wb_anim *an, wb_node *comp, uint8_t *rgba,
     for (int k = k0; k <= k1; k++) {
         double tt = (double)k / fps;
         wb_frame *f = wb_node_pull(comp, tt, 0, 0, w, h);
-        if (!f) continue;
+        if (!f) { static int warned = 0;
+                  if (!warned) { fprintf(stderr,
+                    "render: pull failed at frame %d\n", k); warned = 1; }
+                  continue; }
         fprintf(pp, "P6\n%d %d\n255\n", f->w, f->h);
         for (int py = 0; py < f->h; py++) {
             for (int px2 = 0; px2 < f->w; px2++) {
@@ -584,7 +587,7 @@ int main(int argc, char **argv) {
             /* G-SF099 fix: positional args stop at any '-' flag so
              * trailing options (--recipe etc.) aren't eaten. */
             const char *spath = argv[i + 1];   /* the .bmscene path */
-            int ai = i + 1;
+            int ai = i + 2;                    /* past the scene path */
             double sdur = 6.0;
             if (ai < argc && argv[ai][0] != '-') { sdur = atof(argv[ai]); ai++; }
             const char *out_mp4 = "/tmp/scene.mp4";
@@ -608,18 +611,12 @@ int main(int argc, char **argv) {
             int have_rr = 0;
             for (int q = 1; q < argc; q++) {
                 if (strcmp(argv[q], "--recipe") == 0 && q + 1 < argc) {
-                    wb_node *src_anim =
-                        wb_node_source_anim(an, 640, 360);
-                    memset(&rr, 0, sizeof rr);
-                    if (wb_graphio_recipe_with_input(argv[q+1],
-                            src_anim, &rr) == 0 && rr.root) {
-                        comp2 = rr.root;
-                        have_rr = 1;
-                    } else {
-                        wb_node_destroy(src_anim);
-                        fprintf(stderr,
-                            "recipe build failed; using raw scene\n");
-                    }
+                    /* BUG #102 (open): recipe-wrapped pulls stall in the
+                     * piped-ffmpeg path. Disabled until root-caused;
+                     * raw scene rendering remains available. */
+                    fprintf(stderr,
+                        "--recipe temporarily disabled (bug #102); "
+                        "using raw scene\n");
                     break;
                 }
             }

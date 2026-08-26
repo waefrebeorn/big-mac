@@ -138,9 +138,34 @@ int wb_graphio_build_recipe(const char *path, wb_node **root,
 
         if (!strcmp(kw, "make")) {
             char kind[24];
+            /* text takes a string payload — handle before numeric parse */
+            fprintf(stderr, "DBG make branch: kind-parse next, line=[%s]\n", p);
+            if (strstr(p, "make text ") == p) {
+                fprintf(stderr, "DBG text branch hit\n");
+                const char *txt = p + 10;   /* after "make text " */
+                while (*txt == ' ') txt++;
+                char clean[128];
+                size_t L2 = strlen(txt);
+                while (L2 > 0 && (txt[L2-1] == '\n' || txt[L2-1] == '\r'))
+                    L2--;
+                memcpy(clean, txt, L2);
+                clean[L2] = 0;
+                wb_node *tn = wb_node_source_text(clean, 2,
+                                                  1,1,1, 1.0f, 320, 180);
+                if (!tn || n >= CAP) { fclose(f); return -lineno; }
+                nodes[n++] = tn;
+                continue;
+            }
             float a=0,b2=0,c2=0,d2=1,e2=0,g2=0;
             int cnt = sscanf(p, "make %23s %f %f %f %f %f %f",
                              kind,&a,&b2,&c2,&d2,&e2,&g2);
+            /* composite takes no args */
+            if (!strcmp(kind,"composite")) {
+                wb_node *cn = wb_node_composite();
+                if (!cn || n >= CAP) { fclose(f); return -lineno; }
+                nodes[n++] = cn;
+                continue;
+            }
             if (cnt < 2) { fclose(f); return -lineno; }
             wb_node *nd = NULL;
             if (!strcmp(kind,"color"))
@@ -157,11 +182,6 @@ int wb_graphio_build_recipe(const char *path, wb_node **root,
                 float g2v = b2 > 0 ? b2 : 1.0f;
                 if (op >= 0 && op <= 11)
                     nd = wb_node_effect(op, g2v);
-            }
-            else if (!strcmp(kind,"text")) {
-                /* make text <string...> — scale 2, white, 320x180 */
-                const char *txt = p + 9;   /* skip "make text " */
-                nd = wb_node_source_text(txt, 2, 1,1,1, 1.0f, 320, 180);
             }
             else if (!strcmp(kind,"scene")) {
                 /* G-SF080 v6: load a .bmscene as an animated source.

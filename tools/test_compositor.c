@@ -2560,7 +2560,27 @@ int main(void) {
             CHECK(fr != NULL, "recipe v5: pulled transition frame");
             if (fr) wb_frame_free(fr);
         }
-        remove("/tmp/recipe3.bmr");
+        /* v6: text source over background via composite */
+        f = fopen("/tmp/recipe4.bmr", "w");
+        if (f) {
+            fprintf(f, "make color 0.1 0.1 0.2 1.0 320 180\n");
+            fprintf(f, "make text HELLO\n");
+            fprintf(f, "make composite\n");
+            fprintf(f, "wire 0 2 0\n");
+            fprintf(f, "wire 1 2 1\n");
+            fprintf(f, "output 2\n");
+            fclose(f);
+        }
+        root = NULL;
+        rc = wb_graphio_build_recipe("/tmp/recipe4.bmr",
+                                     &root, NULL, NULL);
+        CHECK(rc == 0 && root != NULL, "recipe v6: built with text src");
+        if (rc == 0 && root) {
+            wb_frame *fr = wb_node_pull(root, 0.5, 0, 0, 320, 180);
+            CHECK(fr != NULL, "recipe v6: pulled composite");
+            if (fr) wb_frame_free(fr);
+        }
+        remove("/tmp/recipe4.bmr");
     }
 
     /* ---- R074 hop 204: new-module gates (pattern/tga/csg) ---------- */

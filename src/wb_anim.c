@@ -419,7 +419,11 @@ for (int i = 0; i < a->nobjs; i++) {
             wb_rast_set_sun(r, 0,0,0, 0);
             (void)none;
         }
+#ifdef WB_ANIM_USE_MT
+        wb_rast_render_mt(r, out_rgba);   /* G-SF099: opt-in via define */
+#else
         wb_rast_render(r, out_rgba);
+#endif
         wb_rast_set_sun(r, 0.45f, 0.75f, 0.5f, 1.0f); /* restore default */
     }
     }

@@ -15,7 +15,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 9. G-SF009 No look-at constraint (rings should face camera) **[FIXED]**
 10. G-SF010 No billboard sprites (explosions/stars should always face camera) **[FIXED]**
 11. G-SF011 Mesh primitives only box/sphere/cyl/cone/torus/plane/arrow — no capsule, no wedge **[FIXED]**
-12. G-SF012 No mesh boolean/CSG
+12. G-SF012 No mesh boolean/CSG **[FIXED]**
 13. G-SF013 No vertex colors beyond single paint color per object **[FIXED]**
 14. G-SF014 No texture mapping / UV coords at all **[FIXED]**
 15. G-SF015 No emissive materials (engine glow faked with bright color) **[FIXED]**

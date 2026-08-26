@@ -78,7 +78,17 @@ void wb_clip_edit_move(wb_clip_edit_table *t, int src_track, int src_clip,
 float wb_clip_edit_env(const wb_clip_edit *e, double f, double length,
                        double sample_rate);
 
+/* G-SF091: per-clip 3D scene accessors (wb_clip_edit.scene3d). */
+void *wb_clip_edit_scene3d(wb_clip_edit_table *t, int track, int clip);
+void  wb_clip_edit_set_scene3d(wb_clip_edit_table *t, int track,
+                               int clip, void *scene);
+
 #ifdef __cplusplus
 }
 #endif
 #endif /* WBUS_CLIP_EDIT_H */
+
+/* G-SF091: per-clip 3D scene accessors (wb_clip_edit.scene3d). */
+void *wb_clip_edit_scene3d(wb_clip_edit_table *t, int track, int clip);
+void  wb_clip_edit_set_scene3d(wb_clip_edit_table *t, int track,
+                               int clip, void *scene);

@@ -47,10 +47,10 @@ failure, missing feature, and quality gap found on the way is a gap.
 39. G-SF039 No back-face material variation (two-sided lighting wrong) **[FIXED]**
 40. G-SF040 No anti-aliasing option (SSAA would help tiny stars) **[FIXED]**
 41. G-SF041 No screenshot/frame grab API from live session **[FIXED]**
-42. G-SF042 No multi-scene compositing with per-layer Z
+42. G-SF042 No multi-scene compositing with per-layer Z **[FIXED]**
 43. G-SF043 No skybox/environment map **[FIXED]**
 44. G-SF044 No screen-space reflections
-45. G-SF045 No render-to-texture (portal/radar effects)
+45. G-SF045 No render-to-texture (portal/radar effects) **[FIXED]**
 
 ## C. Compositor integration (46-60)
 46. G-SF046 [FIXED hop113] wb_node_source_frame copies full frame every pull — no dirty flag **[FIXED]**

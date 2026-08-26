@@ -59,3 +59,23 @@ QoS dial; `--poster` grabs a thumbnail.
 No fast-math anywhere; FMA contraction disabled; all noise/hash uses
 fixed seeds (see `wb_sfx.c`). Renders are bit-reproducible on this
 machine.
+
+## GPU story (G-SF095)
+
+This machine is a 2012 dual-core iMac with no usable discrete GPU
+compute path for our purposes, so Big Mac is **CPU-authoritative by
+design** (WB_RENDER_CPU). The offload boundary still exists and is
+honest:
+
+- `wb_compositor_set_backend(WB_RENDER_GPU)` marks the intent; the flag
+  is refused with a warning on builds without a GPU backend (no dead
+  enum — hop 142).
+- `wb_frame_set_gpu` likewise refuses: pixel buffers always live on the
+  CPU heap, so a future Metal interop can swap the buffer behind
+  `wb_frame.px` without changing any node contract.
+- Threading instead of GPUs: `wb_rast_render_mt` uses both cores
+  (G-SF099), which is where this machine's headroom actually is.
+
+If this repo is ever built on Metal-capable hardware, the seam to fill
+is exactly one function: the rasterizer's `set_scene` + `render` pair,
+which already takes plain vertex/tri arrays and returns an RGBA buffer.

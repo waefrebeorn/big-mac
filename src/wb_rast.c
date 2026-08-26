@@ -17,6 +17,8 @@
 
 struct wb_rast_ctx {
     int w, h;
+    /* R074 hop 152 (G-SF035): viewport scissor */
+    int sc_x, sc_y, sc_w, sc_h;   /* -1 = disabled */
     /* R055: shading + depth */
     float sun[3];        /* normalized light dir (pointing FROM surface TO sun) */
     float sun_i;
@@ -56,7 +58,15 @@ wb_rast_ctx *wb_rast_create(int w, int h) {
     if (l > 1e-6f) { r->sun[0]/=l; r->sun[1]/=l; r->sun[2]/=l; }
     r->sun_i = 1.0f;
     r->spec = 0.25f;
+    r->sc_x = r->sc_y = -1;   /* scissor disabled */
     return r;
+}
+
+/* R074 hop 152 (G-SF035): set the scissor rect; pass w/h <= 0 to clear. */
+void wb_rast_set_scissor(wb_rast_ctx *r, int x, int y, int w, int h) {
+    if (!r) return;
+    if (w <= 0 || h <= 0) { r->sc_x = r->sc_y = -1; return; }
+    r->sc_x = x; r->sc_y = y; r->sc_w = w; r->sc_h = h;
 }
 
 void wb_rast_destroy(wb_rast_ctx *r) {
@@ -177,6 +187,15 @@ static void fill_tri(wb_rast_ctx *r, uint8_t *img,
     if (miny < 0) miny = 0;
     if (maxx > r->w) maxx = r->w;
     if (maxy > r->h) maxy = r->h;
+    /* G-SF035: scissor clip */
+    if (r->sc_x >= 0) {
+        int sx0 = r->sc_x, sy0 = r->sc_y;
+        int sx1 = r->sc_x + r->sc_w, sy1 = r->sc_y + r->sc_h;
+        if (minx < sx0) minx = sx0;
+        if (miny < sy0) miny = sy0;
+        if (maxx > sx1) maxx = sx1;
+        if (maxy > sy1) maxy = sy1;
+    }
     if (minx >= maxx || miny >= maxy) return;
 
     float inv_area = 1.0f / area;

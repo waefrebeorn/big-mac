@@ -54,6 +54,10 @@ struct wb_rast_ctx {
     int cull;
     int wireframe;       /* R074 hop 118 (G-SF034) */
     int two_sided;       /* R074 hop 121 (G-SF039): light backfaces */
+    /* R074 hop 176 (G-SF098): linear-light shading — albedo decoded to
+     * linear before lighting, re-encoded after. Off = legacy display-
+     * referred path. */
+    int linear_light;
 
     /* per-frame scratch (sized to nverts) */
     float *sx, *sy, *sz;   /* screen x/y + view depth */
@@ -75,6 +79,7 @@ wb_rast_ctx *wb_rast_create(int w, int h) {
     r->spec = 0.25f;
     r->sc_x = r->sc_y = -1;   /* scissor disabled */
     r->sky_on = 0;            /* G-SF043: skybox off by default */
+    r->linear_light = 0;
     r->tex_px = NULL; r->tex_w = r->tex_h = 0;
     return r;
 }
@@ -515,6 +520,18 @@ static void render_gouraud(wb_rast_ctx *r, uint8_t *out_rgba);
 
 
 
+
+/* R074 hop 176 (G-SF098): color management toggle. */
+void wb_rast_set_linear_light(wb_rast_ctx *r, int on) {
+    if (r) r->linear_light = on ? 1 : 0;
+}
+static inline float srgb_dec(float v) {
+    return v <= 0.04045f ? v / 12.92f : powf((v+0.055f)/1.055f, 2.4f);
+}
+static inline float srgb_enc(float v) {
+    return v <= 0.0031308f ? v * 12.92f : 1.055f*powf(v, 1.0f/2.4f)-0.055f;
+}
+
 void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
     if (!r || !out_rgba || r->ntris <= 0) return;
     if (r->sky_on) sky_fill(r, out_rgba);
@@ -641,6 +658,23 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
             pt_light_acc(r,cxw,cyw,czw,nx,ny,nz,acc);
             diff += 0.6f*(acc[0]+acc[1]+acc[2]);
             if (diff>1.5f) diff=1.5f;
+        }
+        if (r->linear_light) {
+            /* G-SF098: light in linear space, encode back to sRGB */
+            float lr = srgb_enc(srgb_dec(t->r/255.0f)*diff
+                                + specv);
+            float lg = srgb_enc(srgb_dec(t->g/255.0f)*diff
+                                + specv);
+            float lb = srgb_enc(srgb_dec(t->b/255.0f)*diff
+                                + specv);
+            int rr=(int)(lr*255.0f+0.5f); if(rr>255)rr=255;
+            int gg=(int)(lg*255.0f+0.5f); if(gg>255)gg=255;
+            int bb=(int)(lb*255.0f+0.5f); if(bb>255)bb=255;
+            if (r->zbuf_on && r->zbuf)
+                fill_tri_z(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t->a,t);
+            else
+                fill_tri(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb);
+            continue;
         }
         int rr=(int)(t->r*diff + 255*specv); if(rr>255)rr=255;
         int gg=(int)(t->g*diff + 255*specv); if(gg>255)gg=255;

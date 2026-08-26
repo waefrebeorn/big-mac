@@ -80,6 +80,8 @@ void wb_rast_set_focal(wb_rast_ctx *r, float focal);
 void wb_rast_set_two_sided(wb_rast_ctx *r, int on);
 /* R074 hop 118 (G-SF034): wireframe/debug draw. */
 void wb_rast_set_wireframe(wb_rast_ctx *r, int on);
+/* G-SF024: export normalized depth (0 near .. 1 far/no-hit). */
+void wb_rast_get_depth(wb_rast_ctx *r, float *dst);
 /* G-SF043: vertical-gradient skybox drawn before the scene. */
 void wb_rast_set_skybox(wb_rast_ctx *r, int on,
                         int tr_, int tg_, int tb_, int br, int bg, int bb);

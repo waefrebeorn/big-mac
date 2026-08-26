@@ -66,6 +66,8 @@ struct wb_anim {
         int src_obj;
         float px, py, pz, rx, ry, rz, s;
     } instances[64];
+    float *depth;          /* G-SF024: last frame normalized depth */
+    size_t depth_cap;
     wb_anim_obj objs[WB_ANIM_MAX_OBJS];
     int nobjs;
 
@@ -87,6 +89,7 @@ wb_anim *wb_anim_create(int width, int height) {
 void wb_anim_free(wb_anim *a) {
     if (!a) return;
     for (int i = 0; i < a->nobjs; i++) free(a->objs[i].xverts);
+    free(a->depth);   /* G-SF024 */
     free(a->draw_verts); free(a->draw_tris);
     free(a);
 }
@@ -761,3 +764,7 @@ int wb_anim_add_instance(wb_anim *a, int src_obj,
     a->instances[idx].s = s > 0 ? s : 1.0f;
     return idx;
 }
+
+/* R074 hop 162 (G-SF024): access the last frame's normalized depth map
+ * (w*h floats, 0=near .. 1=far/no-geometry). NULL until first render. */
+const float *wb_anim_depth_map(const wb_anim *a) { return a ? a->depth : 0; }

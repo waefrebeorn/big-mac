@@ -140,3 +140,6 @@ int wb_anim_set_shake(wb_anim *a, float amt);
 int wb_anim_add_instance(wb_anim *a, int src_obj,
                          float px, float py, float pz,
                          float rx, float ry, float rz, float s);
+
+/* G-SF024: last frame's normalized depth (0 near .. 1 far). */
+const float *wb_anim_depth_map(const wb_anim *a);

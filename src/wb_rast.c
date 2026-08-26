@@ -543,3 +543,20 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
             fill_tri(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb);
     }
 }
+
+/* R074 hop 162 (G-SF024): export the z-buffer normalized to 0(near)..1(far).
+ * Pixels with no geometry get 1. dst must hold w*h floats. */
+void wb_rast_get_depth(wb_rast_ctx *r, float *dst) {
+    if (!r || !dst || !r->zbuf) return;
+    float zn = 1e30f, zf = -1e30f;
+    for (int i = 0; i < r->w * r->h; i++) {
+        if (r->zbuf[i] < zn) zn = r->zbuf[i];
+        if (r->zbuf[i] > zf && r->zbuf[i] < 1e8f) zf = r->zbuf[i];
+    }
+    if (zf <= zn) zf = zn + 1.0f;
+    for (int i = 0; i < r->w * r->h; i++) {
+        float z = r->zbuf[i];
+        dst[i] = z >= 1e8f ? 1.0f
+               : (z - zn) / (zf - zn);
+    }
+}

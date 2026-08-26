@@ -32,7 +32,8 @@ deterministic float policy (`-ffp-contract=off`, no fast-math).
   shortest-arc rotation unwrap (G-SF022)
 - Object parenting with additive translation inheritance
 - Billboard sprites (G-SF010) and yaw-to-camera look-at (G-SF009) flags
-- Emissive two-pass render (G-SF015), visibility windows (G-SF056),
+- Emissive two-pass render (G-SF015; pass 2 additive over lit frame,
+  skipped when unused — hop 199 fix), visibility windows (G-SF056),
   depth fog (G-SF017), resolution override (G-SF026)
 - Instancing: `wb_anim_add_instance` shares geometry across static
   transforms (G-SF019)

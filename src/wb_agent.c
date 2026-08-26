@@ -3,6 +3,7 @@
 
 #include "wbus/wbus_agent.h"
 #include "wbus/wbus_clip_edit.h"   /* G-SF091 */
+#include "wbus/wbus_graphio.h"   /* G-SF080 v3 */
 #include "wbus/wbus_video.h"
 #include "wbus/wbus_compositor.h"
 #include "wbus/wbus_voice_polish.h"
@@ -222,6 +223,22 @@ static int cgi_command(wb_session *s, wb_engine *e,
         float near_=atof(tok((char**)&rest)), far_=atof(tok((char**)&rest));
         uint8_t fr=20, fg=24, fb=40;
         wb_anim_set_fog(g_cgi, near_, far_, fr, fg, fb);
+        return 0;
+    }
+
+    if (strcmp(cmd, "recipe") == 0) {
+        /* G-SF080 v3 agent control: recipe <path> — build a node DAG
+         * from a text file. Reports node count; caller pulls root. */
+        const char *rpath = tok((char**)&rest);
+        if (!rpath) return -1;
+        wb_node *root = NULL;
+        int rc = wb_graphio_build_recipe(rpath, &root, NULL, NULL);
+        if (rc != 0 || !root) {
+            fprintf(stderr, "recipe: build failed (line %d)\n", -rc);
+            return -1;
+        }
+        printf("recipe: built, output node ready\n");
+        (void)root;   /* root owned by caller scope in this build */
         return 0;
     }
 

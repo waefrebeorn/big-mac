@@ -87,6 +87,9 @@ void wb_rast_set_focal(wb_rast_ctx *r, float focal);
 void wb_rast_set_two_sided(wb_rast_ctx *r, int on);
 /* R074 hop 118 (G-SF034): wireframe/debug draw. */
 void wb_rast_set_wireframe(wb_rast_ctx *r, int on);
+/* G-SF045: bind RGBA texture for UV-mapped tris (not copied). */
+void wb_rast_set_texture(wb_rast_ctx *r, const uint8_t *px,
+                         int w, int h);
 /* G-SF028: point lights (up to 8). */
 void wb_rast_clear_point_lights(wb_rast_ctx *r);
 int  wb_rast_add_point_light(wb_rast_ctx *r, float x, float y, float z,

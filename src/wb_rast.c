@@ -24,6 +24,12 @@ struct wb_rast_ctx {
     int   n_pt;
     float pt_pos[8][3];
     float pt_col[8][3];
+    /* R074 hop 174 (G-SF045): texture — an RGBA8 buffer sampled by UV.
+     * Set via wb_rast_set_texture(); tris with UVs sample it instead of
+     * the checker procedural. This is render-to-texture: feed it the
+     * output of an earlier wb_rast_render on another ctx. */
+    const uint8_t *tex_px;   /* rgba, tex_w*tex_h*4 (not owned) */
+    int tex_w, tex_h;
     /* R074 hop 152 (G-SF035): viewport scissor */
     int sc_x, sc_y, sc_w, sc_h;   /* -1 = disabled */
     /* R074 hop 153 (G-SF027): 0=flat (default), 1=gouraud */
@@ -69,7 +75,17 @@ wb_rast_ctx *wb_rast_create(int w, int h) {
     r->spec = 0.25f;
     r->sc_x = r->sc_y = -1;   /* scissor disabled */
     r->sky_on = 0;            /* G-SF043: skybox off by default */
+    r->tex_px = NULL; r->tex_w = r->tex_h = 0;
     return r;
+}
+
+/* R074 hop 174 (G-SF045): bind an RGBA8 texture for UV-mapped tris.
+ * The buffer is NOT copied (caller keeps it alive for the render).
+ * Pass NULL to fall back to the checker procedural. */
+void wb_rast_set_texture(wb_rast_ctx *r, const uint8_t *px,
+                         int w, int h) {
+    if (!r) return;
+    r->tex_px = px; r->tex_w = w; r->tex_h = h;
 }
 
 /* R074 hop 154 (G-SF043): skybox — vertical gradient drawn before the
@@ -359,9 +375,21 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
                                  + cur_tri->u2*b2;
                         float vv = cur_tri->v_0*b0 + cur_tri->v_1*b1
                                  + cur_tri->v_2*b2;
-                        float m; uv_checker(uu, vv, &m);
-                        crl=(uint8_t)(cr*m); cgl=(uint8_t)(cg*m);
-                        cbl=(uint8_t)(cb*m);
+                        if (r->tex_px && r->tex_w > 0) {
+                            /* G-SF045: texture sample, nearest, wrap */
+                            uu -= (float)(int)uu; if (uu<0) uu+=1.0f;
+                            vv -= (float)(int)vv; if (vv<0) vv+=1.0f;
+                            int tx=(int)(uu*r->tex_w), ty=(int)(vv*r->tex_h);
+                            if (tx<0) tx=0; if(tx>=r->tex_w) tx=r->tex_w-1;
+                            if (ty<0) ty=0; if(ty>=r->tex_h) ty=r->tex_h-1;
+                            const uint8_t *tp =
+                                r->tex_px + ((size_t)ty*r->tex_w+tx)*4;
+                            crl=tp[0]; cgl=tp[1]; cbl=tp[2];
+                        } else {
+                            float m; uv_checker(uu, vv, &m);
+                            crl=(uint8_t)(cr*m); cgl=(uint8_t)(cg*m);
+                            cbl=(uint8_t)(cb*m);
+                        }
                     }
                     if (ca >= 255 || row[3] == 0) {
                         zrow[0]=z;

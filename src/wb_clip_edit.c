@@ -163,3 +163,19 @@ double wb_session_retime_source_time(const wb_clip_edit_table *et,
         src += wb_param_track_value_at(e->ramp, t + STEP*0.5) * STEP;
     return src;
 }
+
+/* R074 hop 204 (G-SF091): typed scene3d accessors — convenience over
+ * wb_clip_edit_get. get returns NULL when no entry exists (no scene). */
+struct wb_anim;   /* opaque fwd decl; header stays animation-free */
+
+void *wb_clip_edit_scene3d(wb_clip_edit_table *t, int track, int clip) {
+    wb_clip_edit *e = wb_clip_edit_get(t, track, clip);
+    return e ? e->scene3d : NULL;
+}
+
+/* Ensure an entry exists and set the scene pointer. */
+void wb_clip_edit_set_scene3d(wb_clip_edit_table *t, int track,
+                              int clip, void *scene) {
+    wb_clip_edit *e = wb_clip_edit_get(t, track, clip);
+    if (e) e->scene3d = scene;
+}

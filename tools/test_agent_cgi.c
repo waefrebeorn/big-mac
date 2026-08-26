@@ -85,6 +85,22 @@ int main(void) {
         }
     }
 
+    /* G-SF080 v3: recipe command through the agent bridge */
+    {
+        FILE *rf = fopen("/tmp/agent_recipe.bmr", "w");
+        if (rf) {
+            fprintf(rf, "make color 0.2 0.4 0.9 1.0 32 32\n");
+            fprintf(rf, "make gain 1.5\nwire 0 1 0\noutput 1\n");
+            fclose(rf);
+        }
+        CHECK(wb_agent_command(s, e,
+              "recipe /tmp/agent_recipe.bmr") == 0,
+              "recipe builds through agent bridge");
+        CHECK(wb_agent_command(s, e, "recipe /nonexistent.bmr") != 0,
+              "recipe on missing file fails cleanly");
+        remove("/tmp/agent_recipe.bmr");
+    }
+
     /* cleanup the synthetic kit so it doesn't ship */
     system("rm -rf assets/kits/test-kit");
 

@@ -226,22 +226,6 @@ static int cgi_command(wb_session *s, wb_engine *e,
         return 0;
     }
 
-    if (strcmp(cmd, "recipe") == 0) {
-        /* G-SF080 v3 agent control: recipe <path> — build a node DAG
-         * from a text file. Reports node count; caller pulls root. */
-        const char *rpath = tok((char**)&rest);
-        if (!rpath) return -1;
-        wb_node *root = NULL;
-        int rc = wb_graphio_build_recipe(rpath, &root, NULL, NULL);
-        if (rc != 0 || !root) {
-            fprintf(stderr, "recipe: build failed (line %d)\n", -rc);
-            return -1;
-        }
-        printf("recipe: built, output node ready\n");
-        (void)root;   /* root owned by caller scope in this build */
-        return 0;
-    }
-
     if (strcmp(cmd, "cgi-bind") == 0) {
         /* G-SF091 agent control: cgi-bind <track> <clip> — attach the
          * agent CGI scene (g_cgi) to a video clip's scene3d slot so
@@ -597,6 +581,18 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         fputs(desc, f);
         fclose(f);
         printf("chapters: %d written to %s\n", n, path);
+        return 0;
+    }
+    if (strcmp(cmd, "recipe") == 0) {
+        char *rpath = tok(&p);
+        if (!rpath) return -1;
+        wb_node *root = NULL;
+        int rc = wb_graphio_build_recipe(rpath, &root, NULL, NULL);
+        if (rc != 0 || !root) {
+            fprintf(stderr, "recipe: build failed (line %d)\n", -rc);
+            return -1;
+        }
+        printf("recipe: built, output node ready\n");
         return 0;
     }
     if (strcmp(cmd, "quit") == 0) return 0;

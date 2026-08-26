@@ -89,3 +89,22 @@ spawn ×336, ~all objects straddle the band midline, and scene fill is
 only ~1.4ms/frame — thread spawn + sync dominates. MT remains
 available via `WB_ANIM_USE_MT`; wins only on vertically-spread,
 high-tri-count scenes. Default stays deterministic single-thread.
+
+## Performance (R074 hop 193-198)
+
+Measured on the host 2012 iMac, 640x360, 6048-tri sphere:
+
+- Depth sort: O(n²) insertion → qsort; skipped entirely when zbuffer +
+  all-opaque tris (order irrelevant). Sort was ~11ms/frame — now ~0.
+- Edge functions: fully incremental (x-step per pixel, y-step per row);
+  inner loop multiply-free for flat/untextured triangles.
+- Affine depth stepping: dz per pixel/row precomputed from the plane
+  equation; no barycentric normalize or z-interp in the hot loop.
+
+Net: **12.6 ms → 1.1 ms per frame (~11x)** for the zbuffered fill path.
+
+Threading: `wb_rast_render_mt` exists but measures slower than ST below
+~20k tris (thread spawn + duplicated tri setup dominate); it delegates
+to ST there. Real-scene check (`--starfox`, 336 frames): 18.2s → 15.6s
+via the emissive two-pass fix alone. The second core is better spent on
+the ffmpeg encode subprocess, which already runs concurrently.

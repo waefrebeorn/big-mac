@@ -577,6 +577,15 @@ static inline float srgb_enc(float v) {
 
 /* R074 hop 185 (G-SF099): fill a single triangle by index. Thread-safe
  * when the ctx scratch (sx/sy/sz) and output buffers are thread-local. */
+/* R074 hop 193: O(n log n) depth sort — insertion sort was O(n²) and
+ * dominated large scenes (6048 tris = ~18M inner-loop steps). */
+static const float *g_sort_depth = NULL;
+static int sort_cmp(const void *pa, const void *pb) {
+    int a = *(const int*)pa, b = *(const int*)pb;
+    return (g_sort_depth[a] < g_sort_depth[b]) - 
+           (g_sort_depth[a] > g_sort_depth[b]);
+}
+
 static void render_one_tri(wb_rast_ctx *r, uint8_t *out_rgba, int ti) {
     if (ti < 0 || ti >= r->ntris) return;
     wb_rast_tri *t = &r->tris[ti];
@@ -721,11 +730,15 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
         depth[i] = (r->sz[t->v0] + r->sz[t->v1] + r->sz[t->v2]) / 3.0f;
         if (t->a < 255) depth[i] -= 1000.0f;
     }
-    for (int i = 1; i < n; i++) {
-        int oi = order[i]; float d = depth[i];
-        int q = i - 1;
-        while (q >= 0 && depth[order[q]] < d) { order[q+1] = order[q]; q--; }
-        order[q+1] = oi;
+    /* G-SF099: with a z-buffer and all-opaque tris, draw order is
+     * irrelevant — skip the depth sort entirely. */
+    int need_sort = 0;
+    for (int i = 0; i < n; i++)
+        if (r->tris[i].a < 255) { need_sort = 1; break; }
+    if (need_sort && !(r->zbuf_on && r->zbuf)) {
+        g_sort_depth = depth;
+        qsort(order, (size_t)n, sizeof(int), sort_cmp);
+        g_sort_depth = NULL;
     }
     for (int k2 = 0; k2 < n; k2++)
         render_one_tri(r, out_rgba, order[k2]);
@@ -795,12 +808,9 @@ void wb_rast_render_mt(wb_rast_ctx *r, uint8_t *out_rgba) {
         depth[i] = (r->sz[t->v0] + r->sz[t->v1] + r->sz[t->v2]) / 3.0f;
         if (t->a < 255) depth[i] -= 1000.0f;
     }
-    for (int i = 1; i < n; i++) {
-        int oi = order[i]; float d = depth[i];
-        int q = i - 1;
-        while (q >= 0 && depth[order[q]] < d) { order[q+1] = order[q]; q--; }
-        order[q+1] = oi;
-    }
+    g_sort_depth = depth;
+    qsort(order, (size_t)n, sizeof(int), sort_cmp);
+    g_sort_depth = NULL;
 
     /* G-SF099 v3: partition tris by projected centroid band so each
      * thread only touches its own subset; straddlers go to both. */
@@ -820,37 +830,29 @@ void wb_rast_render_mt(wb_rast_ctx *r, uint8_t *out_rgba) {
         if (lo < (float)mid && hi >= 0.0f) oa[na++] = order[i];       /* upper */
         if (hi >= (float)mid && lo <= (float)r->h) ob[nb2++] = order[i]; /* lower */
     }
-    /* two bands, top / bottom half */
+    /* two bands, top / bottom half. Threads SHARE base scratch (sx/sy/sz
+ * are projected above and only read during fill) and the shared
+ * zbuf/img — rows are disjoint so no locks, zero extra allocations. */
     mt_arg ma = { *r, out_rgba, oa, na };
     mt_arg mb = { *r, out_rgba, ob, nb2 };
     ma.ctx.band_y0 = 0;            ma.ctx.band_y1 = r->h / 2;
     mb.ctx.band_y0 = r->h / 2;     mb.ctx.band_y1 = r->h;
-    /* each thread needs its OWN scratch (project_vert already done in
-     * base; copy projections into both copies) */
-    size_t sv = (size_t)r->nverts * sizeof(float);
-    ma.ctx.sx = malloc(sv); ma.ctx.sy = malloc(sv); ma.ctx.sz = malloc(sv);
-    mb.ctx.sx = malloc(sv); mb.ctx.sy = malloc(sv); mb.ctx.sz = malloc(sv);
-    if (!ma.ctx.sx || !mb.ctx.sx) {
-        free(ma.ctx.sx); free(mb.ctx.sx);
-        free(order); free(depth);
-        wb_rast_render(r, out_rgba); return;
-    }
-    memcpy(ma.ctx.sx, r->sx, sv); memcpy(ma.ctx.sy, r->sy, sv);
-    memcpy(ma.ctx.sz, r->sz, sv);
-    memcpy(mb.ctx.sx, r->sx, sv); memcpy(mb.ctx.sy, r->sy, sv);
-    memcpy(mb.ctx.sz, r->sz, sv);
-    ma.ctx.zbuf = NULL;   /* threads share base zbuf via render_one_tri's
-                             r->zbuf? No — render_one_tri uses ctx zbuf.
-                             Both must point at base zbuf. */
     ma.ctx.zbuf = r->zbuf; ma.ctx.zbuf_on = 1;
     mb.ctx.zbuf = r->zbuf; mb.ctx.zbuf_on = 1;
 
-    pthread_t th;
-    pthread_create(&th, NULL, mt_worker, &mb);
-    mt_worker(&ma);
-    pthread_join(th, NULL);
-
-    free(ma.ctx.sx); free(ma.ctx.sy); free(ma.ctx.sz);
-    free(mb.ctx.sx); free(mb.ctx.sy); free(mb.ctx.sz);
+    /* G-SF099 heuristic: straddle ratio > ~40% means duplicate setup
+     * costs more than the second core saves (measured crossover). */
+    int use_mt = (na > 64 && nb2 > 64)
+              && (na + nb2) < n + n * 40 / 100;
+    if (use_mt) {
+        pthread_t th;
+        pthread_create(&th, NULL, mt_worker, &mb);
+        mt_worker(&ma);
+        pthread_join(th, NULL);
+    } else {
+        /* low parallelism: single-thread fallback */
+        for (int k2 = 0; k2 < n; k2++)
+            render_one_tri(r, out_rgba, order[k2]);
+    }
     free(oa); free(ob); free(order); free(depth);
 }

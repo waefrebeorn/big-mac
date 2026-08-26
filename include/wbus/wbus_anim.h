@@ -121,3 +121,14 @@ int wb_anim_events_due(const wb_anim *a, double t_prev, double t_now,
 #endif
 
 #endif /* WUBUS_WBUS_ANIM_H */
+
+/* R074 hop 146: metadata & diagnostics */
+#define WB_ANIM_OK 0
+#define WB_ANIM_ERR_OBJS 1
+#define WB_ANIM_ERR_KEYS 2
+extern int wb_anim_last_error;
+void wb_anim_set_rate(int fps);          /* G-SF054 */
+int  wb_anim_get_rate(void);
+const char *wb_anim_error_str(wb_anim *a);   /* G-SF089 */
+void wb_anim_set_progress(void (*fn)(double frac, void *user), void *user); /* G-SF060 */
+void wb_anim_progress(double frac);

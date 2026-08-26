@@ -85,7 +85,13 @@ void wb_anim_free(wb_anim *a) {
 
 int wb_anim_add_object(wb_anim *a, const wb_mesh *m,
                        uint8_t r, uint8_t g, uint8_t b) {
-    if (!a || !m || a->nobjs >= WB_ANIM_MAX_OBJS) return -1;
+    if (!a || !m) { wb_anim_last_error = WB_ANIM_ERR_OBJS; return -1; }
+    if (a->nobjs >= WB_ANIM_MAX_OBJS) {           /* G-SF089: surface it */
+        wb_anim_last_error = WB_ANIM_ERR_OBJS;
+        fprintf(stderr, "wb_anim_add_object: %s\n",
+                wb_anim_error_str(a));
+        return -1;
+    }
     wb_anim_obj *o = &a->objs[a->nobjs];
     memset(o, 0, sizeof(*o));
     o->mesh = m;
@@ -648,4 +654,35 @@ int wb_anim_screenshot(wb_anim *a, double t, const char *path) {
     fclose(f);
     free(buf);
     return 0;
+}
+
+/* ---- R074 hop 146: metadata & diagnostics ---------------------------- */
+/* G-SF054: fps/timebase metadata on the animation. */
+static int g_anim_fps = 24;
+void wb_anim_set_rate(int fps) { if (fps > 0 && fps <= 240) g_anim_fps = fps; }
+int  wb_anim_get_rate(void)    { return g_anim_fps; }
+
+/* G-SF089: surface the object-cap error instead of silent -1. */
+int wb_anim_last_error = WB_ANIM_OK;
+const char *wb_anim_error_str(wb_anim *a) {
+    (void)a;
+    switch (wb_anim_last_error) {
+    case WB_ANIM_OK:            return "ok";
+    case WB_ANIM_ERR_OBJS:      return "object cap reached";
+    case WB_ANIM_ERR_KEYS:      return "key cap reached";
+    default:                    return "unknown";
+    }
+}
+
+/* G-SF060: progress callback during export loops. */
+static void (*g_progress_fn)(double frac, void *user) = 0;
+static void *g_progress_user = 0;
+void wb_anim_set_progress(void (*fn)(double, void *), void *user) {
+    g_progress_fn = fn; g_progress_user = user;
+}
+void wb_anim_progress(double frac) {
+    if (g_progress_fn) {
+        if (frac < 0) frac = 0; if (frac > 1) frac = 1;
+        g_progress_fn(frac, g_progress_user);
+    }
 }

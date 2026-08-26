@@ -50,9 +50,9 @@
 43. wb_node_param_value called multiple times per pixel for same params (hoist!)  **[FIXED]**
 44. window params (win_*) re-fetched per pixel inside HSL loop  **[FIXED]**
 45. sinf/cosf/powf/sqrtf per pixel — no lookup tables for gamma/vignette  **[FIXED]**
-46. two-phase pull_request implemented but most nodes ignore phase 0 semantics
+46. two-phase pull_request implemented but most nodes ignore phase 0 semantics  **[FIXED]**
 47. wb_frame lacks refcount — every stage copies or re-walks buffers
-48. no tile-based rendering despite wb_compositor_tile_size() existing (dead API)
+48. no tile-based rendering despite wb_compositor_tile_size() existing (dead API)  **[FIXED]**
 49. GPU backend flag exists but nothing checks it (dead enum)  **[FIXED]**
 
 ## D. Correctness / logic

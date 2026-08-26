@@ -40,7 +40,14 @@ typedef struct {
     int   v0, v1, v2;     /* indices into the vertex array */
     uint8_t r, g, b;      /* flat-shade color for this triangle */
     uint8_t a;            /* R074 hop 158 (G-SF016): 255 = opaque */
+    float u0, v_0, u1, v_1, u2, v_2;   /* R074 hop 172 (G-SF014): UVs;
+                                          u/v < -9000 means untextured */
 } wb_rast_tri;
+
+/* G-SF014: mark a tri as carrying UVs (checkerboard procedural). */
+void wb_rast_tri_set_uv(wb_rast_tri *t,
+                        float u0, float v0, float u1, float v1,
+                        float u2, float v2);
 
 /* Set the frame's geometry. Copies both arrays (caller may free after).
  * Camera: orbit angles (radians), distance, and vertical look offset. */

@@ -292,10 +292,26 @@ static void fill_tri(wb_rast_ctx *r, uint8_t *img,
     }
 }
 
+/* R074 hop 172 (G-SF014): UVs — checkerboard procedural texture. */
+void wb_rast_tri_set_uv(wb_rast_tri *t,
+                        float u0, float v0, float u1, float v1,
+                        float u2, float v2) {
+    if (!t) return;
+    t->u0=u0; t->v_0=v0; t->u1=u1; t->v_1=v1; t->u2=u2; t->v_2=v2;
+}
+static int tri_has_uv(const wb_rast_tri *t) { return t->u0 > -9000.0f; }
+/* 8x8 checker in unit UV space, mid-gray modulation */
+static void uv_checker(float u, float v, float *mod) {
+    u -= (float)(int)u; if (u < 0) u += 1.0f;
+    v -= (float)(int)v; if (v < 0) v += 1.0f;
+    int cu = (int)(u * 8.0f), cv = (int)(v * 8.0f);
+    *mod = ((cu ^ cv) & 1) ? 1.15f : 0.75f;
+}
+
 static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
                        int i0, int i1, int i2,
                        uint8_t cr, uint8_t cg, uint8_t cb,
-                       uint8_t ca) {
+                       uint8_t ca, const wb_rast_tri *cur_tri) {
     /* like fill_tri but with depth test + interpolated depth */
     float x0=r->sx[i0], y0=r->sy[i0], z0=r->sz[i0];
     float x1=r->sx[i1], y1=r->sy[i1], z1=r->sz[i1];
@@ -329,16 +345,27 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
             if (b0>=0 && b1>=0 && b2>=0) {
                 float z=z0*b0+z1*b1+z2*b2;
                 if (z < zrow[0]) {
+                    float crl=cr, cgl=cg, cbl=cb;
+                    /* G-SF014: procedural checker modulates albedo */
+                    if (tri_has_uv(cur_tri)) {
+                        float uu = cur_tri->u0*b0 + cur_tri->u1*b1
+                                 + cur_tri->u2*b2;
+                        float vv = cur_tri->v_0*b0 + cur_tri->v_1*b1
+                                 + cur_tri->v_2*b2;
+                        float m; uv_checker(uu, vv, &m);
+                        crl=(uint8_t)(cr*m); cgl=(uint8_t)(cg*m);
+                        cbl=(uint8_t)(cb*m);
+                    }
                     if (ca >= 255 || row[3] == 0) {
                         zrow[0]=z;
-                        row[0]=cr; row[1]=cg; row[2]=cb; row[3]=ca;
+                        row[0]=crl; row[1]=cgl; row[2]=cbl; row[3]=ca;
                     } else {
                         /* G-SF016: transparent over opaque keeps depth of
                          * the opaque surface but blends color */
                         float a = ca / 255.0f;
-                        row[0]=(uint8_t)(cr*a+row[0]*(1-a));
-                        row[1]=(uint8_t)(cg*a+row[1]*(1-a));
-                        row[2]=(uint8_t)(cb*a+row[2]*(1-a));
+                        row[0]=(uint8_t)(crl*a+row[0]*(1-a));
+                        row[1]=(uint8_t)(cgl*a+row[1]*(1-a));
+                        row[2]=(uint8_t)(cbl*a+row[2]*(1-a));
                         row[3]=(uint8_t)(ca + row[3]*(1-a));
                     }
                 }
@@ -448,6 +475,9 @@ static void gouraud_light(wb_rast_ctx *r, float nx, float ny, float nz,
 /* R074 hop 153 (G-SF027): gouraud path — vertex normals accumulated
  * from adjacent faces, lit per-vertex, intensity interpolated. */
 static void render_gouraud(wb_rast_ctx *r, uint8_t *out_rgba);
+
+
+
 
 void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
     if (!r || !out_rgba || r->ntris <= 0) return;
@@ -580,7 +610,7 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
         int gg=(int)(t->g*diff + 255*specv); if(gg>255)gg=255;
         int bb=(int)(t->b*diff + 255*specv); if(bb>255)bb=255;
         if (r->zbuf_on && r->zbuf)
-            fill_tri_z(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t->a);
+            fill_tri_z(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t->a,t);
         else
             fill_tri(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb);
     }

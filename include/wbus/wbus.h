@@ -255,6 +255,12 @@ wb_track   *wb_session_add_track(wb_session *s, const char *name, int kind);
 int          wb_session_remove_track(wb_session *s, uint32_t idx); /* G09 */
 int          wb_session_move_track(wb_session *s, uint32_t idx, int delta); /* G09 */
 int         wb_session_add_note(wb_track *tr, double start, double dur, int pitch, int vel);
+/* R074 hop 151 (G-SF071): per-track pan automation. The track's pan
+ * follows the keyframable track (values -1..1) at render time; the
+ * static tr->pan is the base when no keys fire. Engine keeps ownership
+ * of nothing — caller retains the track. */
+void wb_session_track_pan_automation(wb_track *tr, struct wb_param_track *pt);
+struct wb_param_track;
 /* Remove the note in `tr` closest to (start,pitch) within a small tolerance.
  * Returns 0 if a note was removed, -1 if none matched. */
 int         wb_session_remove_note(wb_track *tr, double start, int pitch);

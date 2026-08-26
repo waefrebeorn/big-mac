@@ -25,6 +25,7 @@
 #include "wbus_clip_edit.h"
 #include "wbus_limiter.h"   /* R073 hop 39: master bus brickwall */
 #include "wb_internal.h"
+#include "wbus_param_track.h"   /* G-SF071 */
 #include "wb_recorder.h"
 #include "wbus_lufs.h"   /* G32: live K-weighted loudness on the master */
 
@@ -35,10 +36,40 @@ void wb_vst3_slot_set(int track, int slot, void *inst);
 void wb_vst3_slot_clear(int track, int slot);
 void wb_unit_set_param(const char *id, void *ins, const char *pname, float v01);
 
+/* ---- G-SF071: pan automation registry -------------------------------- */
+#define WB_PAN_TRACKS_MAX 32
+struct wb_pan_auto { const wb_track *tr; wb_param_track *pt; };
+static struct wb_pan_auto g_pan_auto[WB_PAN_TRACKS_MAX];
+static int g_pan_auto_n = 0;
+
+void wb_session_track_pan_automation(wb_track *tr,
+                                     struct wb_param_track *pt) {
+    if (!tr) return;
+    for (int i = 0; i < g_pan_auto_n; i++) {
+        if (g_pan_auto[i].tr == tr) {
+            g_pan_auto[i].pt = pt;
+            return;
+        }
+    }
+    if (g_pan_auto_n < WB_PAN_TRACKS_MAX) {
+        g_pan_auto[g_pan_auto_n].tr = tr;
+        g_pan_auto[g_pan_auto_n].pt = pt;
+        g_pan_auto_n++;
+    }
+}
+static wb_param_track *pan_auto_for(const wb_track *tr) {
+    for (int i = 0; i < g_pan_auto_n; i++)
+        if (g_pan_auto[i].tr == tr) return g_pan_auto[i].pt;
+    return NULL;
+}
+
 /* one per track at render time */
 struct wb_track_runtime {
     int    active;
     float  volume, pan;
+    /* R074 hop 151 (G-SF071): optional pan automation track (samples) */
+    wb_param_track *pan_track;
+    uint32_t        pan_track_pos;
     int    mute, solo;
     int    kind;
     int    route;                     /* -1 = master, else bus track index */
@@ -615,12 +646,31 @@ static void stage_mix(wb_engine *e, uint32_t n, wb_sample *out) {
             /* a track routed to a bus is summed into that bus already (its
              * signal reaches the master only through the bus); skip it here. */
             if (tr->kind != 2 && tr->route >= 0) continue;
-            float l = (float)(1.0 - (tr->pan > 0 ? tr->pan : 0));
-            float r = (float)(1.0 - (tr->pan < 0 ? -tr->pan : 0));
+            float base_pan = tr->pan;
+            /* G-SF071: automated pan overrides the static one */
+            wb_param_track *pa = pan_auto_for(&e->session->tracks[t]);
+            float auto_pan = 0.0f;
+            int have_auto = 0;
+            if (pa) {
+                double tsec = (double)e->t.song_pos / WB_SAMPLE_RATE;
+                auto_pan = wb_param_track_value_at(pa, tsec);
+                have_auto = 1;
+            }
             float g = tr->volume;
-            for (uint32_t i = 0; i < n; i++) {
-                out[2*i]   += tr->bufL[i] * g * l;
-                out[2*i+1] += tr->bufR[i] * g * r;
+            if (!have_auto) {
+                float l = (float)(1.0 - (base_pan > 0 ? base_pan : 0));
+                float r = (float)(1.0 - (base_pan < 0 ? -base_pan : 0));
+                for (uint32_t i = 0; i < n; i++) {
+                    out[2*i]   += tr->bufL[i] * g * l;
+                    out[2*i+1] += tr->bufR[i] * g * r;
+                }
+            } else {
+                float l = (float)(1.0 - (auto_pan > 0 ? auto_pan : 0));
+                float r = (float)(1.0 - (auto_pan < 0 ? -auto_pan : 0));
+                for (uint32_t i = 0; i < n; i++) {
+                    out[2*i]   += tr->bufL[i] * g * l;
+                    out[2*i+1] += tr->bufR[i] * g * r;
+                }
             }
         }
     }

@@ -17,7 +17,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 11. G-SF011 Mesh primitives only box/sphere/cyl/cone/torus/plane/arrow — no capsule, no wedge **[FIXED]**
 12. G-SF012 No mesh boolean/CSG
 13. G-SF013 No vertex colors beyond single paint color per object **[FIXED]**
-14. G-SF014 No texture mapping / UV coords at all
+14. G-SF014 No texture mapping / UV coords at all **[FIXED]**
 15. G-SF015 No emissive materials (engine glow faked with bright color) **[FIXED]**
 16. G-SF016 No transparency in 3D (no alpha-sorted transparent pass) **[FIXED]**
 17. G-SF017 No fog/atmospheric depth fade **[FIXED]**
@@ -94,7 +94,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 80. G-SF080 No project save/load for compositor+anim graphs (session-only)
 81. G-SF081 No render queue (batch multiple demos) **[FIXED]**
 82. G-SF082 No --quality flag (draft vs final passes) **[FIXED]**
-83. G-SF083 No resume/checkpoint for long renders
+83. G-SF083 No resume/checkpoint for long renders **[FIXED]**
 84. G-SF084 GIF export not integrated (external ffmpeg call)
 85. G-SF085 Poster/thumbnail extraction manual per demo **[FIXED]**
 86. G-SF086 No --preview lowres fast pass flag **[FIXED]**

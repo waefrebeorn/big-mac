@@ -43,7 +43,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 35. G-SF035 No viewport scissor/region rendering **[FIXED]**
 36. G-SF036 No motion blur accumulation buffer **[FIXED]**
 37. G-SF037 No post-FX chain inside 3D (bloom on engine glow) **[FIXED]** (glow/bloom node exists; chain after CGI source)
-38. G-SF038 Rasterizer perf: no scanline SIMD; 15fps@640x360 was near budget
+38. G-SF038 Rasterizer perf: no scanline SIMD; 15fps@640x360 was near budget **[FIXED]**
 39. G-SF039 No back-face material variation (two-sided lighting wrong) **[FIXED]**
 40. G-SF040 No anti-aliasing option (SSAA would help tiny stars) **[FIXED]**
 41. G-SF041 No screenshot/frame grab API from live session **[FIXED]**

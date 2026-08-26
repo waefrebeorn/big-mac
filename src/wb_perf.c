@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "wbus/wbus_anim.h"   /* G-SF094 */
 
 #define WB_PERF_MAX_EVENTS 4096
 
@@ -26,6 +27,10 @@ typedef struct {
     wb_mesh *mesh;        /* owned copy */
     int     fired;
     float   param[4];     /* free params (spin speed, hue shift, ...) */
+    /* R074 hop 184 (G-SF094): anim-backed deck — when set, the deck
+     * renders this animation's frame instead of its static mesh. The
+     * anim is owned by the caller (not freed by perf). */
+    struct wb_anim *anim;
 } wb_perf_deck;
 
 struct wb_perf {
@@ -226,6 +231,32 @@ void wb_perf_render_frame(wb_perf *p, uint8_t *out_rgba) {
         wb_rast_set_camera(r, 0.45f, (float)(spin + p->clock), 0,
                            7.0f / (1.0f + d->param[1]), 0);
 
+        /* G-SF094: anim-backed deck renders the full animation */
+        if (d->anim) {
+            memset(deck_img, 0, need);
+            wb_anim_render_frame(d->anim,
+                                 p->clock * wb_anim_get_rate(),
+                                 deck_img);
+            for (size_t i = 0; i < (size_t)p->w*p->h; i++) {
+                uint8_t a = deck_img[i*4+3];
+                if (a == 255) {
+                    out_rgba[i*4+0] = deck_img[i*4+0];
+                    out_rgba[i*4+1] = deck_img[i*4+1];
+                    out_rgba[i*4+2] = deck_img[i*4+2];
+                    out_rgba[i*4+3] = 255;
+                } else if (a > 0) {
+                    float w2 = a / 255.0f;
+                    out_rgba[i*4+0] = (uint8_t)(deck_img[i*4+0]*w2
+                        + out_rgba[i*4+0]*(1-w2));
+                    out_rgba[i*4+1] = (uint8_t)(deck_img[i*4+1]*w2
+                        + out_rgba[i*4+1]*(1-w2));
+                    out_rgba[i*4+2] = (uint8_t)(deck_img[i*4+2]*w2
+                        + out_rgba[i*4+2]*(1-w2));
+                    out_rgba[i*4+3] = 255;
+                }
+            }
+            continue;
+        }
         int nv = wb_mesh_vert_count(d->mesh);
         int nt = wb_mesh_tri_count(d->mesh);
         const wb_rast_vertex *vs = wb_mesh_vert_src(d->mesh);
@@ -275,4 +306,11 @@ void wb_perf_reset_for_replay(wb_perf *p) {
         p->decks[i].fired = 0;
         memset(p->decks[i].param, 0, sizeof(p->decks[i].param));
     }
+}
+/* R074 hop 184 (G-SF094): attach a wb_anim to a deck — the perf tier
+ * renders the animation (full lighting/fog pipeline) instead of the
+ * static mesh. Caller retains ownership. t is deck-clock seconds. */
+void wb_perf_deck_set_anim(wb_perf *p, int deck, struct wb_anim *a) {
+    if (!p || deck < 0 || deck >= p->ndecks) return;
+    p->decks[deck].anim = a;
 }

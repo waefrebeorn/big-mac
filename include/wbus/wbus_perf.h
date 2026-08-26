@@ -23,6 +23,7 @@
 #include "wbus_rast.h"
 #include "wbus_mesh.h"
 
+struct wb_anim;
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -52,6 +53,8 @@ int  wb_perf_fire(wb_perf *p, int deck);
 int  wb_perf_unfire(wb_perf *p, int deck);
 int  wb_perf_fade(wb_perf *p, float pos);          /* 0=deck A, 1=deck B */
 int  wb_perf_param(wb_perf *p, int deck, int which, float v);
+/* G-SF094: deck driven by a wb_anim (caller-owned). */
+void wb_perf_deck_set_anim(wb_perf *p, int deck, struct wb_anim *a);
 
 /* ---- capture / replay --------------------------------------------------- */
 

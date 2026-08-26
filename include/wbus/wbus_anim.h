@@ -146,3 +146,6 @@ const float *wb_anim_depth_map(const wb_anim *a);
 
 /* G-SF029: planar projected ground shadow at height y. */
 int wb_anim_set_ground_shadow(wb_anim *a, float y);
+
+/* G-SF092: the clock contract — engine samples -> anim seconds. */
+double wb_anim_time_from_samples(double song_pos_samples);

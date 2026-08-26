@@ -778,3 +778,13 @@ int wb_anim_set_ground_shadow(wb_anim *a, float y) {
     a->shadow_on = 1; a->shadow_y = y;
     return 0;
 }
+
+/* R074 hop 168 (G-SF092): clock contract between the engine timeline
+ * (sample-accurate, WB_SAMPLE_RATE) and CGI animation (seconds).
+ *   anim_t = timeline_sample_pos / WB_SAMPLE_RATE
+ * Frame k of an fps-rate render maps to t = k / fps exactly.
+ * This helper is the single conversion point; callers must not scale
+ * by their own constants. */
+double wb_anim_time_from_samples(double song_pos_samples) {
+    return song_pos_samples / 44100.0;   /* WB_SAMPLE_RATE */
+}

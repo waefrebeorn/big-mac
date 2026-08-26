@@ -257,9 +257,26 @@ static void project_vert(wb_rast_ctx *r, int i) {
 }
 
 /* rasterize one flat-shaded triangle via edge functions */
+/* R074 hop 172 (G-SF014): UVs — checkerboard procedural texture. */
+void wb_rast_tri_set_uv(wb_rast_tri *t,
+                        float u0, float v0, float u1, float v1,
+                        float u2, float v2) {
+    if (!t) return;
+    t->u0=u0; t->v_0=v0; t->u1=u1; t->v_1=v1; t->u2=u2; t->v_2=v2;
+}
+static int tri_has_uv(const wb_rast_tri *t) { return t->u0 > -9000.0f; }
+/* 8x8 checker in unit UV space, mid-gray modulation */
+static void uv_checker(float u, float v, float *mod) {
+    u -= (float)(int)u; if (u < 0) u += 1.0f;
+    v -= (float)(int)v; if (v < 0) v += 1.0f;
+    int cu = (int)(u * 8.0f), cv = (int)(v * 8.0f);
+    *mod = ((cu ^ cv) & 1) ? 1.15f : 0.75f;
+}
+
 static void fill_tri(wb_rast_ctx *r, uint8_t *img,
                      int i0, int i1, int i2,
-                     uint8_t cr, uint8_t cg, uint8_t cb) {
+                     uint8_t cr, uint8_t cg, uint8_t cb,
+                     const wb_rast_tri *cur_tri) {
     float x0 = r->sx[i0], y0 = r->sy[i0];
     float x1 = r->sx[i1], y1 = r->sy[i1];
     float x2 = r->sx[i2], y2 = r->sy[i2];
@@ -304,30 +321,39 @@ static void fill_tri(wb_rast_ctx *r, uint8_t *img,
             float w1 = (x2-x1)*(fy-y1) - (fx-x1)*(y2-y1);
             float w2 = (x0-x2)*(fy-y2) - (fx-x2)*(y0-y2);
             /* same winding now: all three must be same sign as area */
-            if ((w0 * inv_area) >= 0.0f && (w1 * inv_area) >= 0.0f &&
+            float b0 = w0 * inv_area;
+            if (b0 >= 0.0f && (w1 * inv_area) >= 0.0f &&
                 (w2 * inv_area) >= 0.0f) {
-                row[0] = cr; row[1] = cg; row[2] = cb; row[3] = 255;
+                float crl=cr, cgl=cg, cbl=cb;
+                /* G-SF014: texture sampling on the non-z path too */
+                if (cur_tri && tri_has_uv(cur_tri)) {
+                    float b1 = w1 * inv_area, b2 = w2 * inv_area;
+                    float uu = cur_tri->u0*b0 + cur_tri->u1*b1
+                             + cur_tri->u2*b2;
+                    float vv = cur_tri->v_0*b0 + cur_tri->v_1*b1
+                             + cur_tri->v_2*b2;
+                    if (r->tex_px && r->tex_w > 0) {
+                        uu -= (float)(int)uu; if (uu<0) uu+=1.0f;
+                        vv -= (float)(int)vv; if (vv<0) vv+=1.0f;
+                        int tx=(int)(uu*r->tex_w), ty=(int)(vv*r->tex_h);
+                        if (tx<0) tx=0; if(tx>=r->tex_w) tx=r->tex_w-1;
+                        if (ty<0) ty=0; if(ty>=r->tex_h) ty=r->tex_h-1;
+                        const uint8_t *tp =
+                            r->tex_px + ((size_t)ty*r->tex_w+tx)*4;
+                        crl=tp[0]; cgl=tp[1]; cbl=tp[2];
+                    } else {
+                        float m; uv_checker(uu, vv, &m);
+                        crl=(uint8_t)(cr*m); cgl=(uint8_t)(cg*m);
+                        cbl=(uint8_t)(cb*m);
+                    }
+                }
+                row[0] = crl; row[1] = cgl; row[2] = cbl; row[3] = 255;
             }
             row += 4;
         }
     }
 }
 
-/* R074 hop 172 (G-SF014): UVs — checkerboard procedural texture. */
-void wb_rast_tri_set_uv(wb_rast_tri *t,
-                        float u0, float v0, float u1, float v1,
-                        float u2, float v2) {
-    if (!t) return;
-    t->u0=u0; t->v_0=v0; t->u1=u1; t->v_1=v1; t->u2=u2; t->v_2=v2;
-}
-static int tri_has_uv(const wb_rast_tri *t) { return t->u0 > -9000.0f; }
-/* 8x8 checker in unit UV space, mid-gray modulation */
-static void uv_checker(float u, float v, float *mod) {
-    u -= (float)(int)u; if (u < 0) u += 1.0f;
-    v -= (float)(int)v; if (v < 0) v += 1.0f;
-    int cu = (int)(u * 8.0f), cv = (int)(v * 8.0f);
-    *mod = ((cu ^ cv) & 1) ? 1.15f : 0.75f;
-}
 
 static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
                        int i0, int i1, int i2,
@@ -673,7 +699,7 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
             if (r->zbuf_on && r->zbuf)
                 fill_tri_z(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t->a,t);
             else
-                fill_tri(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb);
+                fill_tri(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t);
             continue;
         }
         int rr=(int)(t->r*diff + 255*specv); if(rr>255)rr=255;
@@ -682,7 +708,7 @@ void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
         if (r->zbuf_on && r->zbuf)
             fill_tri_z(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t->a,t);
         else
-            fill_tri(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb);
+            fill_tri(r,out_rgba,t->v0,t->v1,t->v2,(uint8_t)rr,(uint8_t)gg,(uint8_t)bb,t);
     }
 }
 

@@ -114,9 +114,21 @@ int wb_render_showcase(const char *mp4) {
 #include <errno.h>
 
 /* R074 hop 112: per-frame render loop (anim -> frame source -> ppm). */
+static int sf_render_loop_range(wb_anim *an, wb_node *comp, uint8_t *rgba,
+                                const char *mp4, double dur, int fps,
+                                int w, int h, int k0, int k1);
 static int sf_render_loop(wb_anim *an, wb_node *comp, uint8_t *rgba,
                           const char *mp4, double dur, int fps,
                           int w, int h) {
+    return sf_render_loop_range(an, comp, rgba, mp4, dur, fps, w, h,
+                                0, -1);
+}
+
+/* R074 hop 180 (G-SF083): ranged render — k from k0 to k1 inclusive
+ * (-1 = through end). Enables checkpointed chunked renders. */
+int sf_render_loop_range(wb_anim *an, wb_node *comp, uint8_t *rgba,
+                         const char *mp4, double dur, int fps,
+                         int w, int h, int k0, int k1) {
     /* R074 hop 115 (G-SF059): pipe PPM frames straight into ffmpeg via
      * stdin — no temp files, no disk churn. */
     char cmd[768];
@@ -127,7 +139,9 @@ static int sf_render_loop(wb_anim *an, wb_node *comp, uint8_t *rgba,
     FILE *pp = popen(cmd, "w");
     if (!pp) return -1;
     int nframes = (int)(dur * fps);
-    for (int k = 0; k < nframes; k++) {
+    if (k0 < 0) k0 = 0;
+    if (k1 < 0 || k1 >= nframes) k1 = nframes - 1;
+    for (int k = k0; k <= k1; k++) {
         double tt = (double)k / fps;
         wb_frame *f = wb_node_pull(comp, tt, 0, 0, w, h);
         if (!f) continue;

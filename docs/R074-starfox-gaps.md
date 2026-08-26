@@ -77,7 +77,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 65. G-SF065 No sample-rate decimation/bitcrush unit for chiptune crunch **[FIXED]**
 66. G-SF066 No arpeggiator midifx used/verified in demo path **[FIXED]** (existing engine feature verified)
 67. G-SF067 No tempo map / BPM automation **[FIXED]**
-68. G-SF068 No pattern sequencer (loops written as raw samples)
+68. G-SF068 No pattern sequencer (loops written as raw samples) **[FIXED]**
 69. G-SF069 No sidechain-triggered duck tied to video events **[FIXED]**
 70. G-SF070 Engine SFX: no procedural laser/explosion synth presets **[FIXED]**
 71. G-SF071 No stereo pan automation per note **[FIXED]**

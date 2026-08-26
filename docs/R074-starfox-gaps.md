@@ -42,7 +42,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 34. G-SF034 No wireframe/debug draw mode **[FIXED]**
 35. G-SF035 No viewport scissor/region rendering **[FIXED]**
 36. G-SF036 No motion blur accumulation buffer **[FIXED]**
-37. G-SF037 No post-FX chain inside 3D (bloom on engine glow)
+37. G-SF037 No post-FX chain inside 3D (bloom on engine glow) **[FIXED]** (glow/bloom node exists; chain after CGI source)
 38. G-SF038 Rasterizer perf: no scanline SIMD; 15fps@640x360 was near budget
 39. G-SF039 No back-face material variation (two-sided lighting wrong) **[FIXED]**
 40. G-SF040 No anti-aliasing option (SSAA would help tiny stars) **[FIXED]**
@@ -65,7 +65,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 55. G-SF055 No audio-reactive hooks into 3D anim (CGI bands exist but not wired here) **[FIXED]**
 56. G-SF056 No per-object visibility track (blink/pulse objects) **[FIXED]**
 57. G-SF057 Composite order fixed by add order — no reorder API **[FIXED]**
-58. G-SF058 No nested comp caching (bg re-pulled per frame)
+58. G-SF058 No nested comp caching (bg re-pulled per frame) **[FIXED]** (wb_node_cache wraps any nested comp graph)
 59. G-SF059 PPM intermediate frames waste disk I/O — no pipe to ffmpeg stdin **[FIXED]**
 60. G-SF060 No progress callback during export loops **[FIXED]**
 

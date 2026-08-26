@@ -143,3 +143,6 @@ int wb_anim_add_instance(wb_anim *a, int src_obj,
 
 /* G-SF024: last frame's normalized depth (0 near .. 1 far). */
 const float *wb_anim_depth_map(const wb_anim *a);
+
+/* G-SF029: planar projected ground shadow at height y. */
+int wb_anim_set_ground_shadow(wb_anim *a, float y);

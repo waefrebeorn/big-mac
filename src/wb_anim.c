@@ -68,6 +68,9 @@ struct wb_anim {
     } instances[64];
     float *depth;          /* G-SF024: last frame normalized depth */
     size_t depth_cap;
+    /* R074 hop 164 (G-SF029): planar ground shadow */
+    int   shadow_on;
+    float shadow_y;
     wb_anim_obj objs[WB_ANIM_MAX_OBJS];
     int nobjs;
 
@@ -768,3 +771,10 @@ int wb_anim_add_instance(wb_anim *a, int src_obj,
 /* R074 hop 162 (G-SF024): access the last frame's normalized depth map
  * (w*h floats, 0=near .. 1=far/no-geometry). NULL until first render. */
 const float *wb_anim_depth_map(const wb_anim *a) { return a ? a->depth : 0; }
+
+/* R074 hop 164 (G-SF029): planar ground shadow at height y. */
+int wb_anim_set_ground_shadow(wb_anim *a, float y) {
+    if (!a) return -1;
+    a->shadow_on = 1; a->shadow_y = y;
+    return 0;
+}

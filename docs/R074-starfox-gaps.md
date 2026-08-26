@@ -99,7 +99,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 85. G-SF085 Poster/thumbnail extraction manual per demo **[FIXED]**
 86. G-SF086 No --preview lowres fast pass flag **[FIXED]**
 87. G-SF087 Agent commands (cgi-*) don't cover anim graphs **[FIXED]**
-88. G-SF088 No unit test gate for sf_render_loop (untested code shipped)
+88. G-SF088 No unit test gate for sf_render_loop (untested code shipped) **[FIXED]**
 89. G-SF089 No error surfacing when wb_anim_add_object hits cap (rc ignored) **[FIXED]**
 90. G-SF090 Demo assets not versioned under projects/ **[FIXED]** (assets versioned under projects/)
 

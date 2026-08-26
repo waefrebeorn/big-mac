@@ -183,6 +183,8 @@ wb_node *wb_node_effect_scanline(float strength);
 wb_node *wb_node_effect_chromatic(float offset_px);
 /* #78: resolve a node's output dimensions without pulling. */
 int wb_node_output_dims(wb_node *n, int *w, int *h);
+/* G-SF080 v3: wire src into dst's input slot k (grows input count). */
+int wb_node_connect(wb_node *dst, wb_node *src, int k);
 /* G-SF042: depth-aware merge of two same-size frames. */
 void wb_comp_zmerge(wb_frame *a, const wb_frame *b,
                     const float *da, const float *db);

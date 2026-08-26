@@ -1464,6 +1464,22 @@ int wb_node_graph_bind_param(const wb_node_graph *g, int i,
     return wb_node_add_param(g->nodes[i], name, tr);
 }
 
+/* R074 hop 210 (G-SF080 v3): wire src into dst's input k. Ownership
+ * follows the existing rule — composite/cache own, others don't. */
+int wb_node_connect(wb_node *dst, wb_node *src, int k) {
+    if (!dst || !src || k < 0) return -1;
+    if (k >= dst->n_inputs) {
+        wb_node **ni = realloc(dst->inputs,
+                               (size_t)(k+1) * sizeof(wb_node*));
+        if (!ni) return -1;
+        dst->inputs = ni;
+        for (int i = dst->n_inputs; i <= k; i++) dst->inputs[i] = NULL;
+        dst->n_inputs = k + 1;
+    }
+    dst->inputs[k] = src;
+    return 0;
+}
+
 /* R074 hop 195 (G-SF080 v2): param introspection for serialization. */
 int  wb_node_graph_param_count(const wb_node_graph *g, int i) {
     return (g && i >= 0 && i < g->n_nodes) ? g->nodes[i]->n_params : -1;

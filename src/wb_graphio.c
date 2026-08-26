@@ -107,3 +107,83 @@ int wb_graphio_load(wb_node_graph *g, const char *path) {
     fclose(f);
     return 0;
 }
+
+
+/* ---- recipe builder (R074 hop 210, G-SF080 deep half) ----------------- */
+#include <stdlib.h>
+
+int wb_graphio_build_recipe(const char *path, wb_node **root,
+                            wb_node **out_nodes, int *out_n) {
+    if (!path || !root) return -1;
+    FILE *f = fopen(path, "r");
+    if (!f) return -1;
+
+    enum { CAP = 16 };
+    wb_node *nodes[CAP];
+    int n = 0;
+    char line[512];
+    int lineno = 0;
+    int out_idx = -1;
+
+    while (fgets(line, sizeof line, f)) {
+        lineno++;
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '#' || *p == '\n' || !*p) continue;
+
+        char kw[16];
+        if (sscanf(p, "%15s", kw) != 1) continue;
+
+        if (!strcmp(kw, "make")) {
+            char kind[24];
+            float a=0,b2=0,c2=0,d2=1,e2=0,g2=0;
+            int cnt = sscanf(p, "make %23s %f %f %f %f %f %f",
+                             kind,&a,&b2,&c2,&d2,&e2,&g2);
+            if (cnt < 2) { fclose(f); return -lineno; }
+            wb_node *nd = NULL;
+            if (!strcmp(kind,"color"))
+                nd = wb_node_source_color(a,b2,c2,d2,
+                                          cnt>4?(int)e2:64,
+                                          cnt>4?(int)g2:64);
+            else if (!strcmp(kind,"gain"))
+                nd = wb_node_effect(1, a > 0 ? a : 1.0f);
+            else if (!strcmp(kind,"composite"))
+                nd = wb_node_composite();
+            if (n >= 2) {   /* generic effect by op number */
+                int op = (int)a;
+                if (op >= 0 && op <= 11)
+                    nd = wb_node_effect(op, b2 > 0 ? b2 : 1.0f);
+            }
+            if (!nd || n >= CAP) { fclose(f); return -lineno; }
+            nodes[n++] = nd;
+            continue;
+        }
+        if (!strcmp(kw, "wire")) {
+            int from, to, k;
+            if (sscanf(p, "wire %d %d %d", &from,&to,&k) != 3) {
+                fclose(f); return -lineno;
+            }
+            if (from<0||from>=n||to<0||to>=n||k<0||k>=4) {
+                fclose(f); return -lineno;
+            }
+            wb_node_connect(nodes[to], nodes[from], k);
+            continue;
+        }
+        if (!strcmp(kw, "output")) {
+            if (sscanf(p, "output %d", &out_idx) != 1) {
+                fclose(f); return -lineno;
+            }
+            continue;
+        }
+        fclose(f); return -lineno;
+    }
+    fclose(f);
+    if (out_idx < 0 || out_idx >= n) return -lineno;
+    *root = nodes[out_idx];
+    if (out_nodes) {
+        int m = n < *out_n ? n : *out_n;
+        for (int i = 0; i < m; i++) out_nodes[i] = nodes[i];
+        if (out_n) *out_n = m;
+    } else if (out_n) *out_n = n;
+    return 0;
+}

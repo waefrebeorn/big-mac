@@ -2491,6 +2491,36 @@ int main(void) {
         }
     }
 
+    /* ---- R074 hop 210 (G-SF080 v3): recipe builder ---- */
+    printf("\n-- graph recipe builder (G-SF080 v3) --\n");
+    {
+        FILE *f = fopen("/tmp/recipe.bmr", "w");
+        CHECK(f != NULL, "recipe: write open");
+        if (f) {
+            fprintf(f, "make color 1.0 0.5 0.0 1.0 16 16\n");
+            fprintf(f, "make gain 0.5\n");
+            fprintf(f, "wire 0 1 0\n");
+            fprintf(f, "output 1\n");
+            fclose(f);
+        }
+        wb_node *root = NULL;
+        int rc = wb_graphio_build_recipe("/tmp/recipe.bmr",
+                                         &root, NULL, NULL);
+        CHECK(rc == 0 && root != NULL, "recipe: built DAG");
+        if (rc == 0 && root) {
+            wb_frame *fr = wb_node_pull(root, 0.0, 0, 0, 16, 16);
+            CHECK(fr != NULL, "recipe: pulled frame");
+            if (fr) {
+                wb_px *px = &fr->px[8*16+8];
+                CHECK(px->r > 0.45f && px->r < 0.55f &&
+                      px->g > 0.22f && px->g < 0.28f,
+                      "recipe: gain applied to color source");
+                wb_frame_free(fr);
+            }
+        }
+        remove("/tmp/recipe.bmr");
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

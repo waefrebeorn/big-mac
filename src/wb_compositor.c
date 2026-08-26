@@ -1028,6 +1028,26 @@ static wb_frame *comp_pull(wb_node *self, double t,
     }
     return out;
 }
+
+/* R074 hop 175 (G-SF042): per-layer Z composite — merge frame B over
+ * frame A where B's depth is nearer. depth 0=near .. 1=far. Bias
+ * handles coplanar pixels. Frames must share dimensions. */
+void wb_comp_zmerge(wb_frame *a, const wb_frame *b,
+                    const float *da, const float *db) {
+    if (!a || !b || !da || !db) return;
+    if (a->w != b->w || a->h != b->h) return;
+    for (int i = 0; i < a->w * a->h; i++) {
+        if (b->px[i].a <= 0.0f) continue;
+        if (db[i] <= da[i] + 1e-4f) {   /* b at or in front of a */
+            float w = b->px[i].a;
+            a->px[i].r = b->px[i].r*w + a->px[i].r*(1-w);
+            a->px[i].g = b->px[i].g*w + a->px[i].g*(1-w);
+            a->px[i].b = b->px[i].b*w + a->px[i].b*(1-w);
+            a->px[i].a = b->px[i].a + a->px[i].a*(1-w);
+        }
+    }
+}
+
 wb_node *wb_node_composite(void) {
     wb_node *n = wb_node_create(WB_NODE_COMPOSITE, "composite");
     if (!n) return NULL;

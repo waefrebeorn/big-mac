@@ -183,6 +183,9 @@ wb_node *wb_node_effect_scanline(float strength);
 wb_node *wb_node_effect_chromatic(float offset_px);
 /* #78: resolve a node's output dimensions without pulling. */
 int wb_node_output_dims(wb_node *n, int *w, int *h);
+/* G-SF042: depth-aware merge of two same-size frames. */
+void wb_comp_zmerge(wb_frame *a, const wb_frame *b,
+                    const float *da, const float *db);
 /* G-SF032: Mode-7 affine ground warp. */
 wb_node *wb_node_effect_mode7(float horizon_frac, float strength,
                               double scroll_speed);

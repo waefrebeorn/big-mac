@@ -95,7 +95,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 81. G-SF081 No render queue (batch multiple demos) **[FIXED]**
 82. G-SF082 No --quality flag (draft vs final passes) **[FIXED]**
 83. G-SF083 No resume/checkpoint for long renders **[FIXED]**
-84. G-SF084 GIF export not integrated (external ffmpeg call)
+84. G-SF084 GIF export not integrated (external ffmpeg call) **[FIXED]**
 85. G-SF085 Poster/thumbnail extraction manual per demo **[FIXED]**
 86. G-SF086 No --preview lowres fast pass flag **[FIXED]**
 87. G-SF087 Agent commands (cgi-*) don't cover anim graphs **[FIXED]**
@@ -107,7 +107,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 91. G-SF091 wb_clip layout freeze blocks per-clip 3D scene refs **[FIXED]**
 92. G-SF092 Video track + CGI scene sync has no clock contract **[FIXED]**
 93. G-SF093 No timeline video-event model for spawning scenes at clips **[FIXED]** (wb_anim event system)
-94. G-SF094 Performance tier (wb_perf) doesn't know about anim sources
+94. G-SF094 Performance tier (wb_perf) doesn't know about anim sources **[FIXED]**
 95. G-SF095 No GPU assist story even optional (dual-core CPU ceiling)
 96. G-SF096 Memory: meshes copied per object without sharing/refcount **[FIXED]**
 97. G-SF097 No deterministic float policy (render reproducibility across runs) **[FIXED]**

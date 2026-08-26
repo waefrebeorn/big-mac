@@ -365,8 +365,7 @@ int wb_render_starfox(const char *mp4) {
                            26.0f + 1.2f*(float)sin(ct*1.3));
     }
 
-    printf("sf: %d objects, %d tris total\n",
-           wb_anim_object_count(an), 0);
+    printf("sf: %d objects\n", wb_anim_object_count(an));
 
     /* --- compositor: space bg + anim frame + HUD ------------------ */
     uint8_t *rgba = malloc((size_t)SF_W * SF_H * 4);

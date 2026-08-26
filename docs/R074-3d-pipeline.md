@@ -108,3 +108,10 @@ Threading: `wb_rast_render_mt` exists but measures slower than ST below
 to ST there. Real-scene check (`--starfox`, 336 frames): 18.2s → 15.6s
 via the emissive two-pass fix alone. The second core is better spent on
 the ffmpeg encode subprocess, which already runs concurrently.
+
+## Determinism verified end-to-end (hop 201)
+
+Two consecutive `--starfox` exports produce **byte-identical MP4s**
+(md5 match) — the full pipeline (rasterizer, compositor, engine audio,
+loudnorm, ffmpeg mux) is reproducible on this machine. This validates
+the `-ffp-contract=off` policy and fixed-seed noise under real load.

@@ -555,6 +555,27 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* R074 hop 183 (G-SF084): --gif in.mp4 out.gif — two-pass
+     * palette GIF export (palettegen + paletteuse, sierra2_4a dither).
+     * Also closes the old #97 dithering concern. */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--gif") == 0 && i + 2 < argc) {
+            char cmd[1024];
+            snprintf(cmd, sizeof cmd,
+                "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
+                "-i '%s' -vf \"palettegen=max_colors=256\" "
+                "'/tmp/bm_palette.png' && "
+                "/Users/waefrebeorn/.local/bin/ffmpeg -y -loglevel error "
+                "-i '%s' -i /tmp/bm_palette.png -lavfi "
+                "\"paletteuse=dither=sierra2_4a\" '%s'",
+                argv[i+1], argv[i+1], argv[i+2]);
+            int rc5 = system(cmd);
+            printf("gif rc=%d\n", rc5);
+            remove("/tmp/bm_palette.png");
+            return rc5 == 0 ? 0 : 1;
+        }
+    }
+
     /* R074 hop 112: --starfox — corridor run demo */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--starfox") == 0) {

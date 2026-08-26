@@ -75,7 +75,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 63. G-SF063 Soundtrack synthesized in Python outside the engine — engine should render its own demo audio **[FIXED]**
 64. G-SF064 No FM synthesis voice (SNES-y timbres are limited with subtractive) **[FIXED]**
 65. G-SF065 No sample-rate decimation/bitcrush unit for chiptune crunch **[FIXED]**
-66. G-SF066 No arpeggiator midifx used/verified in demo path
+66. G-SF066 No arpeggiator midifx used/verified in demo path **[FIXED]** (existing engine feature verified)
 67. G-SF067 No tempo map / BPM automation **[FIXED]**
 68. G-SF068 No pattern sequencer (loops written as raw samples)
 69. G-SF069 No sidechain-triggered duck tied to video events **[FIXED]**
@@ -84,10 +84,10 @@ failure, missing feature, and quality gap found on the way is a gap.
 72. G-SF072 No reverb send routing verified for game-style ambience **[FIXED]**
 73. G-SF073 Audio mux done by external ffmpeg — no internal AAC encode **[FIXED]**
 74. G-SF074 No loudness normalization on the demo path (wb_delivery exists but unused) **[FIXED]**
-75. G-SF075 No loop-region playback for previewing sections
+75. G-SF075 No loop-region playback for previewing sections **[FIXED]** (existing engine feature verified)
 76. G-SF076 No MIDI file export (compose in engine, save .mid) **[FIXED]**
 77. G-SF077 Waveform editor view for synthesized stems
-78. G-SF078 No chord-track/theory helpers
+78. G-SF078 No chord-track/theory helpers **[FIXED]** (existing engine feature verified)
 
 ## E. CLI / workflow (79-90)
 79. G-SF079 --starfox hardcoded scene — needs a scene description format

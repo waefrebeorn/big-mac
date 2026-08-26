@@ -9,6 +9,7 @@
 #include "wbus/wbus.h"
 #include "wbus/wbus_param_track.h"
 #include "wbus/wbus_compositor.h"
+#include "wbus/wbus_graphio.h"
 #include "wbus/wbus_cgi_bands.h"
 #include "wbus/wbus_mesh.h"
 
@@ -2432,6 +2433,29 @@ int main(void) {
             free(img);
             wb_rast_destroy(rq);
             wb_rast_destroy(rr);
+        }
+    }
+
+    /* ---- R074 hop 191 (G-SF080): graph save/load roundtrip --------- */
+    printf("\n-- node graph save/load (G-SF080) --\n");
+    {
+        wb_node_graph *g = wb_node_graph_create();
+        CHECK(g != NULL, "graph: create");
+        if (g) {
+            int n = wb_node_graph_count(g);
+            CHECK(n > 0, "graph: has nodes");
+            wb_node_graph_set_pos(g, 0, 111.0f, 222.0f);
+            CHECK(wb_graphio_save(g, "/tmp/gate.bmgraph") == 0,
+                  "graphio: save");
+            for (int i = 0; i < n; i++)
+                wb_node_graph_set_pos(g, i, 1.0f, 1.0f);
+            CHECK(wb_graphio_load(g, "/tmp/gate.bmgraph") == 0,
+                  "graphio: load");
+            float x = 0, y = 0;
+            wb_node_graph_pos(g, 0, &x, &y);
+            CHECK(x == 111.0f && y == 222.0f,
+                  "graphio: layout restored");
+            wb_node_graph_destroy(g);
         }
     }
 

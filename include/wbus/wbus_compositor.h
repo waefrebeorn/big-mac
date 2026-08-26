@@ -313,6 +313,11 @@ int             wb_node_graph_bind_param(const wb_node_graph *g, int i,
                                          const char *name,
                                          wb_param_track *tr);
 
+/* G-SF080: graph state mutators (save/load + editor). */
+void wb_node_graph_set_label(wb_node_graph *g, int i, const char *label);
+void wb_node_graph_set_pos(wb_node_graph *g, int i, float x, float y);
+int  wb_node_graph_connect(wb_node_graph *g, int from, int to, int k);
+
 /* R073 hop 82: drive a power window's center along a keyframed path. */
 int wb_node_window_track_path(wb_node *win_effect,
                               const double *ts, const float xs[],

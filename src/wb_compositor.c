@@ -1464,6 +1464,24 @@ int wb_node_graph_bind_param(const wb_node_graph *g, int i,
     return wb_node_add_param(g->nodes[i], name, tr);
 }
 
+/* R074 hop 191 (G-SF080): graph state mutators for save/load. */
+void wb_node_graph_set_label(wb_node_graph *g, int i, const char *label) {
+    if (!g || i < 0 || i >= g->n_nodes || !label) return;
+    snprintf(g->labels[i], sizeof g->labels[0], "%s", label);
+}
+void wb_node_graph_set_pos(wb_node_graph *g, int i, float x, float y) {
+    if (!g || i < 0 || i >= g->n_nodes) return;
+    g->x[i] = x; g->y[i] = y;
+}
+int  wb_node_graph_connect(wb_node_graph *g, int from, int to, int k) {
+    if (!g || to < 0 || to >= g->n_nodes || k < 0 || k >= 4) return -1;
+    if (from < -1 || from >= g->n_nodes) return -1;
+    g->in_idx[to][k] = from;
+    if (k + 1 > g->in_n[to]) g->in_n[to] = k + 1;
+    return 0;
+}
+
+
 
 
 /* ---- G67: basic color grading ------------------------------------------- */

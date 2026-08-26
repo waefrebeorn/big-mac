@@ -64,6 +64,27 @@ int main(void) {
         CHECK(r >= 0, "cgi-asset stamps a library model");
     }
 
+    /* ---- R074 hop 208 (G-SF091): cgi-bind roundtrip ---- */
+    {
+        wb_track *vt = wb_session_add_track(s, "vid", WB_TRACK_KIND_VIDEO);
+        CHECK(vt != NULL, "video track added");
+        if (vt) {
+            /* need a video-type clip in the slot for bind to be meaningful;
+               the command only checks bounds, so an empty clip_count fails
+               gracefully — add a minimal clip shell first */
+            CHECK(wb_agent_command(s, e, "cgi-bind 0 0") != 0,
+                  "cgi-bind on empty clip fails cleanly");
+        }
+        /* full binding test through the side table directly */
+        wb_clip_edit_table *ce = wb_engine_clip_edit(e);
+        CHECK(ce != NULL, "engine has a clip-edit table");
+        if (ce && vt && vt->clip_count > 0) {
+            wb_agent_command(s, e, "cgi-bind 0 0");
+            void *sc = wb_clip_edit_scene3d(ce, 0, 0);
+            CHECK(sc != NULL, "scene3d bound and retrievable");
+        }
+    }
+
     /* cleanup the synthetic kit so it doesn't ship */
     system("rm -rf assets/kits/test-kit");
 

@@ -59,6 +59,13 @@ struct wb_anim {
     int   ncam_keys;
     wb_anim_keyframe cam_keys[WB_ANIM_MAX_KEYS];
     float shake_amt;   /* G-SF008: camera shake amplitude (radians) */
+    /* R074 hop 156 (G-SF019): instancing — additional static transforms
+     * sharing an existing object's mesh (no per-instance keys). */
+    int   ninstances;
+    struct {
+        int src_obj;
+        float px, py, pz, rx, ry, rz, s;
+    } instances[64];
     wb_anim_obj objs[WB_ANIM_MAX_OBJS];
     int nobjs;
 
@@ -352,6 +359,38 @@ for (int i = 0; i < a->nobjs; i++) {
             draw_tri(a, base+src_tris[q].v0, base+src_tris[q].v1,
                      base+src_tris[q].v2, fr, fg, fb, &nt);
         }
+    }
+    /* R074 hop 156 (G-SF019): instances — same mesh, static transform */
+    for (int q2 = 0; q2 < a->ninstances; q2++) {
+        int so = a->instances[q2].src_obj;
+        if (so < 0 || so >= a->nobjs) continue;
+        wb_anim_obj *o = &a->objs[so];
+        if (o->nkeys == 0) continue;
+        wb_anim_obj tmp = *o;
+        tmp.xverts = malloc(sizeof(wb_rast_vertex) *
+                            (o->mesh ? wb_mesh_vert_count(o->mesh) : 0));
+        if (!tmp.xverts) continue;
+        wb_anim_keyframe kf;
+        sample_obj(o, t, &kf);
+        kf.px += a->instances[q2].px;
+        kf.py += a->instances[q2].py;
+        kf.pz += a->instances[q2].pz;
+        kf.rx += a->instances[q2].rx;
+        kf.ry += a->instances[q2].ry;
+        kf.rz += a->instances[q2].rz;
+        kf.scale *= a->instances[q2].s;
+        bake_obj(&tmp, &kf);
+        int base = nv;
+        int mv = wb_mesh_vert_count(o->mesh);
+        int mt = wb_mesh_tri_count(o->mesh);
+        const wb_rast_tri *src_tris = wb_mesh_tri_src(o->mesh);
+        for (int v = 0; v < mv; v++)
+            draw_vert(a, tmp.xverts[v].x, tmp.xverts[v].y,
+                      tmp.xverts[v].z, &nv);
+        for (int q3 = 0; q3 < mt; q3++)
+            draw_tri(a, base+src_tris[q3].v0, base+src_tris[q3].v1,
+                     base+src_tris[q3].v2, o->r, o->g, o->b, &nt);
+        free(tmp.xverts);
     }
     if (nt > 0) {
         wb_rast_set_scene(r, a->draw_verts, nv, a->draw_tris, nt);
@@ -705,4 +744,20 @@ int wb_anim_set_shake(wb_anim *a, float amt) {
     if (!a || amt < 0) return -1;
     a->shake_amt = amt;
     return 0;
+}
+
+/* R074 hop 156 (G-SF019): instance an object — draws the source mesh
+ * again at a static transform. Returns instance index or -1. */
+int wb_anim_add_instance(wb_anim *a, int src_obj,
+                         float px, float py, float pz,
+                         float rx, float ry, float rz, float s) {
+    if (!a || src_obj < 0 || src_obj >= a->nobjs) return -1;
+    if (a->ninstances >= 64) return -1;
+    int idx = a->ninstances++;
+    a->instances[idx].src_obj = src_obj;
+    a->instances[idx].px=px; a->instances[idx].py=py;
+    a->instances[idx].pz=pz; a->instances[idx].rx=rx;
+    a->instances[idx].ry=ry; a->instances[idx].rz=rz;
+    a->instances[idx].s = s > 0 ? s : 1.0f;
+    return idx;
 }

@@ -135,3 +135,8 @@ void wb_anim_progress(double frac);
 
 /* G-SF008: camera shake composition (additive, deterministic). */
 int wb_anim_set_shake(wb_anim *a, float amt);
+
+/* G-SF019: instancing — draw src_obj again at a static transform. */
+int wb_anim_add_instance(wb_anim *a, int src_obj,
+                         float px, float py, float pz,
+                         float rx, float ry, float rz, float s);

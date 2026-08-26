@@ -17,6 +17,9 @@
 
 struct wb_rast_ctx {
     int w, h;
+    /* R074 hop 154 (G-SF043): vertical-gradient skybox */
+    int sky_on;
+    uint8_t sky_top[3], sky_bot[3];
     /* R074 hop 152 (G-SF035): viewport scissor */
     int sc_x, sc_y, sc_w, sc_h;   /* -1 = disabled */
     /* R074 hop 153 (G-SF027): 0=flat (default), 1=gouraud */
@@ -61,7 +64,36 @@ wb_rast_ctx *wb_rast_create(int w, int h) {
     r->sun_i = 1.0f;
     r->spec = 0.25f;
     r->sc_x = r->sc_y = -1;   /* scissor disabled */
+    r->sky_on = 0;            /* G-SF043: skybox off by default */
     return r;
+}
+
+/* R074 hop 154 (G-SF043): skybox — vertical gradient drawn before the
+ * scene. Components 0..255. on=0 disables. */
+void wb_rast_set_skybox(wb_rast_ctx *r, int on,
+                        int tr_, int tg_, int tb_,
+                        int br, int bg, int bb) {
+    if (!r) return;
+    r->sky_on = on ? 1 : 0;
+    if (on) {
+        r->sky_top[0]=(uint8_t)tr_; r->sky_top[1]=(uint8_t)tg_;
+        r->sky_top[2]=(uint8_t)tb_;
+        r->sky_bot[0]=(uint8_t)br; r->sky_bot[1]=(uint8_t)bg;
+        r->sky_bot[2]=(uint8_t)bb;
+    }
+}
+
+static void sky_fill(const wb_rast_ctx *r, uint8_t *out_rgba) {
+    for (int y = 0; y < r->h; y++) {
+        float t = (float)y / (float)(r->h > 1 ? r->h - 1 : 1);
+        uint8_t rr=(uint8_t)(r->sky_top[0]+(r->sky_bot[0]-r->sky_top[0])*t);
+        uint8_t gg=(uint8_t)(r->sky_top[1]+(r->sky_bot[1]-r->sky_top[1])*t);
+        uint8_t bb2=(uint8_t)(r->sky_top[2]+(r->sky_bot[2]-r->sky_top[2])*t);
+        uint8_t *row = out_rgba + (size_t)y*r->w*4;
+        for (int x = 0; x < r->w; x++) {
+            row[x*4+0]=rr; row[x*4+1]=gg; row[x*4+2]=bb2; row[x*4+3]=255;
+        }
+    }
 }
 
 /* R074 hop 153 (G-SF027): per-vertex (gouraud) lighting toggle. */
@@ -372,7 +404,8 @@ static void render_gouraud(wb_rast_ctx *r, uint8_t *out_rgba);
 
 void wb_rast_render(wb_rast_ctx *r, uint8_t *out_rgba) {
     if (!r || !out_rgba || r->ntris <= 0) return;
-    memset(out_rgba, 0, (size_t)r->w * r->h * 4);
+    if (r->sky_on) sky_fill(r, out_rgba);
+    else memset(out_rgba, 0, (size_t)r->w * r->h * 4);
     if (r->zbuf_on && !r->zbuf) { r->zbuf = malloc((size_t)r->w*r->h*sizeof(float)); }
     if (r->zbuf_on && r->zbuf)
         for (int i = 0; i < r->w*r->h; i++) r->zbuf[i] = 1e9f;

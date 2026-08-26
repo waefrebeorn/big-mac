@@ -411,22 +411,34 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
     float w2r=ddx20*(fy0-y2)-(fx0-x2)*ddy20;
     float s01=-ddy01, s12=-ddy12, s20=-ddy20;   /* x-step deltas */
     float t01=ddx01, t12=ddx12, t20=ddx20;      /* y-step deltas */
+    /* G-SF038 v3: affine depth stepping — dz per pixel/row from the
+     * plane equation; inner loop drops 3 muls + 2 adds per pixel. */
+    float dzdpix = inv*(z0*s01 + z1*s12 + z2*s20);
+    float dzdrow = inv*(z0*t01 + z1*t12 + z2*t20);
+    {   /* seed running z at (minx,miny) via one barycentric eval */
+        float fx=(float)minx+0.5f, fy=(float)miny+0.5f;
+        float bb0=((x1-x0)*(fy-y0)-(fx-x0)*(y1-y0))*inv;
+        float bb1=((x2-x1)*(fy-y1)-(fx-x1)*(y2-y1))*inv;
+        float bb2=((x0-x2)*(fy-y2)-(fx-x2)*(y0-y2))*inv;
+        z0 = z0*bb0+z1*bb1+z2*bb2;
+    }
     for (int py=miny; py<maxy; py++) {
         uint8_t *row=img+((size_t)py*r->w+minx)*4;
         float *zrow=r->zbuf+((size_t)py*r->w+minx);
         float w0=w0r, w1=w1r, w2=w2r;
+        float z=z0;
         for (int px=minx; px<maxx; px++) {
-            float b0=w0*inv,b1=w1*inv,b2=w2*inv;
-            if (b0>=0 && b1>=0 && b2>=0) {
-                float z=z0*b0+z1*b1+z2*b2;
+            if (w0>=0 && w1>=0 && w2>=0) {
                 if (z < zrow[0]) {
                     float crl=cr, cgl=cg, cbl=cb;
                     /* G-SF014: procedural checker modulates albedo */
                     if (tri_has_uv(cur_tri)) {
-                        float uu = cur_tri->u0*b0 + cur_tri->u1*b1
-                                 + cur_tri->u2*b2;
-                        float vv = cur_tri->v_0*b0 + cur_tri->v_1*b1
-                                 + cur_tri->v_2*b2;
+                        float inv3 = 1.0f/(w0+w1+w2);
+                        float uu = cur_tri->u0*w0 + cur_tri->u1*w1
+                                 + cur_tri->u2*w2;
+                        float vv = cur_tri->v_0*w0 + cur_tri->v_1*w1
+                                 + cur_tri->v_2*w2;
+                        uu *= inv3; vv *= inv3;
                         if (r->tex_px && r->tex_w > 0) {
                             /* G-SF045: texture sample, nearest, wrap */
                             uu -= (float)(int)uu; if (uu<0) uu+=1.0f;
@@ -459,8 +471,10 @@ static void fill_tri_z(wb_rast_ctx *r, uint8_t *img,
             }
             row+=4; zrow++;
             w0+=s01; w1+=s12; w2+=s20;
+            z+=dzdpix;
         }
         w0r+=t01; w1r+=t12; w2r+=t20;
+        z0+=dzdrow;
     }
 }
 

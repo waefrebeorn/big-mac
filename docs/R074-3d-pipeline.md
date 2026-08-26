@@ -1,0 +1,61 @@
+# Big Mac 3D Pipeline (R074)
+
+Status: wired and gated. Engine selftest 750/0, compositor 262/0.
+
+## Architecture
+
+Pull-based RoI compositor (`src/wb_compositor.c`) feeds a fixed-function
+software rasterizer (`src/wb_rast.c`). Animation/scene graph lives in
+`src/wb_anim.c`; meshes in `src/wb_mesh.c`. Pure C11, zero third-party,
+deterministic float policy (`-ffp-contract=off`, no fast-math).
+
+## Rasterizer (wb_rast)
+
+- Edge-function triangle fill, back-face cull by signed area
+- Flat shading (per-tri color) **or** gouraud (`wb_rast_set_shading`):
+  vertex normals accumulated from adjacent faces, lit per-vertex,
+  barycentric intensity interpolation
+- Z-buffer path (`fill_tri_z`) with per-tri alpha blending; transparent
+  tris drawn after opaque via depth-bias in the painter's sort
+- Wireframe mode (`wb_rast_set_wireframe`)
+- Two-sided lighting flag (G-SF039)
+- Viewport scissor (`wb_rast_set_scissor`)
+- Skybox: vertical gradient behind the scene (`wb_rast_set_skybox`)
+- Camera: orbit angles + distance + focal length (G-SF007), animated
+  through the same keyframe system as objects; deterministic shake
+  composition (`wb_anim_set_shake`, G-SF008)
+
+## Animation (wb_anim)
+
+- Per-channel keys (pos/rot/scale decoupled, G-SF003), key delete/move
+  (G-SF004), looping/wrap keys (G-SF005), cubic bezier paths (G-SF006),
+  shortest-arc rotation unwrap (G-SF022)
+- Object parenting with additive translation inheritance
+- Billboard sprites (G-SF010) and yaw-to-camera look-at (G-SF009) flags
+- Emissive two-pass render (G-SF015), visibility windows (G-SF056),
+  depth fog (G-SF017), resolution override (G-SF026)
+- Instancing: `wb_anim_add_instance` shares geometry across static
+  transforms (G-SF019)
+- Supersampled AA (`wb_anim_render_frame_aa`), temporal motion blur
+  (`wb_anim_render_frame_blur`), screenshot API (`wb_anim_screenshot`)
+- fps/timebase metadata, progress callback, error surfacing
+
+## Meshes (wb_mesh)
+
+Primitives: box, cone, sphere-ish lathes, capsule, wedge. Append/merge.
+Painting: whole mesh, per-face (`wb_mesh_paint_face`), gradients.
+
+## Compositor bridge
+
+CGI renders enter the node graph as `wb_node_source_anim` /
+`wb_node_source_frame`; per-layer transforms, layer reorder, Mode-7
+warp, letterbox/scanline/chromatic nodes sit downstream. Export pipes
+PPM frames straight into ffmpeg (no temp files); `--lufs` applies
+two-pass loudnorm on the muxed file; `--quality` / `--preview` set the
+QoS dial; `--poster` grabs a thumbnail.
+
+## Determinism policy (G-SF097)
+
+No fast-math anywhere; FMA contraction disabled; all noise/hash uses
+fixed seeds (see `wb_sfx.c`). Renders are bit-reproducible on this
+machine.

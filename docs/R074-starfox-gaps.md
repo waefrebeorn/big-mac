@@ -101,7 +101,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 87. G-SF087 Agent commands (cgi-*) don't cover anim graphs **[FIXED]**
 88. G-SF088 No unit test gate for sf_render_loop (untested code shipped)
 89. G-SF089 No error surfacing when wb_anim_add_object hits cap (rc ignored) **[FIXED]**
-90. G-SF090 Demo assets not versioned under projects/
+90. G-SF090 Demo assets not versioned under projects/ **[FIXED]** (assets versioned under projects/)
 
 ## F. Deeper engine gaps exposed (91-100)
 91. G-SF091 wb_clip layout freeze blocks per-clip 3D scene refs

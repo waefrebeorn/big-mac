@@ -2392,6 +2392,49 @@ int main(void) {
         }
     }
 
+    /* ---- R074 hop 178 (G-SF088): rasterizer render-loop gate ------- */
+    printf("\n-- rasterizer gate (G-SF088) --\n");
+    {
+        wb_rast_ctx *rr = wb_rast_create(64, 64);
+        CHECK(rr != NULL, "rast: ctx alloc");
+        if (rr) {
+            wb_mesh *mm = wb_mesh_box(0.5f, 0.5f, 0.5f, 255, 0, 0);
+            int nv = wb_mesh_vert_count(mm);
+            int nt = wb_mesh_tri_count(mm);
+            int rc = wb_rast_set_scene(rr, wb_mesh_vert_src(mm), nv,
+                                       wb_mesh_tri_src(mm), nt);
+            CHECK(rc == 0, "rast: set_scene");
+            uint8_t *img = calloc((size_t)64*64, 4);
+            wb_rast_render(rr, img);
+            int drawn = 0;
+            for (int i = 0; i < 64*64; i++)
+                if (img[i*4+3] > 0 && img[i*4] > 30) drawn++;
+            CHECK(drawn > 50, "rast: box rasterizes pixels");
+            /* RTT: use this render as a texture on a quad */
+            wb_rast_vertex qv[4] = {{-1,-1,0},{1,-1,0},{1,1,0},{-1,1,0}};
+            wb_rast_tri qt[2];
+            memset(qt, 0, sizeof qt);
+            qt[0].v0=0; qt[0].v1=1; qt[0].v2=2;
+            qt[0].r=200; qt[0].g=200; qt[0].b=200; qt[0].a=255;
+            qt[1].v0=0; qt[1].v1=2; qt[1].v2=3;
+            qt[1].r=200; qt[1].g=200; qt[1].b=200; qt[1].a=255;
+            wb_rast_tri_set_uv(&qt[0], 0,0, 1,0, 1,1);
+            wb_rast_tri_set_uv(&qt[1], 0,0, 1,1, 0,1);
+            wb_rast_ctx *rq = wb_rast_create(32, 32);
+            wb_rast_set_scene(rq, qv, 4, qt, 2);
+            wb_rast_set_texture(rq, img, 64, 64);
+            memset(img, 0, (size_t)32*32*4);
+            wb_rast_render(rq, img);
+            int sampled = 0;
+            for (int i = 0; i < 32*32; i++)
+                if (img[i*4+3] > 0) sampled++;
+            CHECK(sampled > 100, "rtt: textured quad samples texture");
+            free(img);
+            wb_rast_destroy(rq);
+            wb_rast_destroy(rr);
+        }
+    }
+
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

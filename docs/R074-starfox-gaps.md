@@ -28,7 +28,7 @@ failure, missing feature, and quality gap found on the way is a gap.
 22. G-SF022 Rotation interpolation is Euler-only — gimbal artifacts possible **[FIXED]**
 23. G-SF023 No animation events/callbacks at key times (spawn SFX at ring pass) **[FIXED]**
 24. G-SF024 anim render output alpha-keyed but no depth composite against bg Z **[FIXED]**
-25. G-SF025 No LOD system
+25. G-SF025 No LOD system **[FIXED]**
 
 ## B. Renderer / rasterizer (26-45)
 26. G-SF026 No resolution scale option (locked to anim WxH) **[FIXED]**

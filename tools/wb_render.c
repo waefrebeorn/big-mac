@@ -16,6 +16,7 @@
 #include "wbus.h"
 #include "wb_internal.h"
 #include "wbus/wbus_lufs.h"
+#include "wbus/wbus_scenedesc.h"   /* G-SF079 */
 #include "wbus/wbus_delivery.h"
 #include "wbus/wbus_compositor.h"
 #include "wbus/wbus_mesh.h"
@@ -572,6 +573,35 @@ int main(int argc, char **argv) {
             printf("gif rc=%d\n", rc5);
             remove("/tmp/bm_palette.png");
             return rc5 == 0 ? 0 : 1;
+        }
+    }
+
+    /* R074 hop 220 (G-SF079 v2): --scene <file.bmscene> [dur] [out.mp4]
+     * — render a file-defined scene without any C changes. */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--scene") == 0 && i + 1 < argc) {
+            const char *spath = argv[++i];
+            double sdur = (i + 1 < argc && argv[i+1][0] != '-')
+                          ? atof(argv[++i]) : 6.0;
+            const char *out_mp4 = (i + 1 < argc) ? argv[i+1]
+                                                 : "/tmp/scene.mp4";
+            wb_anim *an = wb_anim_create(640, 360);
+            if (!an) return 1;
+            int rc6 = wb_scenedesc_load(an, spath);
+            if (rc6 != 0) {
+                fprintf(stderr, "scene load failed at line %d\n", -rc6);
+                wb_anim_free(an);
+                return 1;
+            }
+            printf("scene: %d objects\n", wb_anim_object_count(an));
+            wb_node *comp2 = wb_node_source_anim(an, 640, 360);
+            uint8_t *fr = malloc((size_t)640*360*4);
+            int rc7 = sf_render_loop_range(an, comp2, fr, out_mp4,
+                                           sdur, 24, 640, 360, 0, -1);
+            printf("scene render rc=%d\n", rc7);
+            wb_anim_free(an);
+            free(fr);
+            return rc7 == 0 ? 0 : 1;
         }
     }
 

@@ -86,11 +86,11 @@ failure, missing feature, and quality gap found on the way is a gap.
 74. G-SF074 No loudness normalization on the demo path (wb_delivery exists but unused) **[FIXED]**
 75. G-SF075 No loop-region playback for previewing sections **[FIXED]** (existing engine feature verified)
 76. G-SF076 No MIDI file export (compose in engine, save .mid) **[FIXED]**
-77. G-SF077 Waveform editor view for synthesized stems
+77. G-SF077 Waveform editor view for synthesized stems **[FIXED]**
 78. G-SF078 No chord-track/theory helpers **[FIXED]** (existing engine feature verified)
 
 ## E. CLI / workflow (79-90)
-79. G-SF079 --starfox hardcoded scene — needs a scene description format
+79. G-SF079 --starfox hardcoded scene — needs a scene description format **[FIXED]**
 80. G-SF080 No project save/load for compositor+anim graphs (session-only)
 81. G-SF081 No render queue (batch multiple demos) **[FIXED]**
 82. G-SF082 No --quality flag (draft vs final passes) **[FIXED]**

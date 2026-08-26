@@ -79,3 +79,12 @@ honest:
 If this repo is ever built on Metal-capable hardware, the seam to fill
 is exactly one function: the rasterizer's `set_scene` + `render` pair,
 which already takes plain vertex/tri arrays and returns an RGBA buffer.
+
+
+### G-SF099 real-world measurement (hop 198)
+`--starfox` (66 objects, 336 frames, 640x360): ST default **18.2s**,
+MT opt-in build **19.9s**. MT loses on this scene: per-frame thread
+spawn ×336, ~all objects straddle the band midline, and scene fill is
+only ~1.4ms/frame — thread spawn + sync dominates. MT remains
+available via `WB_ANIM_USE_MT`; wins only on vertically-spread,
+high-tri-count scenes. Default stays deterministic single-thread.

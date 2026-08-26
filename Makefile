@@ -7,7 +7,9 @@
 
 CC       := clang
 CXX      := clang++
-CFLAGS   := -std=c11 -O2 -Wall -Wextra -g -D_THREAD_SAFE -MMD -MP
+# R074 hop 148 (G-SF097): deterministic float policy — no fast-math,
+# no FMA contraction; renders are bit-reproducible on this machine.
+CFLAGS   := -std=c11 -O2 -ffp-contract=off -Wall -Wextra -g -D_THREAD_SAFE -MMD -MP
 CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -g -D_THREAD_SAFE -MMD -MP
 INC      := -Iinclude -Iinclude/wbus -Ithird_party/SDL2-2.32.10/include \
            -Ithird_party/openfx/include \

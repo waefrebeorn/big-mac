@@ -1464,6 +1464,22 @@ int wb_node_graph_bind_param(const wb_node_graph *g, int i,
     return wb_node_add_param(g->nodes[i], name, tr);
 }
 
+/* R074 hop 195 (G-SF080 v2): param introspection for serialization. */
+int  wb_node_graph_param_count(const wb_node_graph *g, int i) {
+    return (g && i >= 0 && i < g->n_nodes) ? g->nodes[i]->n_params : -1;
+}
+const char *wb_node_graph_param_name(const wb_node_graph *g, int i, int p) {
+    if (!g || i < 0 || i >= g->n_nodes || p < 0 ||
+        p >= g->nodes[i]->n_params) return NULL;
+    return g->nodes[i]->param_names[p];
+}
+float wb_node_graph_param_value(const wb_node_graph *g, int i, int p,
+                                double t) {
+    if (!g || i < 0 || i >= g->n_nodes || p < 0 ||
+        p >= g->nodes[i]->n_params) return 0.0f;
+    return wb_param_track_value_at(g->nodes[i]->params[p], t);
+}
+
 /* R074 hop 191 (G-SF080): graph state mutators for save/load. */
 void wb_node_graph_set_label(wb_node_graph *g, int i, const char *label) {
     if (!g || i < 0 || i >= g->n_nodes || !label) return;

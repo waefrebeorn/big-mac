@@ -313,6 +313,11 @@ int             wb_node_graph_bind_param(const wb_node_graph *g, int i,
                                          const char *name,
                                          wb_param_track *tr);
 
+/* G-SF080 v2: param introspection for save/load + editors. */
+int         wb_node_graph_param_count(const wb_node_graph *g, int i);
+const char *wb_node_graph_param_name(const wb_node_graph *g, int i, int p);
+float       wb_node_graph_param_value(const wb_node_graph *g, int i,
+                                      int p, double t);
 /* G-SF080: graph state mutators (save/load + editor). */
 void wb_node_graph_set_label(wb_node_graph *g, int i, const char *label);
 void wb_node_graph_set_pos(wb_node_graph *g, int i, float x, float y);

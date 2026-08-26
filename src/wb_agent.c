@@ -203,6 +203,27 @@ static int cgi_command(wb_session *s, wb_engine *e,
         if (sc <= 0) sc = 1;
         return wb_anim_key_ease(g_cgi, obj, t, px,py,pz, 0,0,0, sc, ease);
     }
+    /* R074 hop 161 (G-SF087): anim-graph commands */
+    if (strcmp(cmd, "cgi-instance") == 0) {
+        if (!g_cgi) return -1;
+        int obj = atoi(tok((char**)&rest));
+        float px=atof(tok((char**)&rest)), py=atof(tok((char**)&rest)),
+              pz=atof(tok((char**)&rest)), s=atof(tok((char**)&rest));
+        return wb_anim_add_instance(g_cgi, obj, px,py,pz, 0,0,0,
+                                    s > 0 ? s : 1.0f);
+    }
+    if (strcmp(cmd, "cgi-shake") == 0) {
+        if (!g_cgi) return -1;
+        return wb_anim_set_shake(g_cgi, atof(tok((char**)&rest)));
+    }
+    if (strcmp(cmd, "cgi-fog") == 0) {
+        if (!g_cgi) return -1;
+        float near_=atof(tok((char**)&rest)), far_=atof(tok((char**)&rest));
+        uint8_t fr=20, fg=24, fb=40;
+        wb_anim_set_fog(g_cgi, near_, far_, fr, fg, fb);
+        return 0;
+    }
+
     if (strcmp(cmd, "cgi-asset") == 0) {
         /* cgi-asset <kit> <model> <x> <y> <z> : stamp a library GLB */
         cgi_ensure();

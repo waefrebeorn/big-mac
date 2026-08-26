@@ -104,8 +104,8 @@ failure, missing feature, and quality gap found on the way is a gap.
 90. G-SF090 Demo assets not versioned under projects/ **[FIXED]** (assets versioned under projects/)
 
 ## F. Deeper engine gaps exposed (91-100)
-91. G-SF091 wb_clip layout freeze blocks per-clip 3D scene refs
-92. G-SF092 Video track + CGI scene sync has no clock contract
+91. G-SF091 wb_clip layout freeze blocks per-clip 3D scene refs **[FIXED]**
+92. G-SF092 Video track + CGI scene sync has no clock contract **[FIXED]**
 93. G-SF093 No timeline video-event model for spawning scenes at clips **[FIXED]** (wb_anim event system)
 94. G-SF094 Performance tier (wb_perf) doesn't know about anim sources
 95. G-SF095 No GPU assist story even optional (dual-core CPU ceiling)

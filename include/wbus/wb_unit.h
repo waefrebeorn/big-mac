@@ -42,6 +42,7 @@ void wb_unit_ensure_all(void);
 void wb_unit_ensure_fm(void);
 void wb_unit_ensure_drums(void);
 void wb_unit_ensure_chorus(void);
+void wb_unit_ensure_bitcrush(void);
 void wb_unit_ensure_eq(void);
 
 /* convenience: create/process/destroy via unit id */

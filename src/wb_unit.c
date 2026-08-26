@@ -108,6 +108,7 @@ void wb_unit_ensure_all(void) {
     wb_unit_ensure_fm();
     wb_unit_ensure_drums();
     wb_unit_ensure_chorus();
+    wb_unit_ensure_bitcrush();
     wb_unit_ensure_eq();
     wb_unit_clap_ensure();
     done = 1;

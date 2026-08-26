@@ -42,6 +42,11 @@ typedef struct wb_clip_edit {
     int    color;          /* G13: clip color slot 0..7 (0 = default palette);
                               Ableton-style in-grid labeling. Side-table only —
                               wb_clip layout is frozen (.wbus/memcpy). */
+    /* R074 hop 170 (G-SF091): per-clip 3D scene reference — pointer to
+     * a wb_anim owned by the caller; 0 = none. Lives in the side table
+     * so the frozen wb_clip layout is untouched. Opaque here: the
+     * header stays free of wbus_anim.h (no god-header coupling). */
+    void  *scene3d;
 } wb_clip_edit;
 
 /* Opaque table. Keyed by (track, clip); grows as needed. */

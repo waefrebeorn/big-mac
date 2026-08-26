@@ -139,7 +139,6 @@ int wb_graphio_build_recipe(const char *path, wb_node **root,
         if (!strcmp(kw, "make")) {
             char kind[24];
             /* text takes a string payload — handle before numeric parse */
-            fprintf(stderr, "DBG make branch: kind-parse next, line=[%s]\n", p);
             if (strstr(p, "make text ") == p) {
                 fprintf(stderr, "DBG text branch hit\n");
                 const char *txt = p + 10;   /* after "make text " */

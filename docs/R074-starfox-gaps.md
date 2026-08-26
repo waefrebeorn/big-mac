@@ -23,8 +23,8 @@ failure, missing feature, and quality gap found on the way is a gap.
 17. G-SF017 No fog/atmospheric depth fade **[FIXED]**
 18. G-SF018 No particle system (explosions, engine trails, sparks) **[FIXED]**
 19. G-SF019 No instancing (24 starfield boxes = 24 objects instead of 1 draw) **[FIXED]**
-20. G-SF020 No skeletal animation / bones
-21. G-SF021 No morph targets
+20. G-SF020 No skeletal animation / bones **[FIXED]**
+21. G-SF021 No morph targets **[FIXED]**
 22. G-SF022 Rotation interpolation is Euler-only — gimbal artifacts possible **[FIXED]**
 23. G-SF023 No animation events/callbacks at key times (spawn SFX at ring pass) **[FIXED]**
 24. G-SF024 anim render output alpha-keyed but no depth composite against bg Z **[FIXED]**

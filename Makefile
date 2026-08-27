@@ -9,9 +9,9 @@ CC       := clang
 CXX      := clang++
 # R074 hop 148 (G-SF097): deterministic float policy — no fast-math,
 # no FMA contraction; renders are bit-reproducible on this machine.
-CFLAGS   := -std=c11 -O2 -ffp-contract=off -Wall -Wextra -g -D_THREAD_SAFE -MMD -MP
+CFLAGS   := -std=c11 -O2 -ffp-contract=off -Wall -Wextra -g -D_THREAD_SAFE -msse2 -MMD -MP
 CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -g -D_THREAD_SAFE -MMD -MP
-INC      := -Iinclude -Iinclude/wbus -Ithird_party/SDL2-2.32.10/include \
+INC      := -Iinclude -Iinclude/wbus -Itools -Ithird_party/SDL2-2.32.10/include \
            -Ithird_party/openfx/include \
            -Ithird_party/vst3sdk \
            -Ithird_party/vst3sdk/pluginterfaces \
@@ -36,8 +36,8 @@ CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c \
              src/wb_comp.c src/wb_reverb.c src/wb_delay.c src/wb_synth.c \
              src/wb_sampler.c src/wb_wav.c src/wb_backend.c \
              src/wb_tuner.c src/wb_ui_font.c src/wb_midi_coremidi.c src/wb_clap.c \
-             src/wb_session_file.c src/wb_unit.c src/wb_fm.c src/wb_drums.c \
-             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c src/wb_voice_polish.c src/wb_voice_isolate.c src/wb_fft.c src/wb_param_track.c src/wb_compositor.c src/wb_transcript.c src/wb_ofx.c src/wb_ofx_plugin_builtin.c src/wb_agent.c src/wb_tts.c src/wb_hpss.c src/wb_workspace.c src/wb_clip_edit.c src/wb_cgi.c src/wb_agi.c src/wb_rast.c src/wb_mesh.c src/wb_anim.c src/wb_mod.c src/wb_gltf.c src/wb_assets.c src/wb_cgiexport.c src/wb_shadowbin.c src/wb_duck.c src/wb_delivery.c src/wb_perf.c src/wb_perfclip.c src/wb_wavcache.c src/wb_import.c src/wb_capture.c src/wb_export_job.c src/wb_precision.c src/wb_lufs.c src/wb_input.c src/wb_limiter.c src/wb_cgi_react.c src/wb_cgi_bands.c src/wb_timestretch.c src/wb_smf.c src/wb_sf2.c src/wb_bitcrush.c src/wb_sfx.c src/wb_waveview.c src/wb_scenedesc.c src/wb_pattern.c src/wb_tga.c src/wb_csg.c src/wb_graphio.c
+             src/wb_session_file.c src/wb_unit.c src/wb_fm.c src/wb_fm_g2.c src/wb_fm_g3.c src/wb_synth_simd.c src/wb_drum_simd.c src/wb_granular.c src/wb_char2d.c src/wb_vfx.c src/wb_light2d.c src/wb_video_edit.c src/wb_ytp.c src/wb_keys.c src/wb_drums.c \
+             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_saturation.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c src/wb_voice_polish.c src/wb_voice_isolate.c src/wb_fft.c src/wb_param_track.c src/wb_compositor.c src/wb_transcript.c src/wb_ofx.c src/wb_ofx_plugin_builtin.c src/wb_agent.c src/wb_tts.c src/wb_hpss.c src/wb_workspace.c src/wb_clip_edit.c src/wb_cgi.c src/wb_agi.c src/wb_rast.c src/wb_mesh.c src/wb_anim.c src/wb_mod.c src/wb_gltf.c src/wb_assets.c src/wb_cgiexport.c src/wb_shadowbin.c src/wb_duck.c src/wb_delivery.c src/wb_perf.c src/wb_perfclip.c src/wb_wavcache.c src/wb_import.c src/wb_capture.c src/wb_export_job.c src/wb_precision.c src/wb_lufs.c src/wb_input.c src/wb_limiter.c src/wb_cgi_react.c src/wb_cgi_bands.c src/wb_timestretch.c src/wb_smf.c src/wb_sf2.c src/wb_bitcrush.c src/wb_sfx.c src/wb_waveview.c src/wb_scenedesc.c src/wb_pattern.c src/wb_tga.c src/wb_csg.c src/wb_graphio.c src/wb_conv.c
 CXX_SRCS := src/wb_vst3_host.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/module.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/processdata.cpp \
@@ -90,7 +90,7 @@ build/test-clap/bigmac-test.clap: tests/test_clap_plugin.c
 	$(CC) -shared -fPIC -O1 -o $@ $<
 
 # CLAP host test executable (links full engine)
-build/wb_test_clap: tools/test_clap.c $(CORE_OBJS)
+build/wb_test_clap: build/tools/test_clap.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm -lobjc $(LIBS)
 
 test-clap: build/test-clap/bigmac-test.clap build/wb_test_clap
@@ -173,6 +173,12 @@ build/wb_test_loudness_meter: build/tools/test_loudness_meter.o $(CORE_OBJS)
 test_loudness_meter: build/wb_test_loudness_meter
 	./build/wb_test_loudness_meter
 
+build/wb_test_g1: build/tools/test_g1.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_g1: build/wb_test_g1
+	./build/wb_test_g1
+
 build/wb_mk_podcast: build/tools/mk_podcast.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 
@@ -194,8 +200,11 @@ mk_burn: build/wb_mk_burn
 build/wb_mk_tts_podcast: build/tools/mk_tts_podcast.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 
-mk_tts_podcast: build/wb_mk_tts_podcast
-	./build/wb_mk_tts_podcast
+build/wb_test_synth_timing: build/tools/test_synth_timing.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_synth_timing: build/wb_test_synth_timing
+	./build/wb_test_synth_timing
 
 # Fetch the Piper voice model on demand (NOT vendored in git — it's ~120MB).
 # The engine (binary + dylibs) is vendored; only the model is fetched here.
@@ -373,6 +382,18 @@ build/wb_test_clip_edit: build/tools/test_clip_edit.o build/src/wb_clip_edit.o
 
 test_clip_edit: build/wb_test_clip_edit
 	./build/wb_test_clip_edit
+
+build/wb_test_drum_timing: build/tools/test_drum_timing.o build/src/wb_drums.o build/src/wb_midi_coremidi.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+test_drum_timing: build/wb_test_drum_timing
+	./build/wb_test_drum_timing
+
+build/wb_test_conv: build/tools/test_conv.o build/src/wb_conv.o build/src/wb_fft.o
+	$(CC) $(CFLAGS) $(INC) -o $@ $^ -lm
+
+test_conv: build/wb_test_conv
+	./build/wb_test_conv
 
 # G25 fix: header dependency tracking (stale-object nondeterminism)
 -include $(wildcard build/*/*.d) $(wildcard build/*.d)

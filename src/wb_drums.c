@@ -21,7 +21,7 @@
 #define TWO_PI 6.2831853071795864769
 #define DRUM_VOICES 8
 
-typedef struct { int note; int active; int kind; double env; double t; double f0; } drum_voice;
+typedef struct { int note; int active; int kind; double env; double t; double f0; double phstep; } drum_voice;
 
 typedef struct {
     uint32_t sr;
@@ -31,7 +31,8 @@ typedef struct {
 void *wb_drum_create(uint32_t sr);
 void  wb_drum_destroy(void *inst);
 void  wb_drum_note(void *inst, int note, int vel);
-void  wb_drum_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void wb_drum_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void wb_drum_render_simd(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 
 void *wb_drum_create(uint32_t sr) {
     drum_inst *d = calloc(1, sizeof(*d));
@@ -64,28 +65,46 @@ void wb_drum_note(void *inst, int note, int vel) {
     drum_voice *v = &d->v[slot];
     v->active = 1; v->note = note; v->kind = kind; v->t = 0; v->env = 1.0;
     v->f0 = (note > 36) ? wb_midi_note_to_freq(note) : 60.0;
+    v->phstep = (note > 36) ? (TWO_PI * wb_midi_note_to_freq(note) / d->sr) : (TWO_PI * 60.0 / d->sr);
 }
 
 void wb_drum_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n) {
     drum_inst *d = inst;
+    double inv_SR = 1.0 / (double)d->sr;  /* invariant across block */
+    /* FB2 (R076): hoist per-kind envelope decay constants out of the sample loop.
+     * dec is per-kind (invariant), sr is invariant, so exp(-1.0/(dec*sr)) is
+     * computed once per kind per block instead of per active voice per sample. */
+    double env_decay[9];  /* kind 0..8 */
+    for (int k = 0; k < 9; k++) {
+        double dec = 0.10;
+        switch (k) {
+            case 0: dec = 0.08; break;
+            case 8: dec = 0.30; break;
+            case 2: dec = 0.04; break;
+            case 4: dec = 0.12; break;
+            default: dec = 0.10; break;
+        }
+        env_decay[k] = exp(-1.0 / (dec * d->sr));
+    }
+    /* FB2: snare tone phase step (220 Hz constant) — invariant per block */
+    double snare_phase_step = TWO_PI * 220.0 * inv_SR;
     for (uint32_t i = 0; i < n; i++) {
         float sL = L[i], sR = R[i];
         for (int k = 0; k < DRUM_VOICES; k++) {
             drum_voice *v = &d->v[k];
             if (!v->active) continue;
             v->t += 1.0;
-            double sr = d->sr;
             float out = 0;
             switch (v->kind) {
                 case 0: { /* kick: decaying sine sweep 80->60Hz */
-                    double f = 80.0 - (v->t / (0.05*sr)) * 20.0; if (f<40) f=40;
-                    out = (float)(sin(v->t * TWO_PI * f / sr) * v->env);
+                    double f = 80.0 - (v->t * inv_SR / 0.05) * 20.0; if (f<40) f=40;
+                    out = (float)(sin(v->t * TWO_PI * f * inv_SR) * v->env);
                     break;
                 }
                 case 1: { /* snare: noise + low tone */
                     float noise = ((float)rand()/(float)RAND_MAX) * 2.0f - 1.0f;
                     out = noise * (float)v->env * 0.5f;
-                    out += (float)(sin(v->t*TWO_PI*220.0/sr) * v->env * 0.3);
+                    out += (float)(sin(v->t * snare_phase_step) * v->env * 0.3);
                     break;
                 }
                 case 2: { /* closed hat: short noise LPF'd */
@@ -109,19 +128,12 @@ void wb_drum_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n) {
                     break;
                 }
                 default: { /* tom: decaying sine at note freq */
-                    out = (float)(sin(v->t*TWO_PI*v->f0/sr) * v->env * 0.5);
+                    /* FC1: per-voice phase step = 2π*f0/sr, precomputed at note-on */
+                    out = (float)(sin(v->t * v->phstep) * v->env * 0.5);
                 }
             }
-            /* per-kind decay rates (frames to die ~ 1/env) */
-            double dec;
-            switch (v->kind) {
-                case 0: dec = 0.08; break; /* kick */
-                case 8: dec = 0.30; break; /* crash */
-                case 2: dec = 0.04; break; /* closed hat — short */
-                case 4: dec = 0.12; break; /* open hat — longer */
-                default: dec = 0.10; break;
-            }
-            v->env *= exp(-1.0/(dec*sr));
+            /* per-kind decay — env_decay[] precomputed above */
+            v->env *= env_decay[v->kind < 9 ? v->kind : 0];
             if (v->env < 0.001) { v->active = 0; continue; }
             sL += out; sR += out;
         }
@@ -129,11 +141,10 @@ void wb_drum_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n) {
         L[i] = sL; R[i] = sR;
     }
 }
-
 /* ---- wb_unit registration ----------------------------------------------- */
 static void *u_drum_create(uint32_t sr){ return wb_drum_create(sr); }
 static void u_drum_destroy(void *i){ wb_drum_destroy(i); }
-static void u_drum_process(void *i, wb_sample *L, wb_sample *R, uint32_t n){ wb_drum_render(i,L,R,n); }
+static void u_drum_process(void *i, wb_sample *L, wb_sample *R, uint32_t n){ wb_drum_render_simd(i,L,R,n); }
 static void u_drum_note(void *i, int n, int v){ wb_drum_note(i,n,v); }
 static const char *u_drum_id(void){ return "drum"; }
 static const wb_unit_vtable u_drum_vt = {

@@ -28,6 +28,9 @@ void *wb_synth_create(uint32_t sr);
 void  wb_synth_destroy(void *inst);
 void  wb_synth_note(void *inst, int note, int vel);
 void  wb_synth_render_block(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void  wb_synth_render_block_simd(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void  wb_synth_render_block_simd_2x(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void  wb_synth_render_block_wt(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 void  wb_synth_ensure_registered(void);
 
 /* wb_fm.c */
@@ -35,6 +38,8 @@ void *wb_fm_create(uint32_t sr);
 void  wb_fm_destroy(void *inst);
 void  wb_fm_note(void *inst, int note, int vel);
 void  wb_fm_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void  wb_fm_render_fast(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void  wb_fm_set_speed_mode(int mode);
 
 /* wb_drums.c */
 void *wb_drum_create(uint32_t sr);
@@ -109,6 +114,13 @@ void  wb_sampler_destroy(void *inst);
 void  wb_sampler_load(void *inst, const wb_sample *data, uint32_t count, int loop);
 void  wb_sampler_note(void *inst, int note, int vel);
 void  wb_sampler_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+
+/* wb_granular.c — granular synthesizer (G9) */
+void *wb_granular_create(uint32_t sr);
+void  wb_granular_destroy(void *inst);
+void  wb_granular_load(void *inst, const wb_sample *data, uint32_t count, int loop);
+void  wb_granular_note(void *inst, int note, int vel);
+void  wb_granular_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 
 /* wb_midi.c */
 double wb_midi_note_to_freq(int note);

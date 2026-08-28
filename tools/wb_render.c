@@ -131,6 +131,7 @@ static int sf_render_loop(wb_anim *an, wb_node *comp, uint8_t *rgba,
 int sf_render_loop_range(wb_anim *an, wb_node *comp, uint8_t *rgba,
                          const char *mp4, double dur, int fps,
                          int w, int h, int k0, int k1) {
+    (void)an; (void)rgba;
     /* R074 hop 115 (G-SF059): pipe PPM frames straight into ffmpeg via
      * stdin — no temp files, no disk churn. */
     char cmd[768];

@@ -1292,7 +1292,7 @@ static void test_step_commit(void) {
         count++;
     }
     CHECK(tr->clip_count == 1, "commit created one clip");
-    CHECK(tr->clips[0].note_count == count, "clip holds one note per active step");
+    CHECK(tr->clips[0].note_count == (uint32_t)count, "clip holds one note per active step");
     tr->clips[0].length = 16 * step_smp;   /* one bar, like the real commit */
     /* first note at sample 0, last at 14*step_smp */
     double first = tr->clips[0].notes[0].start;
@@ -1549,6 +1549,7 @@ static void test_video_edit(void) {
     /* roll clip 0 by +0.5s -> clip0 length 2.5, clip1 start 2.5, total still 4s */
     double total0 = tr->clips[0].start + tr->clips[0].length
                   + (tr->clips[1].start + tr->clips[1].length - tr->clips[1].start);
+    (void)total0;
     CHECK(wb_session_roll_video_clip(s, 0, 0, 0.5) == 0, "roll cut +0.5s");
     CHECK(fabs(tr->clips[0].length - 2.5) < 1e-6, "roll extended clip0 to 2.5s");
     CHECK(fabs(tr->clips[1].start - 2.5) < 1e-6, "roll slid clip1 start to 2.5s");
@@ -3565,7 +3566,6 @@ static void test_scale_chord_step(void) {
             uint32_t nf = WB_SAMPLE_RATE;   /* ~1s each */
             double true_offset = 0.25 * WB_SAMPLE_RATE;
             for (uint32_t t = 0; t < nf / 32; t++) {
-                float v = (t % 2 == 0) ? 0.5f : -0.5f;
                 for (int rep = 0; rep < 16; rep++) {
                     (void)0;
                 }

@@ -26,9 +26,9 @@ int wb_scenedesc_load(wb_anim *a, const char *path) {
         while (*p == ' ' || *p == '\t') p++;
         if (*p == '#' || *p == '\n' || *p == '\r' || !*p) continue;
         char kind[32];
-        float v[8] = {0};
-        int nv = sscanf(p, "%31s %f %f %f %f %f %f %f %f",
-                        kind, &v[0],&v[1],&v[2],&v[3],&v[4],&v[5],&v[6],&v[7]);
+        float v[9] = {0};
+        int nv = sscanf(p, "%31s %f %f %f %f %f %f %f %f %f",
+                        kind, &v[0],&v[1],&v[2],&v[3],&v[4],&v[5],&v[6],&v[7],&v[8]);
         if (nv <= 0) continue;
         if (!strcmp(kind, "box") || !strcmp(kind, "cone") ||
             !strcmp(kind, "sphere") || !strcmp(kind, "torus")) {

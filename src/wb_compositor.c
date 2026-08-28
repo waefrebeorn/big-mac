@@ -301,7 +301,7 @@ void wb_node_pull_request(wb_node *n, double t, int rx, int ry, int rw, int rh) 
 typedef struct { float r,g,b,a; int w,h; } src_color_t;
 static wb_frame *src_color_pull(wb_node *self, double t,
                                 int rx, int ry, int rw, int rh, int phase) {
-    (void)t;
+    (void)t; (void)rx; (void)ry; (void)rw; (void)rh;
     if (phase == 0) return NULL;   /* source is always ready; nothing to request */
     src_color_t *s = self->user;
     wb_frame *f = wb_frame_alloc(s->w, s->h);
@@ -439,8 +439,7 @@ static wb_frame *eff_pull(wb_node *self, double t,
     /* R074 fix: a bound track is authoritative even at exactly 0 —
      * detect binding instead of guessing from the value. */
     for (int pi = 0; pi < self->n_params; pi++) {
-        if (self->param_names &&
-            strncmp(self->param_names[pi], "gain", 32) == 0) {
+        if (strncmp(self->param_names[pi], "gain", 32) == 0) {
             gain = kv;
             break;
         }
@@ -470,8 +469,6 @@ static wb_frame *eff_pull(wb_node *self, double t,
     float p_cur_hig = wb_node_param_value(self, "cur_hig", t);
     float p_cur_wht = wb_node_param_value(self, "cur_wht", t);
     float p_hue_c   = wb_node_param_value(self, "hue_c", t);
-    float p_key_tol = wb_node_param_value(self, "key_tol", t);
-    float p_key_color = wb_node_param_value(self, "key_color", t);
     if (p_gam <= 0.0f) p_gam = 1.0f;
 for (int y = ry; y < ry + rh; y++)
         for (int x = rx; x < rx + rw; x++) {
@@ -685,7 +682,6 @@ for (int y = ry; y < ry + rh; y++)
                     if (ad < hw) {
                         float sel = (1.0f - ad / hw) * wsel;   /* soft selection */
                         float lum = wb_lin_luma(p->r, p->g, p->b);  /* #29/#31 linear */
-                                  + 0.0722f*p->b;
                         float sat = smul != 0.0f ? smul : 1.0f;
                         float nr = lum + (p->r-lum)*sat;
                         float ng = lum + (p->g-lum)*sat;
@@ -730,7 +726,6 @@ for (int y = ry; y < ry + rh; y++)
                     for (int x = rx; x < rx + rw; x++) {
                         wb_px *p = &in->px[y*in->w + x];
                         float lum = wb_lin_luma(p->r, p->g, p->b);  /* #29/#31 linear */
-                                  + 0.0722f*p->b;
                         if (lum > thr) {
                             float excess = (lum - thr) / (1.0f - thr);
                             /* R074 fix: clamp to [0,1] — was unbounded */
@@ -762,8 +757,7 @@ for (int y = ry; y < ry + rh; y++)
                  * binding-detection as #51) — collision resolved */
                 float tol = 0.0f;
                 for (int pi2 = 0; pi2 < self->n_params; pi2++) {
-                    if (self->param_names &&
-                        strncmp(self->param_names[pi2], "key_tol", 32) == 0) {
+                    if (strncmp(self->param_names[pi2], "key_tol", 32) == 0) {
                         tol = wb_node_param_value(self, "key_tol", t);
                         break;
                     }
@@ -802,7 +796,6 @@ for (int y = ry; y < ry + rh; y++)
                     else               p->g = fixed;
                 }
             }
-        curves_skip:;
         }
     return in;
 }
@@ -942,7 +935,6 @@ typedef struct { float ox, oy, scale; } comp_layer_t;
 #define COMP_MAX_LAYERS 16
 static comp_layer_t g_layers[COMP_MAX_LAYERS];
 static wb_node     *g_layer_node[COMP_MAX_LAYERS];
-static int          g_nlayers = 0;
 
 void wb_composite_set_layer(wb_node *comp, int layer,
                             float ox, float oy, float scale) {
@@ -1699,7 +1691,7 @@ typedef struct {
 
 static wb_frame *src_scene_pull(wb_node *self, double t,
                                 int rx, int ry, int rw, int rh, int phase) {
-    (void)phase;
+    (void)phase; (void)rx; (void)ry; (void)rw; (void)rh;
     src_scene_t *s = self->user;
     wb_frame *f = wb_frame_alloc(s->w, s->h);
     if (!f) return NULL;
@@ -1919,7 +1911,7 @@ typedef struct {
 static wb_frame *pres_pull(wb_node *self, double t,
                            int rx, int ry, int rw, int rh, int phase) {
     (void)phase;
-    (void)rx; (void)ry;
+    (void)rx; (void)ry; (void)rw; (void)rh;
     if (!self->inputs || !self->inputs[0]) return NULL;
     wb_frame *in = wb_node_pull(self->inputs[0], t, -1,-1,-1,-1);
     if (!in) return NULL;
@@ -1993,7 +1985,7 @@ typedef struct { float horizon; float scale; double scroll; } m7_t;
 static wb_frame *m7_pull(wb_node *self, double t,
                          int rx, int ry, int rw, int rh, int phase) {
     (void)phase;
-    (void)rx; (void)ry;
+    (void)rx; (void)ry; (void)rw; (void)rh;
     if (!self->inputs || !self->inputs[0]) return NULL;
     wb_frame *in = wb_node_pull(self->inputs[0], t, -1,-1,-1,-1);
     if (!in || in->w < 2 || in->h < 2) return in;
@@ -2356,8 +2348,7 @@ static wb_frame *trans_pull(wb_node *self, double t,
             {
                 /* read from transition node if bound */
                 for (int pi2 = 0; pi2 < self->n_params; pi2++) {
-                    if (self->param_names &&
-                        strncmp(self->param_names[pi2], "ripple_echo", 32) == 0) {
+                    if (strncmp(self->param_names[pi2], "ripple_echo", 32) == 0) {
                         echo_off = wb_node_param_value(self, "ripple_echo", t);
                         break;
                     }

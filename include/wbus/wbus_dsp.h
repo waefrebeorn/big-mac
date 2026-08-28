@@ -7,6 +7,7 @@
  */
 
 #include <stdint.h>
+#include <emmintrin.h>   /* SSE2 intrinsics for SIMD oscillator batch */
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,12 +25,15 @@ void wb_osc_reset(wb_osc *o);
 /* returns one sample of the requested waveform at the current phase,
  * advancing phase by `inc` (radians/sample). */
 float wb_osc_process(wb_osc *o, float inc, int waveform, float shape);
+/* SIMD batch wavetable: process 4 oscillators at once (WB_WAVE_WAVETABLE) */
+__m128 wb_osc_process_wt4(__m128 *phases, float inc);
 
-#define WB_WAVE_SINE 0
-#define WB_WAVE_SAW  1
-#define WB_WAVE_SQUARE 2
+#define WB_WAVE_SINE     0
+#define WB_WAVE_SAW      1
+#define WB_WAVE_SQUARE   2
 #define WB_WAVE_TRIANGLE 3
-#define WB_WAVE_NOISE 4
+#define WB_WAVE_NOISE    4
+#define WB_WAVE_WAVETABLE 5
 
 /* ---- ADSR envelope ---------------------------------------------------- */
 typedef struct wb_env {

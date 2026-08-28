@@ -51,7 +51,7 @@ void wb_video_clip_init(wb_video_clip *c) {
 }
 
 void wb_video_clip_free(wb_video_clip *c) {
-    /* paths are stack-allocated; nothing to free */
+    (void)c;
 }
 
 /* ---- wb_video_decoder (FFmpeg C API) --------------------------------- */
@@ -95,7 +95,7 @@ wb_video_decoder *wb_video_decoder_open(const char *path) {
     }
 
     AVCodecParameters *par = d->fmt_ctx->streams[d->video_stream_idx]->codecpar;
-    d->decoder = avcodec_find_decoder(par->codec_id);
+    d->decoder = (AVCodec *)avcodec_find_decoder(par->codec_id);
     if (!d->decoder) {
         fprintf(stderr, "wb_video: no decoder for codec %d\n", par->codec_id);
         avformat_close_input(&d->fmt_ctx);
@@ -166,7 +166,7 @@ int wb_video_decoder_decode_frame(wb_video_decoder *d, uint8_t *out,
     }
 
     /* Allocate RGB frame */
-    int stride[4] = { 0 };
+    int stride[4] = { 0 }; (void)stride;
     rgb_frame->data[0] = out;
     rgb_frame->linesize[0] = *out_w * 4;
     rgb_frame->width = *out_w;

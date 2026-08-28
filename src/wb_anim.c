@@ -260,7 +260,7 @@ static void draw_tri(wb_anim *a, int v0,int v1,int v2,
         if (!nt) return;
         a->draw_tris = nt; a->cap_tris = nc;
     }
-    a->draw_tris[*n] = (wb_rast_tri){v0,v1,v2,r,g,b}; (*n)++;
+    a->draw_tris[*n] = (wb_rast_tri){v0,v1,v2,r,g,b,255, -9001,-9001, -9001,-9001, -9001,-9001}; (*n)++;
 }
 
 /* R055c: parenting — child transform composes after parent's sample. */
@@ -433,7 +433,6 @@ for (int i = 0; i < a->nobjs; i++) {
             if (em_cap < need) { free(em_buf);
                 em_buf = malloc(need); em_cap = need; }
             if (!em_buf) continue;
-            float none[3] = {0,0,0};
             wb_rast_set_sun(r, 0,0,0, 0);
             memset(em_buf, 0, need);
             wb_rast_render(r, em_buf);

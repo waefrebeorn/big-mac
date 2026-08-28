@@ -76,28 +76,71 @@ void wb_fm_note(void *inst, int note, int vel) {
     v->env = 0;
 }
 
+/* ---- G2/G3 external render variants (defined in wb_fm_g2.c / wb_fm_g3.c) ---- */
+extern void wb_fm_render_g2(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+extern void wb_fm_render_g3(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+extern void wb_fm_render_g3_simd(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+
+/* ---- Speed mode dispatch ---- */
+static int fm_speed_mode = 0;  /* 0=auto, 1=scalar, 2=G2 SIMD, 3=G3 MT, 4=G3s MT+SIMD */
+
+void wb_fm_set_speed_mode(int mode) {
+    fm_speed_mode = mode;
+}
+
+/* wb_fm_render_fast: dispatches to the fastest available variant.
+ * Called by the engine's u_fm_process (production render path).
+ * wb_fm_render (below) remains the scalar bit-exact selftest gate. */
+void wb_fm_render_fast(void *inst, wb_sample *L, wb_sample *R, uint32_t n) {
+    int mode = fm_speed_mode;
+    if (mode == 0) {
+        /* auto: G3s (MT+SIMD) is fastest on dual-core, G2 on single-core */
+        #ifdef __APPLE__
+        long ncpu = 2; (void)ncpu;
+        /* runtime detection via sysctl would go here; default to G3s for dual-core i5 */
+        #endif
+        mode = 4; /* G3s MT+SIMD — best on this dual-core i5 */
+    }
+    switch (mode) {
+        case 4: wb_fm_render_g3_simd(inst, L, R, n); break;
+        case 3: wb_fm_render_g3(inst, L, R, n); break;
+        case 2: wb_fm_render_g2(inst, L, R, n); break;
+        default: wb_fm_render(inst, L, R, n); break;
+    }
+}
+
 void wb_fm_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n) {
     fm_inst *f = inst;
     double sr = f->sr;
+    /* FB1 (R076): hoist envelope exp constants — f->env_a/f->env_d/sr
+     * are invariant across a render block. Saves 2*active_voices*frames
+     * exp() calls per block. */
+    double aD = exp(-1.0 / (f->env_d * sr));
+    double aA = exp(-1.0 / (f->env_a * sr));
+    /* FB2 (R076): precompute per-voice phase-step constants. v->freq,
+     * f->ratio, sr are invariant across a block, so the phase/mphase
+     * stepping deltas are computed once per voice, not per sample. */
+    double phase_step[FM_VOICES], mphase_step[FM_VOICES];
+    for (int k = 0; k < FM_VOICES; k++) {
+        phase_step[k]   = TWO_PI * f->v[k].freq / sr;
+        mphase_step[k]  = TWO_PI * f->v[k].freq * f->ratio / sr;
+    }
     for (uint32_t i = 0; i < n; i++) {
         float sum = 0;
         for (int k = 0; k < FM_VOICES; k++) {
             fm_voice *v = &f->v[k];
             if (!v->active) continue;
-            double aD = exp(-1.0 / (f->env_d * sr));
-            /* envelope: attack, hold, or release */
+            /* envelope (aD/aA already hoisted) */
             if (v->releasing) {
                 v->env *= aD;
                 if (v->env < 0.002) { v->active = 0; continue; }
             } else {
-                double aA = exp(-1.0 / (f->env_a * sr));
                 if (v->env < 1.0) v->env = 1.0 - (1.0 - v->env) * aA;
             }
-            double mfreq = v->freq * f->ratio;
             double mod = f->index * v->env * sin(v->mphase);
-            v->mphase += TWO_PI * mfreq / sr;
+            v->mphase += mphase_step[k];
             double s = sin(v->phase + mod);
-            v->phase += TWO_PI * v->freq / sr;
+            v->phase += phase_step[k];
             sum += (float)(s * v->env * (v->vel / 127.0));
         }
         float out = sum * 0.35f; /* keep headroom for FM peaks */
@@ -109,7 +152,7 @@ void wb_fm_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n) {
 /* ---- wb_unit registration ----------------------------------------------- */
 static void *u_fm_create(uint32_t sr){ return wb_fm_create(sr); }
 static void u_fm_destroy(void *i){ wb_fm_destroy(i); }
-static void u_fm_process(void *i, wb_sample *L, wb_sample *R, uint32_t n){ wb_fm_render(i,L,R,n); }
+static void u_fm_process(void *i, wb_sample *L, wb_sample *R, uint32_t n){ wb_fm_render_fast(i,L,R,n); }
 static void u_fm_note(void *i, int n, int v){ wb_fm_note(i,n,v); }
 static const char *u_fm_id(void){ return "fm"; }
 static int u_fm_has(const void *i, const char *name){

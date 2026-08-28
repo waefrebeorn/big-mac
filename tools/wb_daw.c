@@ -1542,6 +1542,7 @@ static void draw_fusion_graph(app *a) {
 #define KF_W 620
 #define KF_H 120
 static SDL_Rect kf_rect(app *a) {
+    (void)a;
     int ox = GUTTER_W + 16, oy = MAIN_Y + RULER_H + 40;
     return (SDL_Rect){ ox, oy + 300, KF_W, KF_H };
 }
@@ -4943,7 +4944,7 @@ static void handle_key(app *a, SDL_Keycode k) {
                     snprintf(a->last_status,
                              sizeof(a->last_status),
                              "LOUDNESS %+.1f dB", gdb);
-                    printf("loudnorm: clip %u %+ .1f dB\n", ci, gdb);
+                    printf("loudnorm: clip %u %+.1f dB\n", ci, gdb);
                     break;
                 }
             }

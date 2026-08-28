@@ -295,8 +295,17 @@ static void stage_instruments(wb_engine *e, uint32_t frames) {
     for (uint32_t t = 0; t < e->session->track_count; t++) {
         wb_track_runtime *tr = &e->rtracks[t];
         if (!tr->active) continue;
-        memset(tr->bufL, 0, frames * sizeof(wb_sample));
-        memset(tr->bufR, 0, frames * sizeof(wb_sample));
+        /* G1 (R075): lazy-clear track buffers — only zero when the next stage
+         * accumulates into the buffer. Instrument voices (kind 0) overwrite
+         * every sample (wb_synth_render_block / wb_fm_render / wb_drum_render
+         * all write L[i]=, R[i]= per sample), so their memset is dead work.
+         * Audio clips (kind 1) accumulate via bufL[i] += vL*cg.
+         * Buses (kind 2) accumulate via bus->bufL[i] += tr->bufL[i].
+         * Keep memset for kind != 0; skip it for instrument tracks. */
+        if (tr->kind != 0) {
+            memset(tr->bufL, 0, frames * sizeof(wb_sample));
+            memset(tr->bufR, 0, frames * sizeof(wb_sample));
+        }
         if (tr->kind == 1) {
             /* audio track: render the active audio clip region into the block */
             wb_track *tk = &e->session->tracks[t];

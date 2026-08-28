@@ -1799,7 +1799,6 @@ int wb_session_batch_transitions(wb_session *s, int track, struct
     wb_track *tr = &s->tracks[track];
     int cuts = 0;
     for (uint32_t i = 0; i + 1 < tr->clip_count; i++) {
-        wb_clip *a = &tr->clips[i], *b = &tr->clips[i+1];
         wb_clip_edit *ea = wb_clip_edit_get(et, track, (int)i);
         wb_clip_edit *eb = wb_clip_edit_get(et, track, (int)i+1);
         if (!ea || !eb) continue;
@@ -1821,7 +1820,7 @@ int wb_session_batch_transitions_beat(wb_session *s, int track,
     wb_track *tr = &s->tracks[track];
     int cuts = 0;
     for (uint32_t i = 0; i + 1 < tr->clip_count; i++) {
-        wb_clip *a = &tr->clips[i], *b = &tr->clips[i+1];
+        wb_clip *a = &tr->clips[i];
         wb_clip_edit *ea = wb_clip_edit_get(et, track, (int)i);
         wb_clip_edit *eb = wb_clip_edit_get(et, track, (int)i+1);
         if (!ea || !eb) continue;
@@ -1858,7 +1857,7 @@ int wb_session_batch_transitions_onset(wb_session *s, int vtrack,
     int cuts = 0;
     double half = xf * 0.5;
     for (uint32_t i = 0; i + 1 < tr->clip_count; i++) {
-        wb_clip *a = &tr->clips[i], *b = &tr->clips[i+1];
+        wb_clip *a = &tr->clips[i];
         wb_clip_edit *ea = wb_clip_edit_get(et, vtrack, (int)i);
         wb_clip_edit *eb = wb_clip_edit_get(et, vtrack, (int)i+1);
         if (!ea || !eb) continue;
@@ -1944,8 +1943,8 @@ int wb_session_export_otio(const wb_session *s, const char *path) {
                     "\"start_time\":%.6f,\"duration\":%.6f}"
                     "}",
                     first ? "" : ",\n",
-                    cl->video->source_path ? cl->video->source_path : "clip",
-                    cl->video->source_path ? cl->video->source_path : "",
+                    cl->video->source_path,
+                    cl->video->source_path,
                     src_in, dur);
             first = 0;
             cursor = cl->start + dur;
@@ -2171,7 +2170,7 @@ int wb_session_sync_offset(const wb_session *s, int track_a, int clip_a,
         int base_shift = ci < 0 ? coarse_best : cands[ci];
         for (int shift = base_shift - coarse_step;
              shift <= base_shift + coarse_step; shift += STRIDE / 2) {
-        double sab = 0, sa2 = 0, sb2 = 0, wa = 0, wb = 0;
+        double sab = 0, sa2 = 0, sb2 = 0;
         long n = 0;
         for (uint32_t i = 0; i < na; i++) {
             long pos_b = (long)(i * STRIDE) + shift;
@@ -2257,7 +2256,7 @@ int wb_session_export_dawproject(const wb_session *s, const char *path) {
             "%s    {\n"
             "      \"name\": \"%s\",\n"
             "      \"color\": \"#808080\",\n",
-            first_track ? "" : ",\n", tr->name ? tr->name : "");
+            first_track ? "" : ",\n", tr->name);
         first_track = 0;
         fprintf(f, "      \"clips\": [\n");
         int first_clip = 1;

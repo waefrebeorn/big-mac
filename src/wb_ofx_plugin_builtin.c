@@ -45,13 +45,13 @@ static OfxStatus on_describe(OfxImageEffectHandle desc) {
 
     /* declare the Brightness parameter on the effect descriptor's param set */
     OfxPropertySetHandle params;
-    g_effect->getParamSet(desc, &params);
+    g_effect->getParamSet(desc, (OfxParamSetHandle *)&params);
     g_prop->propSetDouble(params, "Brightness", 0, 1.0);
     return kOfxStatOK;
 }
 
 static OfxStatus on_create_instance(OfxImageEffectHandle inst) {
-    g_instance = inst;
+    g_instance = (OfxPropertySetHandle)inst;
     g_effect->getParamSet(inst, &g_paramset);
     return kOfxStatOK;
 }

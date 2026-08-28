@@ -377,12 +377,12 @@ int wb_lp_mk2_row_col_from_note(int note, int *row, int *col) {
 
 /* ---- Scale helpers (R006 §3: scale lock, owned) ----------------------- */
 /* Interval tables (semitones from root) for the supported scale types. */
-static const int wb_scale_steps[][7] = {
-    {0,2,4,5,7,9,11},  /* 0 major */
-    {0,2,3,5,7,8,10},  /* 1 natural minor */
-    {0,2,3,5,7,9,10},  /* 2 dorian */
-    {0,2,4,5,7,9,10},  /* 3 mixolydian */
-    {0,1,2,3,4,5,6,7,8,9,10,11}, /* 4 chromatic (handled specially) */
+static const int wb_scale_steps[][12] = {
+    {0,2,4,5,7,9,11},              /* 0 major */
+    {0,2,3,5,7,8,10},              /* 1 natural minor */
+    {0,2,3,5,7,9,10},              /* 2 dorian */
+    {0,2,4,5,7,9,10},              /* 3 mixolydian */
+    {0,1,2,3,4,5,6,7,8,9,10,11},  /* 4 chromatic */
 };
 static const int wb_scale_sizes[] = {7,7,7,7,12};
 

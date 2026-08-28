@@ -122,7 +122,7 @@ static void iso_channel(wb_isolate *iso, const float *in, float *out, int frames
         }
     }
     /* flush remaining accumulated samples (trailing partial frame) */
-    while (idx < frames) out[idx++] = in[idx]; /* partial last frame: pass through */
+    for (int j = idx; j < frames; j++) out[j] = in[j]; /* partial last frame: pass through */
 
     free(re); free(im); free(x); free(y);
     wb_fft_destroy(plan);

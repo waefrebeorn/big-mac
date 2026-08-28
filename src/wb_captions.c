@@ -301,8 +301,8 @@ static int ass_time_to_ms(const char *s) {
     return ((h*3600 + m*60 + sec)*1000 + cc*10);
 }
 
-/* Parse inline overrides in `text`; mutates *bold/*italic/*color (BGR->RGB),
- * *px/*py (if \pos). Strips the override tags from the returned text. */
+/* Parse inline overrides in `text`; mutates \*bold/\*italic/\*color (BGR->RGB),
+ * \*px/\*py (if \\pos). Strips the override tags from the returned text. */
 static void ass_apply_overrides(char *text, int *bold, int *italic,
                                  int *color, int *px, int *py) {
     char *out = text;

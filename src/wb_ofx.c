@@ -104,6 +104,7 @@ static wb_ofx_host *g_host = NULL;
 /* ---------- Memory suite ------------------------------------------------- */
 
 static OfxStatus h_mem_alloc(void *handle, size_t n, void **out) {
+    (void)handle;
     *out = malloc(n ? n : 1);
     return *out ? kOfxStatOK : kOfxStatErrMemory;
 }
@@ -120,12 +121,12 @@ static OfxStatus h_prop_set_int(OfxPropertySetHandle p, const char *pr, int i, i
     if (i < 0 || i >= 4) return kOfxStatErrBadIndex;
     q->v[i].i[0] = v; return kOfxStatOK;
 }
-static OfxStatus h_prop_set_double(OfxPropertySetHandle p, const char *pr, int i, double v) {
+static OfxStatus h_prop_set_double(OfxPropertySetHandle p, const char *pr, int i, double v) { (void)i;
     ofx_prop *q = ps_get(PSF(p), pr, 1); if (!q) return kOfxStatErrBadHandle;
     if (i < 0 || i >= 4) return kOfxStatErrBadIndex;
     q->v[i].d[0] = v; return kOfxStatOK;
 }
-static OfxStatus h_prop_set_string(OfxPropertySetHandle p, const char *pr, int i, const char *v) {
+static OfxStatus h_prop_set_string(OfxPropertySetHandle p, const char *pr, int i, const char *v) { (void)i;
     ofx_prop *q = ps_get(PSF(p), pr, 2); if (!q) return kOfxStatErrBadHandle;
     free(q->v[0].s); q->v[0].s = strdup(v ? v : ""); return kOfxStatOK;
 }
@@ -178,6 +179,7 @@ static OfxStatus h_param_get_value(OfxParamHandle p, ...) {
     return kOfxStatOK;
 }
 static OfxStatus h_param_get_value_at_time(OfxParamHandle p, double t, ...) {
+    (void)p; (void)t;
     va_list ap; va_start(ap, t);
     double *out = va_arg(ap, double*);
     va_end(ap);
@@ -188,6 +190,7 @@ static OfxStatus h_param_get_value_at_time(OfxParamHandle p, double t, ...) {
     return kOfxStatOK;
 }
 static OfxStatus h_param_set_value(OfxParamHandle p, ...) {
+    (void)p;
     /* not needed for host-driven render */ return kOfxStatOK;
 }
 
@@ -208,7 +211,7 @@ static OfxStatus h_effect_param_set(OfxImageEffectHandle eff,
     return kOfxStatOK;
 }
 static OfxStatus h_effect_clip_get_property_set(OfxImageClipHandle clip,
-                                                OfxPropertySetHandle *props) {
+                                             OfxPropertySetHandle *props) { (void)clip;
     /* our clips are the input wb_nodes; we hand back a static clip propset */
     static ofx_propset clip_ps;
     if (clip_ps.cap == 0) {
@@ -230,11 +233,12 @@ static OfxStatus h_effect_clip_get_image(OfxImageClipHandle clip,
     *img = (OfxPropertySetHandle)pl->render_in;
     return kOfxStatOK;
 }
-static OfxStatus h_effect_clip_release_image(OfxPropertySetHandle img) {
+static OfxStatus h_effect_clip_release_image(OfxPropertySetHandle img) { (void)img;
     return kOfxStatOK; /* we own the wb_frame; don't free here */
 }
 static OfxStatus h_effect_clip_get_region_of_definition(OfxImageClipHandle clip,
                                                    double t, OfxRectD *rod) {
+    (void)clip; (void)t;
     wb_ofx_plugin *pl = g_host ? g_host->active : NULL;
     if (!pl || !pl->render_in) return kOfxStatErrBadHandle;
     rod->x1 = 0; rod->y1 = 0;
@@ -244,7 +248,7 @@ static OfxStatus h_effect_clip_get_region_of_definition(OfxImageClipHandle clip,
 
 /* ---------- TimeLine suite --------------------------------------------- */
 
-static OfxStatus h_timeline_get_time(OfxImageEffectHandle eff, double *t) {
+static OfxStatus h_timeline_get_time(OfxImageEffectHandle eff, double *t) { (void)eff; (void)t;
     wb_ofx_plugin *pl = (wb_ofx_plugin*)eff;
     *t = pl ? pl->render_t : 0.0;
     return kOfxStatOK;
@@ -300,8 +304,8 @@ wb_ofx_host *wb_ofx_host_create(void) {
     h->mem_suite.memoryAlloc = h_mem_alloc;
     h->mem_suite.memoryFree  = h_mem_free;
 
-    h->timeline_suite.getTime = h_timeline_get_time;
-    h->timeline_suite.getTimeBounds = h_timeline_get_bounds;
+    h->timeline_suite.getTime = (void *)h_timeline_get_time;
+    h->timeline_suite.getTimeBounds = (void *)h_timeline_get_bounds;
     return h;
 }
 

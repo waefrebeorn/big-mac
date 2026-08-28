@@ -116,7 +116,7 @@ int wb_shadowbin_write(const wb_session *s, const char *path) {
 
     /* markers -> also emit YouTube-chapter-ready labels */
     fputs("\"markers\":[", f);
-    for (int i = 0; i < s->marker_count; i++) {
+    for (int i = 0; i < (int)s->marker_count; i++) {
         const wb_marker *mk = &s->markers[i];
         if (i) fputc(',', f);
         fprintf(f, "{\"pos_s\":%.5f,\"label\":", mk->pos / WB_SAMPLE_RATE);

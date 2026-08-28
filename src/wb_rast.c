@@ -565,7 +565,7 @@ static void fill_tri_gouraud_z(wb_rast_ctx *r, uint8_t *img,
  * Intensity of one world-space position+normal under the sun. */
 static float gouraud_vert_intensity(wb_rast_ctx *r,
                                     float x, float y, float z) {
-    (void)x; (void)y; (void)z;
+    (void)r; (void)x; (void)y; (void)z;
     return 0.0f; /* replaced below by normal-based version */
 }
 
@@ -866,9 +866,7 @@ void wb_rast_render_mt(wb_rast_ctx *r, uint8_t *out_rgba) {
         float ys[3] = { r->sy[t->v0], r->sy[t->v1], r->sy[t->v2] };
         float lo = ys[0], hi = ys[0];
         for (int v = 1; v < 3; v++) { if (ys[v]<lo)lo=ys[v]; if(ys[v]>hi)hi=ys[v]; }
-        int crosses_top = hi >= (float)mid;   /* touches upper band */
         int crosses_bot = lo <  (float)r->h;  /* and lower half exists */
-        int touches_lower = hi >= (float)mid || lo >= (float)mid;
         (void)crosses_bot;
         if (lo < (float)mid && hi >= 0.0f) oa[na++] = order[i];       /* upper */
         if (hi >= (float)mid && lo <= (float)r->h) ob[nb2++] = order[i]; /* lower */

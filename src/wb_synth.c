@@ -114,13 +114,23 @@ void wb_synth_render_block(void *instp, wb_sample *L, wb_sample *R, uint32_t n) 
     wb_synth_inst *s = instp;
     if (!s) return;
     float inc_scale = 1.0f / (float)s->sr;
+    /* FC1 (R076): precompute per-voice oscillator phase-step.
+     * vv->freq is invariant across a render block (set at note-on, only
+     * changes via note-off + reassign), so the per-sample `inc = 2π*freq/sr`
+     * multiply is hoisted out: phase_step[v] = 2π*freq*inc_scale, computed
+     * once per active voice per block instead of MAX_VOICES*frames times. */
+    float phase_step[MAX_VOICES];
+    for (int v = 0; v < MAX_VOICES; v++) {
+        voice *vv = &s->voices[v];
+        phase_step[v] = vv->active ? (float)(2.0 * M_PI * vv->freq * inc_scale) : 0.0f;
+    }
 
     for (uint32_t i = 0; i < n; i++) {
         float mixL = 0, mixR = 0;
         for (int v = 0; v < MAX_VOICES; v++) {
             voice *vv = &s->voices[v];
             if (!vv->active) continue;
-            float inc = (float)(2.0 * M_PI * vv->freq * inc_scale);
+            float inc = phase_step[v];
             float o1 = wb_osc_process(&vv->osc1, inc, s->waveform, 0.5f);
             float o2 = wb_osc_process(&vv->osc2, inc * 1.007f, WB_WAVE_SINE, 0.5f);
             float raw = o1 * 0.6f + o2 * 0.4f;
@@ -163,12 +173,20 @@ static int synth_process(const wb_plugin *p, void *inst, wb_audio_block *b) {
     /* plugin-ABI path: render into the block's output buffers */
     wb_synth_inst *s = inst;
     uint32_t n = b->frames;
+    float inc_scale = 1.0f / (float)s->sr;
+    /* FC1 (R076): precompute per-voice oscillator phase-step (same as
+     * wb_synth_render_block). vv->freq is invariant across the block. */
+    float phase_step[MAX_VOICES];
+    for (int v = 0; v < MAX_VOICES; v++) {
+        voice *vv = &s->voices[v];
+        phase_step[v] = vv->active ? (float)(2.0 * M_PI * vv->freq * inc_scale) : 0.0f;
+    }
     for (uint32_t i = 0; i < n; i++) {
         float mixL = 0, mixR = 0;
         for (int v = 0; v < MAX_VOICES; v++) {
             voice *vv = &s->voices[v];
             if (!vv->active) continue;
-            float inc = (float)(2.0 * M_PI * vv->freq / (double)s->sr);
+            float inc = phase_step[v];
             float o1 = wb_osc_process(&vv->osc1, inc, s->waveform, 0.5f);
             float o2 = wb_osc_process(&vv->osc2, inc * 1.007f, WB_WAVE_SINE, 0.5f);
             float raw = o1 * 0.6f + o2 * 0.4f;

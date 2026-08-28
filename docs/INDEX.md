@@ -93,6 +93,13 @@
 || **DSP: auto-tune pitch correction** (R076-M1) — `wb_pitch_correct` YIN + scale snapping + resampling pitch shift, major/minor/pentatonic/chromatic | `make test_pitch_correct` (5/5) |
 || **DSP: Moog ladder filter** (R076-V1) — `wb_ladder` Huovilainen 4-pole nonlinear model with tanh saturation, resonance to self-oscillation | `make test_ladder` (6/6) |
 || **DSP: TR-808/909 drum machine** (R076-V6) — `wb_drum_machine` 11 voices: BD, SD, toms, clap, rim, cowbell, crash, hi-hats | `make test_drum_machine` (5/5) |
+|| **DSP: Big Muff fuzz** (R076-V13) — `wb_fuzz` 3-stage cascaded clipping + Big Muff tone stack | `make test_fuzz` (5/5) |
+|| **DSP: Karplus-Strong** (R076-N3) — `wb_karplus` plucked string physical modeling | `make test_karplus` (5/5) |
+|| **DSP: Bass boost** (R076) — `wb_bass_boost` sub-bass enhancer with harmonic generation | Engine 750/0 |
+|| **Video: Meme sounds** (R076) — `wb_meme_sounds` procedural Vine boom, bass drop, earrape, sad violin, bruh, yeet, rizz, morbin, wilhelm, crickets | Engine 750/0 |
+|| **Video: Beat-sync editing** (R076) — `wb_beat_sync` onset detection, BPM tracking, beat-quantized cuts | Engine 750/0 |
+|| **Video: Auto-captions** (R076) — `wb_auto_captions` TikTok-style word-by-word highlight | Engine 750/0 |
+|| **Video: Chroma key** (R076) — `wb_chroma_key` green screen with feathering + spill suppression | Engine 750/0 |
 ## R017 recursive-loop gaps — ALL 12 CLOSED ✅ (G1–G12)
 | Gap | Status |
 |---|---|

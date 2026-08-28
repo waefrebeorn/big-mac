@@ -37,7 +37,7 @@ CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c \
              src/wb_sampler.c src/wb_wav.c src/wb_backend.c \
              src/wb_tuner.c src/wb_ui_font.c src/wb_midi_coremidi.c src/wb_clap.c \
              src/wb_session_file.c src/wb_unit.c src/wb_fm.c src/wb_fm_g2.c src/wb_fm_g3.c src/wb_synth_simd.c src/wb_drum_simd.c src/wb_granular.c src/wb_char2d.c src/wb_vfx.c src/wb_light2d.c src/wb_video_edit.c src/wb_ytp.c src/wb_keys.c src/wb_drums.c \
-             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_sat_simd.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c src/wb_voice_polish.c src/wb_voice_isolate.c src/wb_fft.c src/wb_param_track.c src/wb_compositor.c src/wb_transcript.c src/wb_ofx.c src/wb_ofx_plugin_builtin.c src/wb_agent.c src/wb_tts.c src/wb_hpss.c src/wb_workspace.c src/wb_clip_edit.c src/wb_cgi.c src/wb_agi.c src/wb_rast.c src/wb_mesh.c src/wb_anim.c src/wb_mod.c src/wb_gltf.c src/wb_assets.c src/wb_cgiexport.c src/wb_shadowbin.c src/wb_duck.c src/wb_delivery.c src/wb_perf.c src/wb_perfclip.c src/wb_wavcache.c src/wb_import.c src/wb_capture.c src/wb_export_job.c src/wb_precision.c src/wb_lufs.c src/wb_input.c src/wb_limiter.c src/wb_cgi_react.c src/wb_cgi_bands.c src/wb_timestretch.c src/wb_smf.c src/wb_sf2.c src/wb_bitcrush.c src/wb_sfx.c src/wb_waveview.c src/wb_scenedesc.c src/wb_pattern.c src/wb_tga.c src/wb_csg.c src/wb_graphio.c src/wb_conv.c src/wb_biquad_cascade_simd.c src/wb_comp_simd.c src/wb_mix_simd.c src/wb_stereo.c src/wb_yin.c src/wb_phaser.c
+             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_modulation.c src/wb_midifx.c src/wb_sat_simd.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c src/wb_voice_polish.c src/wb_voice_isolate.c src/wb_fft.c src/wb_param_track.c src/wb_compositor.c src/wb_transcript.c src/wb_ofx.c src/wb_ofx_plugin_builtin.c src/wb_agent.c src/wb_tts.c src/wb_hpss.c src/wb_workspace.c src/wb_clip_edit.c src/wb_cgi.c src/wb_agi.c src/wb_rast.c src/wb_mesh.c src/wb_anim.c src/wb_mod.c src/wb_gltf.c src/wb_assets.c src/wb_cgiexport.c src/wb_shadowbin.c src/wb_duck.c src/wb_delivery.c src/wb_perf.c src/wb_perfclip.c src/wb_wavcache.c src/wb_import.c src/wb_capture.c src/wb_export_job.c src/wb_precision.c src/wb_lufs.c src/wb_input.c src/wb_limiter.c src/wb_cgi_react.c src/wb_cgi_bands.c src/wb_timestretch.c src/wb_smf.c src/wb_sf2.c src/wb_bitcrush.c src/wb_sfx.c src/wb_waveview.c src/wb_scenedesc.c src/wb_pattern.c src/wb_tga.c src/wb_csg.c src/wb_graphio.c src/wb_conv.c src/wb_biquad_cascade_simd.c src/wb_comp_simd.c src/wb_mix_simd.c src/wb_stereo.c src/wb_yin.c src/wb_phaser.c src/wb_pitch_correct.c
 CXX_SRCS := src/wb_vst3_host.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/module.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/processdata.cpp \
@@ -442,6 +442,12 @@ build/wb_test_phaser: build/tools/test_phaser.o build/src/wb_phaser.o
 
 test_phaser: build/wb_test_phaser
 	./build/wb_test_phaser
+
+build/wb_test_pitch_correct: build/tools/test_pitch_correct.o build/src/wb_pitch_correct.o build/src/wb_yin.o
+	$(CC) $(CFLAGS) $(INC) -o $@ $^ -lm
+
+test_pitch_correct: build/wb_test_pitch_correct
+	./build/wb_test_pitch_correct
 
 # G25 fix: header dependency tracking (stale-object nondeterminism)
 -include $(wildcard build/*/*.d) $(wildcard build/*.d)

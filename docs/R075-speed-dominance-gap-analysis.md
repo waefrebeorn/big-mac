@@ -58,5 +58,18 @@ with zero third-party beyond vendored SDL2.
 
 ## Remaining (deferred)
 
-- Online research cycle — last active 2026-08-27
+- Online research cycle — last active 2026-08-28
 - Loop NOT complete: tokens haven't stopped
+
+## R077 Speed Dominance (hops 245-252)
+
+| Hop | What | Speedup | Location |
+|-----|------|---------|----------|
+| 245 | Stutter variations (10 types) | — | src/wb_stutter.c |
+| 246 | Transition pack (25 transitions) | — | src/wb_transitions.c |
+| 247 | SIMD batch biquad4 (TDF2) | 3-4× | tools/wb_biquad_simd2.h |
+| 248 | SIMD exp/log/pow/tanh | 3-10× | tools/wb_dsp_simd.h |
+| 249 | FTZ/DAZ denormal fix | 10-100× | src/wb_ftz.c |
+| 250 | Branchless DSP helpers | 1.5-3× | tools/wb_branchless.h |
+| 251 | SIMD FIR filter (4-wide) | 4× | tools/wb_fir_simd.h |
+| 252 | Lock-free SPSC ring buffer | — | tools/wb_ringbuf.h |

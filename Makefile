@@ -407,5 +407,11 @@ build/wb_test_sat_simd: build/tools/test_sat_simd.o build/src/wb_sat_simd.o
 test_sat_simd: build/wb_test_sat_simd
 	./build/wb_test_sat_simd
 
+build/wb_test_granular: build/tools/test_granular.o build/src/wb_granular.o
+	$(CC) $(CFLAGS) $(INC) -o $@ $^ -lm
+
+test_granular: build/wb_test_granular
+	./build/wb_test_granular
+
 # G25 fix: header dependency tracking (stale-object nondeterminism)
 -include $(wildcard build/*/*.d) $(wildcard build/*.d)

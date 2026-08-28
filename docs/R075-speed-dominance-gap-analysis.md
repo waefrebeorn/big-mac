@@ -53,10 +53,10 @@ with zero third-party beyond vendored SDL2.
 | G3 | Granular synthesis upgrade | — | src/wb_granular.c |
 | G4 | SIMD biquad cascade (4-lane) | 4× | src/wb_biquad_cascade_simd.c |
 | G5 | Polynomial tanh saturation SIMD | 5-8× | src/wb_sat_simd.c |
+| G6 | SIMD compressor/limiter (4-lane) | 4× | src/wb_comp_simd.c |
 
 ## Remaining (deferred)
 
 - Online research cycle — last active 2026-08-27
-- Compressor/limiter sidechain SIMD
 - Mixer bus channel summing with pan laws
 - Loop NOT complete: tokens haven't stopped

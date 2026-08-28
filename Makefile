@@ -473,5 +473,11 @@ build/wb_test_karplus: build/tools/test_karplus.o build/src/wb_karplus.o
 test_karplus: build/wb_test_karplus
 	./build/wb_test_karplus
 
+build/wb_test_dsp_simd_timing: build/tools/test_dsp_simd_timing.o
+	$(CC) $(CFLAGS) $(INC) -o $@ $^ -lm
+
+test_dsp_simd_timing: build/wb_test_dsp_simd_timing
+	./build/wb_test_dsp_simd_timing
+
 # G25 fix: header dependency tracking (stale-object nondeterminism)
 -include $(wildcard build/*/*.d) $(wildcard build/*.d)

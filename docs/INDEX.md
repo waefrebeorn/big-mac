@@ -87,11 +87,12 @@
 || **DSP: SIMD compressor/limiter** (R075-G6) — `wb_comp_simd` 4 independent compressors in parallel, soft-knee, sidechain-capable | `make test_comp_simd` (5/5) |
 || **DSP: SIMD mixer bus** (R075-G7) — `wb_mix_simd` constant-power pan law, 4-track parallel sum, SIMD master volume + peak/RMS metering | `make test_mix_simd` (6/6) |
 || **DSP: granular synthesis upgrade** (R075-G3) — `wb_granular` 64 grain pool, parabolic window (2 MACs), formant preservation, interonset-time scheduling | Engine 750/0 |
-|| **DSP: M/S stereo widening + Haas** (R076-N1) — `wb_stereo` mid-side encode/decode, SSE2 4-wide, constant-power widening, Haas delay, frequency-dependent width via LR4 crossover | `make test_stereo` (6/6) |
-|| **DSP: YIN pitch detection** (R076-N2) — `wb_yin` SSE2 vectorized difference function, cumulative mean normalization, parabolic interpolation, ±2 Hz accuracy | `make test_yin` (6/6) |
-|| **DSP: Phaser** (R076-N5) — `wb_phaser` 6-stage allpass cascade + LFO-modulated center frequency, feedback, wet/dry mix | `make test_phaser` (5/5) |
-|| **DSP: Auto-tune pitch correction** (R076-M1) — `wb_pitch_correct` YIN + scale snapping (major/minor/pentatonic/chromatic) + resampling pitch shift | `make test_pitch_correct` (5/5) |
-|| **DSP: Moog ladder filter** (R076-V1) — `wb_ladder` Huovilainen 4-pole nonlinear model with tanh saturation, resonance up to self-oscillation | `make test_ladder` (6/6) |
+|| **DSP: M/S stereo widening + Haas** (R076-N1) — `wb_stereo` SSE2 4-wide M/S encode/decode, constant-power widening, frequency-dependent width via LR4 crossover, Haas delay | `make test_stereo` (6/6) |
+|| **DSP: YIN pitch detection** (R076-N2) — `wb_yin` SSE2 vectorized difference function, cumulative mean normalization, parabolic interpolation, ±2Hz accuracy | `make test_yin` (6/6) |
+|| **DSP: phaser** (R076-N5) — `wb_phaser` 6-stage allpass cascade with LFO-modulated center frequency, feedback, wet/dry mix | `make test_phaser` (5/5) |
+|| **DSP: auto-tune pitch correction** (R076-M1) — `wb_pitch_correct` YIN + scale snapping + resampling pitch shift, major/minor/pentatonic/chromatic | `make test_pitch_correct` (5/5) |
+|| **DSP: Moog ladder filter** (R076-V1) — `wb_ladder` Huovilainen 4-pole nonlinear model with tanh saturation, resonance to self-oscillation | `make test_ladder` (6/6) |
+|| **DSP: TR-808/909 drum machine** (R076-V6) — `wb_drum_machine` 11 voices: BD, SD, toms, clap, rim, cowbell, crash, hi-hats | `make test_drum_machine` (5/5) |
 ## R017 recursive-loop gaps — ALL 12 CLOSED ✅ (G1–G12)
 | Gap | Status |
 |---|---|

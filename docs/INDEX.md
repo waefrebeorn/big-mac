@@ -225,24 +225,25 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-14 experiments + mega mix. 455+ source files (~8.7GB). 18 YTP techniques.
+15 experiments + mega mix. 450+ source files (~9.4GB). 18 YTP techniques.
 
-| Experiment | Source | Techniques |
-|-----------|--------|------------|
-| ytp001 | Popeye PD | stutter, chipmunk, reverse+earrape, deep fry, VHS, kaleidoscope, sentence mix, combo |
-| ytp002 | Hercules PD | speed up, slow mo, vine boom overlay, boom stutter, tape stop, databash, robot voice |
-| ytp003 | Scatcrow PD | multi-boom layer, demon voice, hyperfast, invert+earrape, sentence mix, fried+reversed |
-| ytp004 | Betty Boop + Bugs + Toyland | chipmunk, demon reverse, fry+invert, cross-source mix, VHS earrape, databash |
-| ytp005 | Fleischer Color Classics | pitch wobble, slow-mo demon, fry stutter, kaleidoscope, triple-source mix, rev+hflip+earrape |
-| ytp006 | 1956 Dizzy + WhoZoo + Coy Decoy | chipmunk, reverse+earrape, deep fry, triple mix, VHS, demon |
-| ytp007 | Skeleton Frolics + Headless Horseman | demon, stutter, deep fry, VHS, reverse+negate+earrape, chipmunk |
-| ytp008 | Balloon Land + Don Quixote + Summertime | chipmunk, demon, fry, VHS, rev+hflip, stutter, quad mix |
-| ytp009 | 90s Commercials (Game Genie, Pepsi, etc.) | chipmunk, earrape, VHS, demon, deep fry, stutter, reverse, slowmo |
-| ytp010 | Pokémon Indigo + Sun&Moon + Nick Bumpers | chipmunk, earrape, demon, deep fry, VHS, reverse |
-| ytp011 | SpongeBob + Pokémon (YouTube) | chipmunk, earrape, demon, VHS, reverse, fry |
-| ytp012 | Nickelodeon IDs + Retro Commercials | earrape, chipmunk, demon, deep fry, reverse+negate, VHS, reverse+earrape |
-| ytp013 | 1956 Popeye + Hooked Bear + Out to Punch | chipmunk, demon, fry, VHS, earrape+stutter, slowmo, reverse+hflip+negate |
-| ytp014 | Pokémon Indigo League eps 3-8 | demon, chipmunk, earrape, VHS, fry, reverse |
-| ytp000 | ALL (mega mix) | concatenation of ytp001-003 |
+| # | Source | Techniques |
+|---|--------|------------|
+| 001 | Popeye PD | stutter, chipmunk, reverse+earrape, deep fry, VHS, kaleidoscope, sentence mix, combo |
+| 002 | Hercules PD | speed up, slow mo, vine boom overlay, boom stutter, tape stop, databash, robot voice |
+| 003 | Scatcrow PD | multi-boom layer, demon voice, hyperfast, invert+earrape, sentence mix, fried+reversed |
+| 004 | Betty Boop + Bugs + Toyland | chipmunk, demon reverse, fry+invert, cross-source mix, VHS earrape, databash |
+| 005 | Fleischer Color Classics | pitch wobble, slow-mo demon, fry stutter, kaleidoscope, triple-source mix, rev+hflip+earrape |
+| 006 | 1956 Dizzy + WhoZoo + Coy Decoy | chipmunk, reverse+earrape, deep fry, triple mix, VHS, demon |
+| 007 | Skeleton Frolics + Headless Horseman | demon, stutter, deep fry, VHS, reverse+negate+earrape, chipmunk |
+| 008 | Balloon Land + Don Quixote + Summertime | chipmunk, demon, fry, VHS, rev+hflip, stutter, quad mix |
+| 009 | 90s Commercials (Game Genie, Pepsi, etc.) | chipmunk, earrape, VHS, demon, deep fry, stutter, reverse, slowmo |
+| 010 | Pokémon Indigo + Sun&Moon + Nick Bumpers | chipmunk, earrape, demon, deep fry, VHS, reverse |
+| 011 | SpongeBob + Pokémon (YouTube) | chipmunk, earrape, demon, VHS, reverse, fry |
+| 012 | Nickelodeon IDs + Retro Commercials | earrape, chipmunk, demon, deep fry, reverse+negate, VHS, reverse+earrape |
+| 013 | 1956 Popeye + Hooked Bear + Out to Punch | chipmunk, demon, fry, VHS, earrape+stutter, slowmo, reverse+hflip+negate |
+| 014 | Pokémon Indigo League eps 3-8 | demon, chipmunk, earrape, VHS, fry, reverse |
+| 015 | Mixed commercials + anime clips | chipmunk, demon, earrape, VHS, deep fry, rev+flip, slowmo, stutter, octo-mix |
+| 000 | ALL (mega mix) | concatenation of ytp001-003 |
 
-Source: 62 PD + 85 commercials + 10 anime + 11 YouTube → 263 clips + 4 SFX = ~8.7GB.
+Source: 62 PD + 85+ commercials + 10 anime + 12 YouTube → 263 clips + 4 SFX = ~9.4GB.

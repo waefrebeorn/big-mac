@@ -10,11 +10,14 @@
 
 | Category | Count | Size |
 |----------|-------|------|
-| Full PD episodes | 41 | ~2.3GB |
-| Short clips (10s extracts) | 95 | ~120MB |
+| Public Domain Cartoons | 62 | ~5.5GB |
+| Commercials & Bumpers | 85 | ~500MB |
+| Anime (Pokémon, etc.) | 7 | ~300MB |
+| YouTube Rips | 8 | ~300MB |
+| Short clips (extracted) | 161 | ~200MB |
 | Meme sound effects | 4 | ~1MB |
 | Extracted audio tracks | 13 | ~27MB |
-| **Total** | **153+ files** | **~2.5GB** |
+| **Total** | **340+ files** | **~7.7GB** |
 
 ### Collections Acquired
 1. **Popeye the Sailor** (Fleischer, 1933-40s) — 8 episodes

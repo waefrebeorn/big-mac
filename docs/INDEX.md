@@ -225,20 +225,22 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-10 experiments + mega mix. 340+ source files (~7.7GB). 18 YTP techniques.
+12 experiments + mega mix. 435+ source files (~8.5GB). 18 YTP techniques.
 
-| Experiment | Source | Duration | Techniques |
-|-----------|--------|----------|------------|
-| ytp001 | Popeye "A Clean Shaven Man" | 72s | stutter, chipmunk, reverse+earrape, deep fry, VHS, kaleidoscope, sentence mix, combo |
-| ytp002 | Hercules "Daedalus and the Evil Unicorn" | 111s | speed up, slow mo, vine boom overlay, boom stutter, tape stop, databash, robot voice |
-| ytp003 | Scatcrow (Ub Iwerks) | 102s | multi-boom layer, demon voice, hyperfast, invert+earrape, sentence mix, fried+reversed |
-| ytp004 | Betty Boop + Bugs + Toyland | 60s | chipmunk, demon reverse, fry+invert, cross-source mix, VHS earrape, databash |
-| ytp005 | Fleischer Color Classics | 94s | pitch wobble, slow-mo demon, fry stutter, kaleidoscope, triple-source mix, rev+hflip+earrape |
-| ytp006 | 1956 Dizzy + WhoZoo + Coy Decoy | 60s | chipmunk, reverse+earrape, deep fry, triple mix, VHS, demon |
-| ytp007 | Skeleton Frolics + Headless Horseman + Happy Days | ~90s | demon, stutter, deep fry, VHS, reverse+negate+earrape, chipmunk |
-| ytp008 | Balloon Land + Don Quixote + Summertime + Destination Earth | ~70s | chipmunk, demon, fry, VHS, rev+hflip, stutter, quad mix |
-| ytp009 | 90s Commercials (Game Genie, Pepsi, Fruity Pebbles, etc.) | ~90s | chipmunk, earrape, VHS, demon, deep fry, stutter, reverse, slowmo |
-| ytp010 | Pokémon Indigo + Sun&Moon + Nick Bumpers | ~70s | chipmunk, earrape, demon, deep fry, VHS, reverse |
-| ytp000 | ALL (mega mix) | 183s | concatenation of ytp001-003 |
+| Experiment | Source | Techniques |
+|-----------|--------|------------|
+| ytp001 | Popeye PD | stutter, chipmunk, reverse+earrape, deep fry, VHS, kaleidoscope, sentence mix, combo |
+| ytp002 | Hercules PD | speed up, slow mo, vine boom overlay, boom stutter, tape stop, databash, robot voice |
+| ytp003 | Scatcrow PD | multi-boom layer, demon voice, hyperfast, invert+earrape, sentence mix, fried+reversed |
+| ytp004 | Betty Boop + Bugs + Toyland | chipmunk, demon reverse, fry+invert, cross-source mix, VHS earrape, databash |
+| ytp005 | Fleischer Color Classics | pitch wobble, slow-mo demon, fry stutter, kaleidoscope, triple-source mix, rev+hflip+earrape |
+| ytp006 | 1956 Dizzy + WhoZoo + Coy Decoy | chipmunk, reverse+earrape, deep fry, triple mix, VHS, demon |
+| ytp007 | Skeleton Frolics + Headless Horseman | demon, stutter, deep fry, VHS, reverse+negate+earrape, chipmunk |
+| ytp008 | Balloon Land + Don Quixote + Summertime | chipmunk, demon, fry, VHS, rev+hflip, stutter, quad mix |
+| ytp009 | 90s Commercials (Game Genie, Pepsi, etc.) | chipmunk, earrape, VHS, demon, deep fry, stutter, reverse, slowmo |
+| ytp010 | Pokémon Indigo + Sun&Moon + Nick Bumpers | chipmunk, earrape, demon, deep fry, VHS, reverse |
+| ytp011 | SpongeBob + Pokémon (YouTube) | chipmunk, earrape, demon, VHS, reverse, fry |
+| ytp012 | Nickelodeon IDs + Retro Commercials | earrape, chipmunk, demon, deep fry, reverse+negate, VHS, reverse+earrape |
+| ytp000 | ALL (mega mix) | concatenation of ytp001-003 |
 
-Source library: 62 PD cartoons + 85 commercials + 7 anime + 8 YouTube rips → 161 clips + 13 audio + 4 SFX = ~7.7GB.
+Source: 62 PD + 85 commercials + 10 anime + 11 YouTube → 263 clips + 4 SFX = ~8.5GB.

@@ -225,13 +225,15 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-3 experiments + mega mix. 66 source files (204MB). 15 YTP techniques applied via FFmpeg.
+5 experiments + mega mix. 153+ source files (~2.5GB). 18 YTP techniques applied via FFmpeg.
 
 | Experiment | Source | Duration | Techniques |
 |-----------|--------|----------|------------|
-| ytp001 | Popeye "A Clean Shaven Man" | 71s | stutter, chipmunk, reverse+earrape, deep fry, VHS, kaleidoscope, sentence mix, combo |
+| ytp001 | Popeye "A Clean Shaven Man" | 72s | stutter, chipmunk, reverse+earrape, deep fry, VHS, kaleidoscope, sentence mix, combo |
 | ytp002 | Hercules "Daedalus and the Evil Unicorn" | 111s | speed up, slow mo, vine boom overlay, boom stutter, tape stop, databash, robot voice |
-| ytp003 | Scatcrow (Ub Iwerks) | 101s | multi-boom layer, demon voice, hyperfast, invert+earrape, sentence mix, fried+reversed |
-| ytp000 | ALL THREE (mega mix) | 182s | concatenation of all above |
+| ytp003 | Scatcrow (Ub Iwerks) | 102s | multi-boom layer, demon voice, hyperfast, invert+earrape, sentence mix, fried+reversed |
+| ytp004 | Betty Boop + Bugs + Toyland | 60s | chipmunk, demon reverse, fry+invert, cross-source mix, VHS earrape, databash |
+| ytp005 | Fleischer Color Classics | 94s | pitch wobble, slow-mo demon, fry stutter, kaleidoscope, triple-source mix, rev+hflip+earrape |
+| ytp000 | ALL (mega mix) | 183s | concatenation of ytp001-003 |
 
-Source library: 14 PD episodes → 35 clips + 13 audio tracks + 4 meme SFX.
+Source library: 41 PD episodes (10 collections) → 95 clips + 13 audio tracks + 4 meme SFX = ~2.5GB.

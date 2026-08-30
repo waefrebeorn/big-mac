@@ -210,3 +210,26 @@
 ✅ wb_keyframes.c — bezier animation
 ✅ wb_compositor.c — node compositing
 ✅ wb_video_edit.c — full NLE
+
+## 10. Iconic YTP Source Material (Acquired)
+
+### Tier 1 — The Holy Grail (acquired)
+- **Hotel Mario CD-i** — hilariously bad cutscenes, "Nice of the princess to invite us over for a picnic, eh Luigi?"
+- **Super Mario World cartoon (1991)** — all 13 episodes, critically disregarded
+- **Zelda CD-i** — Link: The Faces of Evil, Zelda: The Wand of Gamelon
+- **Popeye PD cartoons** — 8 episodes (Fleischer)
+- **Ub Iwerks Comicolor** — 20+ cartoons (1930s)
+
+### Tier 2 — YTP Staples (acquired)
+- **SpongeBob SquarePants** — compilation episodes via YouTube
+- **Pokémon anime** — Indigo League (10 eps) + Sun&Moon (5 eps)
+- **90s Commercials** — Game Genie, Pepsi, Fruity Pebbles, McDonald's, etc.
+- **Vintage Commercials** — NBC 1987, CBS 1994, ABC 1987, Animaniacs 1993, Batman 1993
+- **Nickelodeon IDs** — bumpers, claymation, rebrands
+
+### Tier 3 — Still Needed
+- **Adventures of Sonic the Hedgehog** — downloading
+- **Michael Rosen** — children's poet, YTP staple
+- **Wall-E** — popular YTP source
+- **Dragon Ball Z Abridged** — Team Four Star
+- **Hotel Mario full game** — not just cutscenes

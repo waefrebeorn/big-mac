@@ -225,7 +225,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-20 experiments + mega mix. 520+ source files (~13GB). 18+ YTP techniques.
+21 experiments + mega mix. 480+ source files (~10.5GB). 18+ YTP techniques.
 
 | # | Source | Techniques |
 |---|--------|------------|
@@ -245,6 +245,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | 014 | Pokémon Indigo League eps 3-8 | demon, chipmunk, earrape, VHS, fry, reverse |
 | 019 | Chroma key compositing (Popeye + PD bg) | colorkey, green screen overlay, datamosh, deep-fry+datamosh |
 | 020 | Animaniacs + Batman 1993 commercials | chipmunk, demon, earrape, VHS, deep fry, stutter, cartoon mix |
+| 021 | Glitch/datamosh pipeline (Popeye) | pixel shift, glitch crush, frame drop, reverse segments |
 | 015 | Mixed commercials + anime clips | chipmunk, demon, earrape, VHS, deep fry, rev+flip, slowmo, stutter, octo-mix |
 | 016 | Vintage commercials (Muppet Babies, Garfield, NBC) | chipmunk, demon, earrape, VHS, deep fry, vintage mix |
 | 017 | NBC 1987 Ads (A-F) | chipmunk, demon, earrape, VHS, deep fry, reverse+negate, nbc mix |

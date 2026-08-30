@@ -225,7 +225,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-17 experiments + mega mix. 470+ source files (~9.8GB). 18 YTP techniques.
+18 experiments + mega mix. 480+ source files (~10.5GB). 18 YTP techniques.
 
 | # | Source | Techniques |
 |---|--------|------------|
@@ -246,6 +246,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | 015 | Mixed commercials + anime clips | chipmunk, demon, earrape, VHS, deep fry, rev+flip, slowmo, stutter, octo-mix |
 | 016 | Vintage commercials (Muppet Babies, Garfield, NBC) | chipmunk, demon, earrape, VHS, deep fry, vintage mix |
 | 017 | NBC 1987 Ads (A-F) | chipmunk, demon, earrape, VHS, deep fry, reverse+negate, nbc mix |
+| 018 | SpongeBob (YouTube compilations) | chipmunk, demon, earrape, triple-mix |
 | 000 | ALL (mega mix) | concatenation of ytp001-003 |
 
-Source: 62 PD + 120+ commercials + 10 anime + 12 YouTube → 263 clips + 4 SFX = ~9.8GB.
+Source: 62 PD + 120+ commercials + 10 anime + 15 YouTube → 263 clips + 4 SFX = ~10.5GB.

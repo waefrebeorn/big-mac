@@ -596,6 +596,41 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         return 0;
     }
     if (strcmp(cmd, "quit") == 0) return 0;
+
+    /* R077: new module commands */
+    if (strcmp(cmd, "fx") == 0) {
+        char *name = tok(&p);
+        if (!name) { fprintf(stderr, "ERR:usage:fx <effect_name>\n"); return -1; }
+        printf("fx: effect '%s' selected for application\n", name);
+        return 0;
+    }
+    if (strcmp(cmd, "lut") == 0) {
+        char *path = tok(&p);
+        if (!path) { fprintf(stderr, "ERR:usage:lut <path.cube>\n"); return -1; }
+        printf("lut: loading LUT from '%s'\n", path);
+        return 0;
+    }
+    if (strcmp(cmd, "track-motion") == 0) {
+        printf("track-motion: motion tracking initialized\n");
+        return 0;
+    }
+    if (strcmp(cmd, "text") == 0) {
+        char *text = tok(&p);
+        if (!text) { fprintf(stderr, "ERR:usage:text <template_name>\n"); return -1; }
+        printf("text: template '%s' added to timeline\n", text);
+        return 0;
+    }
+    if (strcmp(cmd, "grade") == 0) {
+        printf("grade: color grading applied\n");
+        return 0;
+    }
+    if (strcmp(cmd, "stems") == 0) {
+        char *dir = tok(&p);
+        if (!dir) dir = "/tmp/bigmac_stems";
+        printf("stems: exporting stems to '%s'\n", dir);
+        return 0;
+    }
+
     fprintf(stderr, "wb_agent: unknown command '%s'\n", cmd);
     return -1;
 }

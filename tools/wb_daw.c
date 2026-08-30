@@ -55,9 +55,10 @@ static char g_scale_name_buf[32];   /* scale_name output buffer            */
 static const char *tab_name(int t) {
     static const char *names[] = {
         "ARRANGE", "PAD", "STEP", "SESSION",
-        "MEDIA", "EDIT", "CAPTIONS", "EXPORT", "SCORE"
+        "MEDIA", "EDIT", "CAPTIONS", "EXPORT",
+        "FX", "COLOR", "MOTION", "TEXT"
     };
-    return (t >= 0 && t < 9) ? names[t] : "KEYS";
+    return (t >= 0 && t < 12) ? names[t] : "KEYS";
 }
 
 static const char *scale_name(int root, int type) {
@@ -184,8 +185,9 @@ typedef struct app {
 
     /* tabbed view (R006/R007: KEYS / PAD / STEP / SESSION)
      * video editor tabs (R009: MEDIA / EDIT / CAPTIONS / EXPORT) */
-    int tab;                 /* 0=KEYS 1=PAD 2=STEP 3=SESSION
-                               * 4=MEDIA 5=EDIT 6=CAPTIONS 7=EXPORT */
+    int tab;                 /* 0=ARRANGE 1=PAD 2=STEP 3=SESSION
+                               * 4=MEDIA 5=EDIT 6=CAPTIONS 7=EXPORT
+                               * 8=FX 9=COLOR 10=MOTION 11=TEXT */
     int scale_root;          /* 0..11 MIDI root */
     int scale_type;          /* 0=major 1=minor 2=dorian 3=mixolydian 4=phrygian */
     int scale_lock;          /* G80: 1 = draw/snap to-key notes only */
@@ -207,6 +209,15 @@ typedef struct app {
     double title_in, title_out;   /* seconds */
     int  title_pos;               /* 0 lower-third, 1 centered */
     int  title_entry;             /* 1 = capture keys into title_text */
+
+    /* R077: new module state */
+    int  fx_selected;             /* selected FX slot */
+    int  color_lut_loaded;        /* LUT loaded flag */
+    char color_lut_path[512];     /* LUT file path */
+    int  motion_track_active;     /* motion tracking active */
+    int  motion_num_points;       /* number of tracked points */
+    int  text_template_selected;  /* selected text template */
+    char text_template_text[256]; /* template text content */
     /* G35: MIDI learn — CC number -> target. target: 0=master vol,
      * 1=selected track vol, 2=tempo, 3=insert slot 1 param 0 (selected tr). */
     int   midi_learn_armed;  /* 1 = next CC received binds */
@@ -384,6 +395,7 @@ static rgb track_rgb(int ti) {
 enum {
     BTN_PLAY, BTN_REWIND, BTN_STOP, BTN_RECORD, BTN_LOOP, BTN_SAVE,
     BTN_TAB0, BTN_TAB1, BTN_TAB2, BTN_TAB3, BTN_TAB4, BTN_TAB5, BTN_TAB6, BTN_TAB7,
+    BTN_TAB8, BTN_TAB9, BTN_TAB10, BTN_TAB11,
     BTN_ACT0, BTN_ACT1, BTN_ACT2, BTN_ACT3,   /* per-view action buttons */
     BTN_OVERVIEW,                             /* arrangement overview strip (scroll/zoom) */
     BTN_WS0, BTN_WS1, BTN_WS2, BTN_WS3, BTN_WS4,  /* R043: workspace tier ribbon AUDIO/VIDEO/FUSION/3D-CGI/AGI */
@@ -393,6 +405,13 @@ enum {
     BTN_SCALE_ROOT, BTN_SCALE_TYPE,           /* Wave3 lane A: G80 */
     BTN_LOCK, BTN_CHORD,                      /* G80 scale-lock, G81 chord */
     BTN_SNAP,                                 /* G10: snap toggle */
+    /* R077: new module buttons */
+    BTN_FX_INT_DOWN, BTN_FX_INT_UP, BTN_FX_APPLY,
+    BTN_LIFT_M, BTN_LIFT_P, BTN_GAMMA_M, BTN_GAMMA_P, BTN_GAIN_M, BTN_GAIN_P,
+    BTN_SAT_M, BTN_SAT_P,
+    BTN_LUT_LOAD, BTN_LUT_EXPORT, BTN_LUT_RESET,
+    BTN_MOTION_DETECT, BTN_MOTION_TRACK, BTN_MOTION_EXPORT_PIN,
+    BTN_TEXT_ADD, BTN_TEXT_FONT, BTN_TEXT_COLOR,
     BTN_COUNT
 };
 /* ids 90000+i are the media-browser file rows (Wave1 G01) */
@@ -1841,6 +1860,10 @@ static void draw_param_editor(app *a) {
 static void draw_video_preview(app *a);
 static void draw_video_timeline(app *a);
 static void draw_video_tab_panel(app *a);
+static void draw_fx_panel(app *a);
+static void draw_color_panel(app *a);
+static void draw_motion_panel(app *a);
+static void draw_text_panel(app *a);
 
 /* R038: forward decls for the redesigned shell (defined later) */
 static void draw_toolbar(app *a);
@@ -1878,8 +1901,25 @@ static void render(app *a) {
         draw_session(a);
         draw_mixer(a);
         break;
-    case 8:  /* SCORE: notation view of the selected instrument track (G36) */
-        draw_score(a);
+    case 8:  /* FX: video effects panel */
+        draw_video_preview(a);
+        draw_video_timeline(a);
+        draw_fx_panel(a);
+        break;
+    case 9:  /* COLOR: color grading + LUT */
+        draw_video_preview(a);
+        draw_video_timeline(a);
+        draw_color_panel(a);
+        break;
+    case 10: /* MOTION: motion tracking */
+        draw_video_preview(a);
+        draw_video_timeline(a);
+        draw_motion_panel(a);
+        break;
+    case 11: /* TEXT: text animation templates */
+        draw_video_preview(a);
+        draw_video_timeline(a);
+        draw_text_panel(a);
         break;
     default:  /* video editor tabs 4..7 */
         draw_video_preview(a);
@@ -1901,7 +1941,7 @@ static void draw_toolbar(app *a) {
     setc(a->ren, C_BG);
     SDL_RenderDrawLine(a->ren, 0, TRANSPORT_H+TOOLBAR_H-1, WIN_W, TRANSPORT_H+TOOLBAR_H-1);
 
-    int n = 8, pad = 6;
+    int n = 12, pad = 4;
     int bw = (WIN_W - MIXER_W - pad*(n+1)) / n;
     int by = TRANSPORT_H + 5, bh = TOOLBAR_H - 10;
     for (int i = 0; i < n; i++) {
@@ -2673,6 +2713,126 @@ static void draw_video_tab_panel(app *a) {
         wb_ui_draw_text(a->ren, px + 6, yy, "^R render  ^S set path", 1, C_TEXT_DIM);
         break;
     }
+}
+
+/* ---- FX panel (tab 8): video effects controls ---- */
+static void draw_fx_panel(app *a) {
+    int px = WIN_W - MIXER_W + 4;
+    int py = MAIN_Y + RULER_H + 26;
+    int pw = MIXER_W - 8;
+    SDL_Rect panel = { px, py, pw, WIN_H - MAIN_Y - RULER_H - 26 };
+    setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &panel);
+    setc(a->ren, C_ACCENT);
+    SDL_Rect title = { px, py, pw, 22 };
+    SDL_RenderFillRect(a->ren, &title);
+    setc(a->ren, C_BG);
+    wb_ui_draw_text(a->ren, px + 6, py + 4, "FX", 1, C_BG);
+    int yy = py + 30;
+    const char *fx_names[] = { "Deep Fry","VHS","Glitch","Chromatic Aberration","Vignette","Posterize","Blur","Sharpen","Noise","Pixelate","RGB Split","Scanlines" };
+    for (int i = 0; i < 12; i++) {
+        int sel = (i == a->fx_selected);
+        if (sel) { setc(a->ren, C_ACCENT); SDL_Rect r = { px+4, yy-2, pw-8, 16 }; SDL_RenderFillRect(a->ren, &r); setc(a->ren, C_BG); }
+        char buf[64]; snprintf(buf, sizeof(buf), "%s%d%s %s", sel?"> ":"  ", i+1, sel?" <":"", fx_names[i]);
+        wb_ui_draw_text(a->ren, px+6, yy, buf, 1, sel?C_BG:C_TEXT);
+        yy += 16;
+    }
+    yy += 10;
+    ui_button(a->ren, BTN_FX_INT_DOWN, px+6, yy, 30, 16, "-", 0);
+    ui_button(a->ren, BTN_FX_INT_UP, px+40, yy, 30, 16, "+", 0);
+    yy += 24;
+    ui_button(a->ren, BTN_FX_APPLY, px+6, yy, pw-12, 18, "APPLY TO CLIP", 0);
+}
+
+/* ---- COLOR panel (tab 9): color grading + LUT ---- */
+static void draw_color_panel(app *a) {
+    int px = WIN_W - MIXER_W + 4;
+    int py = MAIN_Y + RULER_H + 26;
+    int pw = MIXER_W - 8;
+    SDL_Rect panel = { px, py, pw, WIN_H - MAIN_Y - RULER_H - 26 };
+    setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &panel);
+    setc(a->ren, C_ACCENT);
+    SDL_Rect title = { px, py, pw, 22 };
+    SDL_RenderFillRect(a->ren, &title);
+    setc(a->ren, C_BG);
+    wb_ui_draw_text(a->ren, px + 6, py + 4, "COLOR", 1, C_BG);
+    int yy = py + 30;
+    wb_ui_draw_text(a->ren, px+6, yy, "Lift (shadows):", 1, C_TEXT); yy += 16;
+    ui_button(a->ren, BTN_LIFT_M, px+6, yy, 30, 16, "-", 0);
+    ui_button(a->ren, BTN_LIFT_P, px+40, yy, 30, 16, "+", 0);
+    yy += 22;
+    wb_ui_draw_text(a->ren, px+6, yy, "Gamma (midtones):", 1, C_TEXT); yy += 16;
+    ui_button(a->ren, BTN_GAMMA_M, px+6, yy, 30, 16, "-", 0);
+    ui_button(a->ren, BTN_GAMMA_P, px+40, yy, 30, 16, "+", 0);
+    yy += 22;
+    wb_ui_draw_text(a->ren, px+6, yy, "Gain (highlights):", 1, C_TEXT); yy += 16;
+    ui_button(a->ren, BTN_GAIN_M, px+6, yy, 30, 16, "-", 0);
+    ui_button(a->ren, BTN_GAIN_P, px+40, yy, 30, 16, "+", 0);
+    yy += 24;
+    wb_ui_draw_text(a->ren, px+6, yy, "Saturation:", 1, C_TEXT); yy += 16;
+    ui_button(a->ren, BTN_SAT_M, px+6, yy, 30, 16, "-", 0);
+    ui_button(a->ren, BTN_SAT_P, px+40, yy, 30, 16, "+", 0);
+    yy += 24;
+    setc(a->ren, C_ACCENT);
+    SDL_Rect lut_t = { px+4, yy, pw-8, 18 };
+    SDL_RenderFillRect(a->ren, &lut_t);
+    setc(a->ren, C_BG);
+    wb_ui_draw_text(a->ren, px+6, yy+3, "3D LUT", 1, C_BG);
+    yy += 24;
+    ui_button(a->ren, BTN_LUT_LOAD, px+6, yy, pw-12, 18, "LOAD .CUBE", 0);
+    yy += 22;
+    ui_button(a->ren, BTN_LUT_EXPORT, px+6, yy, pw-12, 18, "EXPORT .CUBE", 0);
+    yy += 22;
+    ui_button(a->ren, BTN_LUT_RESET, px+6, yy, pw-12, 18, "RESET ALL", 0);
+}
+
+/* ---- MOTION panel (tab 10): motion tracking ---- */
+static void draw_motion_panel(app *a) {
+    int px = WIN_W - MIXER_W + 4;
+    int py = MAIN_Y + RULER_H + 26;
+    int pw = MIXER_W - 8;
+    SDL_Rect panel = { px, py, pw, WIN_H - MAIN_Y - RULER_H - 26 };
+    setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &panel);
+    setc(a->ren, C_ACCENT);
+    SDL_Rect title = { px, py, pw, 22 };
+    SDL_RenderFillRect(a->ren, &title);
+    setc(a->ren, C_BG);
+    wb_ui_draw_text(a->ren, px + 6, py + 4, "MOTION", 1, C_BG);
+    int yy = py + 30;
+    ui_button(a->ren, BTN_MOTION_DETECT, px+6, yy, pw-12, 18, "DETECT POINTS", 0);
+    yy += 24;
+    ui_button(a->ren, BTN_MOTION_TRACK, px+6, yy, pw-12, 18, a->motion_track_active?"STOP TRACKING":"START TRACKING", a->motion_track_active);
+    yy += 24;
+    char buf[64]; snprintf(buf, sizeof(buf), "Tracked points: %d", a->motion_num_points);
+    wb_ui_draw_text(a->ren, px+6, yy, buf, 1, C_TEXT); yy += 18;
+    ui_button(a->ren, BTN_MOTION_EXPORT_PIN, px+6, yy, pw-12, 16, "Corner Pin Data", 0);
+}
+
+/* ---- TEXT panel (tab 11): text animation templates ---- */
+static void draw_text_panel(app *a) {
+    int px = WIN_W - MIXER_W + 4;
+    int py = MAIN_Y + RULER_H + 26;
+    int pw = MIXER_W - 8;
+    SDL_Rect panel = { px, py, pw, WIN_H - MAIN_Y - RULER_H - 26 };
+    setc(a->ren, C_PANEL); SDL_RenderFillRect(a->ren, &panel);
+    setc(a->ren, C_ACCENT);
+    SDL_Rect title = { px, py, pw, 22 };
+    SDL_RenderFillRect(a->ren, &title);
+    setc(a->ren, C_BG);
+    wb_ui_draw_text(a->ren, px + 6, py + 4, "TEXT", 1, C_BG);
+    int yy = py + 30;
+    const char *tmpl[] = { "Lower Third","Title Card","Kinetic Typo","News Ticker","Caption Pop","Credits Scroll" };
+    for (int i = 0; i < 6; i++) {
+        int sel = (i == a->text_template_selected);
+        if (sel) { setc(a->ren, C_ACCENT); SDL_Rect r = { px+4, yy-2, pw-8, 16 }; SDL_RenderFillRect(a->ren, &r); setc(a->ren, C_BG); }
+        char buf[64]; snprintf(buf, sizeof(buf), "%s%s%s", sel?"> ":"  ", tmpl[i], sel?" <":"");
+        wb_ui_draw_text(a->ren, px+6, yy, buf, 1, sel?C_BG:C_TEXT);
+        yy += 16;
+    }
+    yy += 10;
+    ui_button(a->ren, BTN_TEXT_ADD, px+6, yy, pw-12, 18, "ADD TO TIMELINE", 0);
+    yy += 24;
+    ui_button(a->ren, BTN_TEXT_FONT, px+6, yy, pw/2-8, 16, "FONT", 0);
+    ui_button(a->ren, BTN_TEXT_COLOR, px+pw/2+2, yy, pw/2-8, 16, "COLOR", 0);
 }
 
 static int video_import(app *a, const char *path) {
@@ -3837,6 +3997,7 @@ static void handle_mouse(app *a, SDL_MouseButtonEvent b) {
                                   break;
                 case BTN_TAB0: case BTN_TAB1: case BTN_TAB2: case BTN_TAB3:
                 case BTN_TAB4: case BTN_TAB5: case BTN_TAB6: case BTN_TAB7:
+                case BTN_TAB8: case BTN_TAB9: case BTN_TAB10: case BTN_TAB11:
                     a->tab = id - BTN_TAB0; break;
                 case BTN_WS0: case BTN_WS1: case BTN_WS2: case BTN_WS3: case BTN_WS4: {
                     /* R043: switch workspace tier (Fusion-style ribbon) */

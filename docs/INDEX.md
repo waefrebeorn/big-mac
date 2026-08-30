@@ -225,7 +225,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-18 experiments + mega mix. 480+ source files (~10.5GB). 18 YTP techniques.
+19 experiments + mega mix. 460+ source files (~9.7GB). 18+ YTP techniques.
 
 | # | Source | Techniques |
 |---|--------|------------|
@@ -243,6 +243,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | 012 | Nickelodeon IDs + Retro Commercials | earrape, chipmunk, demon, deep fry, reverse+negate, VHS, reverse+earrape |
 | 013 | 1956 Popeye + Hooked Bear + Out to Punch | chipmunk, demon, fry, VHS, earrape+stutter, slowmo, reverse+hflip+negate |
 | 014 | Pokémon Indigo League eps 3-8 | demon, chipmunk, earrape, VHS, fry, reverse |
+| 019 | Chroma key compositing (Popeye + PD bg) | colorkey, green screen overlay, datamosh, deep-fry+datamosh |
 | 015 | Mixed commercials + anime clips | chipmunk, demon, earrape, VHS, deep fry, rev+flip, slowmo, stutter, octo-mix |
 | 016 | Vintage commercials (Muppet Babies, Garfield, NBC) | chipmunk, demon, earrape, VHS, deep fry, vintage mix |
 | 017 | NBC 1987 Ads (A-F) | chipmunk, demon, earrape, VHS, deep fry, reverse+negate, nbc mix |

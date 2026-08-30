@@ -100,6 +100,52 @@
 || **Video: Beat-sync editing** (R076) — `wb_beat_sync` onset detection, BPM tracking, beat-quantized cuts | Engine 750/0 |
 || **Video: Auto-captions** (R076) — `wb_auto_captions` TikTok-style word-by-word highlight | Engine 750/0 |
 || **Video: Chroma key** (R076) — `wb_chroma_key` green screen with feathering + spill suppression | Engine 750/0 |
+|| **Video: Stutter variations** (R077) — `wb_stutter` 10 types: classic, pitch-up/down, reverse, shrinking, expanding, hold, fade, rhythmic, glitch | Engine 750/0 |
+|| **Video: Transition pack** (R077) — `wb_transitions` 25 transitions: dissolve, wipe, zoom, whip pan, flash, glitch, spin, mosaic, blur, slide, scale, RGB split, slice, strobe, shake, morph | Engine 750/0 |
+|| **Video: M/S stereo widening** (R077-N1) — `wb_stereo` SSE2 4-wide M/S encode/decode, constant-power widening, Haas delay | `make test_stereo` (6/6) |
+|| **Video: Phaser** (R077-N5) — `wb_phaser` 6-stage allpass cascade + LFO | `make test_phaser` (5/5) |
+|| **Video: Auto-tune** (R077-M1) — `wb_pitch_correct` YIN + scale snapping | `make test_pitch_correct` (5/5) |
+|| **Video: Moog ladder filter** (R077-V1) — `wb_ladder` Huovilainen 4-pole nonlinear | `make test_ladder` (6/6) |
+|| **Video: TR-808/909 drums** (R077-V6) — `wb_drum_machine` 11 voices | `make test_drum_machine` (5/5) |
+|| **Video: Big Muff fuzz** (R077-V13) — `wb_fuzz` 3-stage cascaded clipping | `make test_fuzz` (5/5) |
+|| **Video: Karplus-Strong** (R077-N3) — `wb_karplus` plucked string | `make test_karplus` (5/5) |
+|| **Video: Beat-slicer** (R077) — `wb_beat_slicer` chop/reverse/stutter/shuffle/speed | Engine 750/0 |
+|| **Video: Parallel compression** (R077) — `wb_parallel_comp` New York compression | Engine 750/0 |
+|| **Video: LFO sidechain** (R077) — `wb_lfo_sidechain` MIDI-triggered ducking | Engine 750/0 |
+|| **Video: Deep fry** (R077) — `wb_deep_fry` multi-pass saturation/contrast/noise | Engine 750/0 |
+|| **Video: VHS effect** (R077) — `wb_vhs_effect` tracking errors, chroma noise, scanlines | Engine 750/0 |
+|| **Video: Lyric video** (R077) — `wb_lyric_video` auto-timed text from transcript | Engine 750/0 |
+|| **Video: Speed ramping** (R077) — `wb_speed_ramp` smooth speed keyframes with ease | Engine 750/0 |
+|| **Video: Transient shaper** (R077) — `wb_transient_shaper` SPL differential method | Engine 750/0 |
+|| **Video: De-esser** (R077) — `wb_deesser` sibilance detection + band attenuation | Engine 750/0 |
+|| **Video: Harmonic exciter** (R077) — `wb_exciter` even/odd harmonic generation | Engine 750/0 |
+|| **Video: Text animation** (R077) — `wb_text_templates` lower thirds, kinetic, ticker | Engine 750/0 |
+|| **Video: Particle system** (R077) — `wb_particle` 4096 particles, audio-reactive | Engine 750/0 |
+|| **Video: True peak limiter** (R077) — `wb_true_peak` 4x oversampling, lookahead | Engine 750/0 |
+|| **Video: Dynamic EQ** (R077) — `wb_dynamic_eq` 4-band frequency-dependent compression | Engine 750/0 |
+|| **Video: Stereo imaging** (R077) — `wb_stereo_image` mid-side, width, bass mono | Engine 750/0 |
+|| **Video: Video stabilization** (R077) — `wb_stabilize` motion estimation + smoothing | Engine 750/0 |
+|| **Video: Export presets** (R077) — `wb_export_presets` YouTube/TikTok/Spotify | Engine 750/0 |
+|| **Video: Smart quantize** (R077) — `wb_quantize` groove templates, swing, humanize | Engine 750/0 |
+|| **Video: Audio restoration** (R077) — `wb_restore` de-click, de-clip, noise reduction | Engine 750/0 |
+|| **Video: Track freeze** (R077) — `wb_freeze` bounce-in-place, CPU optimization | Engine 750/0 |
+|| **Video: Vocal removal** (R077) — `wb_vocal_remove` center channel extraction | Engine 750/0 |
+|| **Video: MIDI humanize** (R077) — `wb_midi_humanize` timing/velocity randomization | Engine 750/0 |
+|| **Video: Chord detection** (R077) — `wb_chord_detect` PCP + template matching | Engine 750/0 |
+|| **Video: MIDI arpeggiator** (R077) — `wb_arpeggiator` 5 patterns, octave wrap | Engine 750/0 |
+|| **Video: Color grading** (R077) — `wb_color_grade` lift/gamma/gain, curves, LUT | Engine 750/0 |
+|| **Video: 3D LUT** (R077) — `wb_lut` .cube import/export, trilinear interpolation | Engine 750/0 |
+|| **Video: Motion tracking** (R077) — `wb_motion_track` Lucas-Kanade optical flow | Engine 750/0 |
+|| **Video: Keyframe animation** (R077) — `wb_keyframes` 6 properties, bezier curves | Engine 750/0 |
+|| **Video: Scene detection** (R077) — `wb_scene_detect` histogram diff, shot boundary | Engine 750/0 |
+|| **Video: Reaction video** (R077) — `wb_reaction` side-by-side, PIP | Engine 750/0 |
+|| **Video: Stem export** (R077) — `wb_stem_export` multitrack WAV bounce | Engine 750/0 |
+|| **Video: Mastering chain** (R077) — `wb_mastering_chain` EQ->comp->stereo->limiter | Engine 750/0 |
+|| **Video: VCA groups** (R077) — `wb_vca` master fader control | Engine 750/0 |
+|| **Video: Sidechain compression** (R077) — `wb_sidechain` feed-forward detector | Engine 750/0 |
+|| **Video: Tape stop** (R077) — `wb_tape_stop` vinyl brake effect | Engine 750/0 |
+|| **Video: Spectrum visualizer** (R077) — `wb_spectrum` log-frequency bars, peak hold | Engine 750/0 |
+|| **Video: Pitch bending** (R077) — `wb_pitch_bend` continuous slides, vibrato | Engine 750/0 |
 ## R017 recursive-loop gaps — ALL 12 CLOSED ✅ (G1–G12)
 | Gap | Status |
 |---|---|

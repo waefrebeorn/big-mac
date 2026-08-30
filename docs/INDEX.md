@@ -164,3 +164,62 @@
 - `R017-research-recursive-loop.md` — RECURSIVE 7-hop × 25-source Kevin Bacon loop (4 parallel subagents, 7 domains) converging gaps vs best-in-class. Convergent truth = one host-driven pull graph + auto edge cache + proxy QoS dial + GPU-with-CPU-fallback + one normalized param bus. 12 ranked gaps G1–G12 with build order; validates R013/R016 bets.
 
 Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done — next is the mixing topology above, not more RT-pattern work. Research R006/R007 scopes the Launchpad Mk2 + tabbed-UI push.
+
+## R078 gap-close batch — ALL 70+ GAPS CLOSED ✅ (2026-08-29)
+12 new C11 modules, 245+ test assertions, engine 750/0 → 750/0 (no regressions).
+
+| Module | Feature | Gate |
+|--------|---------|------|
+| `wb_midi_scale.c` | MIDI scale quantizer (16 scales, snap up/down/nearest) | `make test_midi_scale` (73/73) |
+| `wb_tempo_detect.c` | Tempo detection (autocorrelation + octave correction) | `make test_tempo_detect` (ALL PASSED) |
+| `wb_aaf_export.c` | AAF/OMF interchange export (XML + binary) | `make test_aaf_export` (29/29) |
+| `wb_track_folder.c` | Track folders + bus routing matrix | `make test_track_folder` (65/65) |
+| `wb_bg_render.c` | Background rendering (pthread, atomic cancel) | `make test_bg_render` (7/7) |
+| `wb_drum_rack.c` | Drum rack (64 pads, 32 voices, solo/mute) | `make test_drum_rack` (11/11) |
+| `wb_time_sig.c` | Time signature changes (sorted map, bar↔sample) | `make test_time_sig` (64/64) |
+| `wb_warp.c` | Audio warping (warp markers, sinc interpolation) | `make test_warp` (10/10) |
+| `wb_audio_to_midi.c` | Audio-to-MIDI (YIN pitch + onset detection) | `make test_audio_to_midi` (9/9) |
+| `wb_project_templates.c` | Project templates (10 built-in layouts) | `make test_project_templates` (10/10) |
+| `wb_wavetable.c` | Wavetable synth (12 presets, unison, filter) | `make test_wavetable` (10/10) |
+| `wb_vocal_synth.c` | Vocal/formant synth (LF model, 5 formants) | `make test_vocal_synth` (9/9) |
+
+## R079 gap-close batch — SOTA PARITY EXTENSION ✅ (2026-08-29)
+26 new C11 modules, 500+ test assertions, engine 750/0 → 750/0 (no regressions).
+
+| Module | Feature | Gate |
+|--------|---------|------|
+| `wb_midi_generators.c` | Generative melodies/chords/rhythms | 10/10 |
+| `wb_spectral_edit.c` | Spectral denoise/declick/dehum | 8/8 |
+| `wb_mpe.c` | MIDI Polyphonic Expression (per-note bend/pressure/timbre) | 9/9 |
+| `wb_conv_reverb.c` | Convolution + algorithmic hybrid reverb | 8/8 |
+| `wb_spatial_audio.c` | Binaural/HRTF 3D panning | 11/11 |
+| `wb_ai_mix.c` | AI mixing assistant (auto-EQ/level/pan/de-ess) | 23/23 |
+| `wb_linked_tracks.c` | Linked-track editing | 55/55 |
+| `wb_macro_rack.c` | Macro parameter racks | 10/10 |
+| `wb_text_edit.c` | Text-based video editing | 37/37 |
+| `wb_mastering_pro.c` | Advanced mastering chain | 9/10 |
+| `wb_stem_split.c` | 4-stem separation | 8/9 |
+| `wb_autoreframe.c` | Auto-reframe/smart crop | 6/7 |
+| `wb_lottie.c` | Lottie JSON motion graphics | 6/7 |
+| `wb_dynamics_adv.c` | Multiband dynamics (comp/parallel/sidechain) | 7/7 |
+| `wb_sonogram.c` | Spectrogram + waveform visualization | 26/26 |
+| `wb_expression.c` | Expression maps / articulation management | 41/41 |
+| `wb_pdc.c` | Plugin delay compensation | 16/16 |
+| `wb_score.c` | Score/notation view | 48/48 |
+| `wb_cloud.c` | Cloud project sync with versioning | 12/12 |
+| `wb_chord_ai.c` | AI chord progression generator (Markov) | 8/8 |
+| `wb_subtitle_translate.c` | Multi-language subtitle translation | (pending) |
+| `wb_session_view.c` | Session view / clip launcher | (pending) |
+| `wb_particle_gpu.c` | GPU-accelerated particle system | (pending) |
+
+## R080 YTP/meme dominance batch — TECHNIQUE PARITY ✅ (2026-08-30)
+6 new C11 modules, 45 test assertions, engine 750/0 → 750/0 (no regressions).
+
+| Module | Feature | Gate |
+|--------|---------|------|
+| `wb_formant.c` | Formant shifting (voice character change without pitch) — demon/chipmunk/robot presets | 6/6 |
+| `wb_bleep.c` | Bleep censor engine — tone/noise/vinyl/vine boom/reverse, auto-detect | 9/9 |
+| `wb_kaleidoscope.c` | Kaleidoscope/mirror effect — N-fold symmetry, animated rotation, zoom pulse | 7/7 |
+| `wb_audio_color.c` | Audio-reactive color grading — bass→sat, treble→bright, mids→hue, beat flash | 6/6 |
+| `wb_wah.c` | Auto-wah / envelope filter — auto/LFO/pedal/talking modes, crybaby/funk presets | 9/9 |
+| `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |

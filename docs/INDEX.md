@@ -225,7 +225,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-16 experiments + mega mix. 450+ source files (~9.6GB). 18 YTP techniques.
+17 experiments + mega mix. 470+ source files (~9.8GB). 18 YTP techniques.
 
 | # | Source | Techniques |
 |---|--------|------------|
@@ -245,6 +245,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | 014 | Pokémon Indigo League eps 3-8 | demon, chipmunk, earrape, VHS, fry, reverse |
 | 015 | Mixed commercials + anime clips | chipmunk, demon, earrape, VHS, deep fry, rev+flip, slowmo, stutter, octo-mix |
 | 016 | Vintage commercials (Muppet Babies, Garfield, NBC) | chipmunk, demon, earrape, VHS, deep fry, vintage mix |
+| 017 | NBC 1987 Ads (A-F) | chipmunk, demon, earrape, VHS, deep fry, reverse+negate, nbc mix |
 | 000 | ALL (mega mix) | concatenation of ytp001-003 |
 
-Source: 62 PD + 100+ commercials + 10 anime + 12 YouTube → 263 clips + 4 SFX = ~9.6GB.
+Source: 62 PD + 120+ commercials + 10 anime + 12 YouTube → 263 clips + 4 SFX = ~9.8GB.

@@ -225,7 +225,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-12 experiments + mega mix. 435+ source files (~8.5GB). 18 YTP techniques.
+13 experiments + mega mix. 445+ source files (~8.6GB). 18 YTP techniques.
 
 | Experiment | Source | Techniques |
 |-----------|--------|------------|
@@ -241,6 +241,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | ytp010 | Pokémon Indigo + Sun&Moon + Nick Bumpers | chipmunk, earrape, demon, deep fry, VHS, reverse |
 | ytp011 | SpongeBob + Pokémon (YouTube) | chipmunk, earrape, demon, VHS, reverse, fry |
 | ytp012 | Nickelodeon IDs + Retro Commercials | earrape, chipmunk, demon, deep fry, reverse+negate, VHS, reverse+earrape |
+| ytp013 | 1956 Popeye + Hooked Bear + Out to Punch | chipmunk, demon, fry, VHS, earrape+stutter, slowmo, reverse+hflip+negate |
 | ytp000 | ALL (mega mix) | concatenation of ytp001-003 |
 
-Source: 62 PD + 85 commercials + 10 anime + 11 YouTube → 263 clips + 4 SFX = ~8.5GB.
+Source: 62 PD + 85 commercials + 10 anime + 11 YouTube → 263 clips + 4 SFX = ~8.6GB.

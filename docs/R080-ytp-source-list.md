@@ -5,13 +5,13 @@
 | Source | Status | Notes |
 |--------|--------|-------|
 | Hotel Mario CD-i | ✅ ACQUIRED | All cutscenes (14MB) |
-| Super Mario World cartoon | ✅ ACQUIRED | 6+ episodes downloading |
+| Super Mario World cartoon | ✅ ACQUIRED | 13 episodes |
+| Michael Rosen | ✅ ACQUIRED | "We're Going on a Bear Hunt" (2 versions) |
+| Adventures of Sonic the Hedgehog | ✅ ACQUIRED | 4 episodes (pilot + more) |
+| Captain N: The Game Master | 🔄 DOWNLOADING | Season 1 re-downloading with validation |
 | Zelda CD-i (Faces of Evil + Wand of Gamelon) | ⬜ NEEDED | Cutscenes on archive.org |
 | Link: The Faces of Evil | ⬜ NEEDED | |
 | Zelda: The Wand of Gamelon | ⬜ NEEDED | |
-| Adventures of Sonic the Hedgehog | ⬜ NEEDED | 65 episodes |
-| Super Mario Bros. 3 cartoon (DiC) | ⬜ NEEDED | "Recycled Koopa" episode |
-| Captain N: The Game Master | ⬜ NEEDED | Seasons 1-3 |
 
 ## Priority 2: Classic YTP Staples
 

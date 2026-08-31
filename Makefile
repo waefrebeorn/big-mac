@@ -352,6 +352,20 @@ build/ytp_transcribe: tools/ytp_transcribe.c
 ytp_transcribe_test: build/ytp_transcribe
 	./build/ytp_transcribe assets/ytp_sources/video/famous_clips/SHREK_somebody_P6antjcBFZ4.mp4
 
+# ---- Mocap Overlay (BVH skeleton on video) ----
+build/wb_mocap_overlay: tools/wb_mocap_overlay.c build/src/wb_bvh.o
+	$(CC) $(CFLAGS) $(INC) -o $@ tools/wb_mocap_overlay.c build/src/wb_bvh.o -lm
+
+mocap_overlay_test: build/wb_mocap_overlay
+	@echo "Mocap overlay built (test requires BVH file)"
+
+# ---- YTP Director (text description → edit) ----
+build/wb_ytp_director: tools/wb_ytp_director.c
+	$(CC) $(CFLAGS) $(INC) -o $@ $< -lm
+
+ytp_director_test: build/wb_ytp_director
+	./build/wb_ytp_director
+
 build/wb_test_gltf: build/tools/test_gltf.o build/src/wb_gltf.o build/src/wb_mesh.o build/src/wb_rast.o
 	$(CC) $(CFLAGS) $(INC) -o $@ $^ -lm
 

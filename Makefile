@@ -338,6 +338,20 @@ build/wb_ytp_compose: tools/wb_ytp_compose.c
 ytp_compose_test: build/wb_ytp_compose
 	./build/wb_ytp_compose
 
+# ---- YTP Studio (R083: context-aware director) ----
+build/wb_ytp_studio: tools/wb_ytp_studio.c
+	$(CC) $(CFLAGS) $(INC) -o $@ $< -lm
+
+ytp_studio_test: build/wb_ytp_studio
+	./build/wb_ytp_studio
+
+# ---- YTP Transcribe (batch word-level transcription) ----
+build/ytp_transcribe: tools/ytp_transcribe.c
+	$(CC) $(CFLAGS) $(INC) -o $@ $< -lm
+
+ytp_transcribe_test: build/ytp_transcribe
+	./build/ytp_transcribe assets/ytp_sources/video/famous_clips/SHREK_somebody_P6antjcBFZ4.mp4
+
 build/wb_test_gltf: build/tools/test_gltf.o build/src/wb_gltf.o build/src/wb_mesh.o build/src/wb_rast.o
 	$(CC) $(CFLAGS) $(INC) -o $@ $^ -lm
 

@@ -225,7 +225,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-31 experiments (25 context-aware). 1200+ source files (15GB).
+32 experiments (26 context-aware). 1200+ source files (15GB→transcoding to 480p).
 
 | # | Source | Techniques |
 |---|--------|------------|
@@ -250,6 +250,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | 029 | Sonic pilot (Sonic in Mobius ~5:18) - CONTEXT-AWARE | stutter, chipmunk, demon, earrape, fry, reverse |
 | 030 | Captain N S2 "Quest for the Potion" - CONTEXT-AWARE | stutter, chipmunk, demon, earrape, fry, reverse |
 | 031 | Yoshi "Fire Sale" (SMW Ep1) - CONTEXT-AWARE | stutter, chipmunk, demon, earrape, fry, reverse |
+| 032 | Zelda CD-i Link (Wand of Gamelon retrospective) - CONTEXT-AWARE | stutter, chipmunk, demon, earrape, fry, reverse |
 | 028 | Sonic pilot episode - CONTEXT-AWARE | chipmunk, demon, earrape, VHS, fry, reverse |
 
 **Experiments 001-025 were context-blind and have been archived to `_archive_blind/`**

@@ -225,7 +225,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-33 experiments (27 context-aware). 1200+ source files (11GB).
+35 experiments (29 context-aware). 1200+ source files (11GB). Audio analysis pipeline built.
 
 | # | Source | Techniques |
 |---|--------|------------|
@@ -251,6 +251,8 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | 030 | Captain N S2 "Quest for the Potion" - CONTEXT-AWARE | stutter, chipmunk, demon, earrape, fry, reverse |
 | 031 | Yoshi "Fire Sale" (SMW Ep1) - CONTEXT-AWARE | stutter, chipmunk, demon, earrape, fry, reverse |
 | 032 | Zelda CD-i Link (Wand of Gamelon retrospective) - CONTEXT-AWARE | stutter, chipmunk, demon, earrape, fry, reverse |
+| 034 | Shrek "Somebody Once Tell Me" - CONTEXT-AUDIO | stutter, chipmunk, demon, earrape, fry, reverse |
+| 035 | SpongeBob "Band Geeks" - CONTEXT-AUDIO | stutter, chipmunk, demon, earrape, fry, reverse |
 | 033 | "We're Going on a Bear Hunt" (ending) - CONTEXT-AWARE | stutter, chipmunk, demon, earrape, fry, reverse |
 | 028 | Sonic pilot episode - CONTEXT-AWARE | chipmunk, demon, earrape, VHS, fry, reverse |
 

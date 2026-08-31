@@ -235,32 +235,88 @@ int load_transcript(source_media *src, const char *path) {
     json[sz] = '\0';
     fclose(f);
     
-    /* Simple JSON parsing for whisper.cpp output format:
-     * {"segments": [{"start": 0.0, "end": 1.0, "text": "word1 word2", "words": [...]}]}
-     * We extract word-level timestamps.
-     */
-    
     src->words = NULL;
     src->word_starts = NULL;
     src->word_ends = NULL;
     src->n_words = 0;
     
-    /* Count words first */
+    /* Check for our word-level format: {"words": [{"word":"...","start":ms,"end":ms}]} */
+    if (strstr(json, "\"words\"") && strstr(json, "\"word\"")) {
+        /* Parse word-level format */
+        char *p = json;
+        int count = 0;
+        
+        /* Count entries */
+        char *tmp = p;
+        while ((tmp = strstr(tmp, "\"word\"")) != NULL) {
+            count++;
+            tmp += 6;
+        }
+        
+        if (count == 0) { free(json); return -1; }
+        
+        src->words = calloc(count + 1, sizeof(char *));
+        src->word_starts = calloc(count + 1, sizeof(double));
+        src->word_ends = calloc(count + 1, sizeof(double));
+        
+        /* Parse each word entry */
+        p = json;
+        int wi = 0;
+        while (wi < count) {
+            char *word_key = strstr(p, "\"word\"");
+            if (!word_key) break;
+            
+            /* Extract word value */
+            char *wstart = strchr(word_key + 6, '"');
+            if (!wstart) break;
+            wstart++;
+            char *wend = strchr(wstart, '"');
+            if (!wend) break;
+            
+            char wsave = *wend;
+            *wend = '\0';
+            src->words[wi] = strdup(wstart);
+            *wend = wsave;
+            
+            /* Find "start" after this word */
+            char *start_key = strstr(wend, "\"start\"");
+            if (!start_key) break;
+            char *start_num = strchr(start_key, ':');
+            if (!start_num) break;
+            src->word_starts[wi] = atof(start_num + 1);
+            
+            /* Find "end" after start */
+            char *end_key = strstr(start_num, "\"end\"");
+            if (!end_key) break;
+            char *end_num = strchr(end_key, ':');
+            if (!end_num) break;
+            src->word_ends[wi] = atof(end_num + 1);
+            
+            p = end_num + 1;
+            wi++;
+        }
+        
+        src->n_words = wi;
+        src->has_transcript = 1;
+        free(json);
+        return 0;
+    }
+    
+    /* Fallback: parse segment-level format:
+     * {"segments": [{"start": 0.0, "end": 1.0, "text": "word1 word2"}]} */
     char *p = json;
     int word_count = 0;
     while (*p) {
-        /* Look for "text" fields */
         char *text_start = strstr(p, "\"text\"");
         if (!text_start) break;
         text_start = strchr(text_start, ':');
         if (!text_start) break;
         text_start = strchr(text_start, '"');
         if (!text_start) break;
-        text_start++; /* skip opening quote */
+        text_start++;
         char *text_end = strchr(text_start, '"');
         if (!text_end) break;
         
-        /* Count words in this text segment */
         char saved = *text_end;
         *text_end = '\0';
         char *w = text_start;
@@ -270,33 +326,24 @@ int load_transcript(source_media *src, const char *path) {
             while (*w && *w != ' ') w++;
         }
         *text_end = saved;
-        
         p = text_end + 1;
     }
     
-    if (word_count == 0) {
-        free(json);
-        return -1;
-    }
+    if (word_count == 0) { free(json); return -1; }
     
-    /* Allocate */
     src->words = calloc(word_count + 1, sizeof(char *));
     src->word_starts = calloc(word_count + 1, sizeof(double));
     src->word_ends = calloc(word_count + 1, sizeof(double));
     
-    /* Parse again, this time extracting words with timestamps */
     p = json;
     int wi = 0;
     while (*p && wi < word_count) {
         char *seg = strstr(p, "\"start\"");
         if (!seg) break;
-        
-        /* Parse segment start */
         char *num = strchr(seg, ':');
         if (!num) break;
         double seg_start = atof(num + 1);
         
-        /* Parse segment end */
         char *endp = strstr(seg, "\"end\"");
         double seg_end = seg_start + 1.0;
         if (endp) {
@@ -304,7 +351,6 @@ int load_transcript(source_media *src, const char *path) {
             if (endnum) seg_end = atof(endnum + 1);
         }
         
-        /* Parse text */
         char *textp = strstr(seg, "\"text\"");
         if (!textp) break;
         char *tstart = strchr(textp + 6, '"');
@@ -316,7 +362,6 @@ int load_transcript(source_media *src, const char *path) {
         char saved = *tend;
         *tend = '\0';
         
-        /* Split into words */
         char *w = tstart;
         int seg_words = 0;
         char *wp = tstart;
@@ -331,20 +376,17 @@ int load_transcript(source_media *src, const char *path) {
         while (*w && wi < word_count) {
             while (*w == ' ') w++;
             if (!*w) break;
-            
             char *we = w;
             while (*we && *we != ' ') we++;
             char wsave = *we;
             *we = '\0';
             
             src->words[wi] = strdup(w);
-            /* Distribute timestamps evenly across segment */
             double frac = seg_words > 1 ? (double)w_in_seg / (double)(seg_words - 1) : 0;
             src->word_starts[wi] = seg_start + frac * (seg_end - seg_start) * 0.8;
             src->word_ends[wi] = src->word_starts[wi] + 0.15 + (rand() % 100) / 500.0;
             wi++;
             w_in_seg++;
-            
             *we = wsave;
             w = we;
         }
@@ -356,7 +398,6 @@ int load_transcript(source_media *src, const char *path) {
     src->n_words = wi;
     src->has_transcript = 1;
     free(json);
-    
     return 0;
 }
 

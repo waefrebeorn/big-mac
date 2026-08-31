@@ -225,7 +225,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-28 experiments (21 context-aware). 1213+ source files (15GB).
+29 experiments (23 context-aware). 1200+ source files (15GB).
 
 | # | Source | Techniques |
 |---|--------|------------|
@@ -247,7 +247,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | 023 | Michael Rosen "Bear Hunt" | chipmunk, demon, earrape, VHS, fry, reverse |
 | 024 | Adventures of Sonic the Hedgehog (pilot) | chipmunk, demon, earrape, VHS, fry, reverse |
 | 026 | Bowser roar (Hotel Mario) - CONTEXT-AWARE | stutter, demon, earrape, deep-fry, reverse, chipmunk |
-| 027 | SMW title card - CONTEXT-AWARE | stutter, demon, earrape, VHS, reverse, deep-fry |
+| 029 | Sonic pilot (Sonic in Mobius ~5:18) - CONTEXT-AWARE | stutter, chipmunk, demon, earrape, fry, reverse |
 | 028 | Sonic pilot episode - CONTEXT-AWARE | chipmunk, demon, earrape, VHS, fry, reverse |
 
 **Experiments 001-025 were context-blind and have been archived to `_archive_blind/`**

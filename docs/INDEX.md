@@ -225,7 +225,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-36 experiments (30 context-aware). 1200+ source files (11GB).
+38 experiments (32 context-aware). 1200+ source files (11GB). Big Mac whisper.cpp integration.
 
 | # | Source | Techniques |
 |---|--------|------------|
@@ -254,6 +254,8 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | 034 | Shrek "Somebody Once Tell Me" - CONTEXT-AUDIO | stutter, chipmunk, demon, earrape, fry, reverse |
 | 035 | SpongeBob "Band Geeks" - CONTEXT-AUDIO | stutter, chipmunk, demon, earrape, fry, reverse |
 | 036 | Arthur "One Hour of Stories" - CONTEXT-AUDIO | stutter, chipmunk, demon, earrape, fry, reverse |
+| 037 | Hotel Mario - TRANSCRIPT-AWARE (whisper.cpp) | chipmunk, demon, earrape, reverse, fried |
+| 038 | SpongeBob "Band Geeks" - TRANSCRIPT-AWARE (whisper.cpp) | earrape, demon, reverse, fried |
 | 033 | "We're Going on a Bear Hunt" (ending) - CONTEXT-AWARE | stutter, chipmunk, demon, earrape, fry, reverse |
 | 028 | Sonic pilot episode - CONTEXT-AWARE | chipmunk, demon, earrape, VHS, fry, reverse |
 

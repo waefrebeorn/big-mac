@@ -24,9 +24,20 @@ void wb_transport_schedule_notes_sw(wb_track *track, double block_start, uint32_
                                     double bpm, double swing);
 
 /* wb_synth.c */
+typedef struct wb_synth_inst wb_synth_inst;
+struct wb_synth_inst {
+    uint32_t sr;
+    void    *_voices[16];
+    float    master_vol;
+    float    filter_cutoff;
+    float    filter_res;
+    int      waveform;
+    float    a, d, s, r;
+};
 void *wb_synth_create(uint32_t sr);
 void  wb_synth_destroy(void *inst);
 void  wb_synth_note(void *inst, int note, int vel);
+void  wb_synth_set(void *inst, int param, float v);
 void  wb_synth_render_block(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 void  wb_synth_render_block_simd(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 void  wb_synth_render_block_simd_2x(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
@@ -71,36 +82,52 @@ void  wb_comp_destroy(void *inst);
 void  wb_comp_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 void  wb_comp_set(void *inst, int param, float v);
 void  wb_comp_inplace_wet(void *inst, wb_sample *L, wb_sample *R, uint32_t n, float w);
-/* sidechain key input: feed external signal (already captured block) into the
- * compressor's envelope source. keyL/keyR are the source track's block buffers. */
 void  wb_comp_set_key(void *inst, const wb_sample *keyL, const wb_sample *keyR,
                      uint32_t n);
 
 /* wb_delay.c */
+typedef struct wb_delay_inst wb_delay_inst;
+struct wb_delay_inst {
+    uint32_t sr;
+    wb_sample *bufL, *bufR;
+    uint32_t cap;
+    uint32_t pos;
+    float time_ms;
+    float feedback;
+    float mix;
+    float lp_state;
+};
 void *wb_delay_create(uint32_t sr);
 void  wb_delay_destroy(void *inst);
 void  wb_delay_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 void  wb_delay_inplace_wet(void *inst, wb_sample *L, wb_sample *R, uint32_t n, float w);
 
 /* wb_reverb.c */
+typedef struct wb_reverb_inst wb_reverb_inst;
+struct wb_reverb_inst {
+    uint32_t sr;
+    float feedback;
+    float mix;
+    void *_impl[16];
+};
 void *wb_reverb_create(uint32_t sr);
 void  wb_reverb_destroy(void *inst);
 void  wb_reverb_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 void  wb_reverb_inplace_wet(void *inst, wb_sample *L, wb_sample *R, uint32_t n, float w);
 
-/* wb_saturation.c — analog-style waveshaper (af1) */
+/* wb_saturation.c */
 void *wb_sat_create(uint32_t sr);
 void  wb_sat_destroy(void *inst);
 void  wb_sat_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 void  wb_sat_set(void *inst, int param, float v);
 
-/* wb_gate.c — noise gate / expander (af1) */
+/* wb_gate.c */
 void *wb_gate_create(uint32_t sr);
 void  wb_gate_destroy(void *inst);
 void  wb_gate_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 void  wb_gate_set(void *inst, int param, float v);
 
-/* wb_multiband.c — 3-band multiband compressor (af1) */
+/* wb_multiband.c */
 void *wb_mb_create(uint32_t sr);
 void  wb_mb_destroy(void *inst);
 void  wb_mb_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
@@ -115,7 +142,7 @@ void  wb_sampler_load(void *inst, const wb_sample *data, uint32_t count, int loo
 void  wb_sampler_note(void *inst, int note, int vel);
 void  wb_sampler_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 
-/* wb_granular.c — granular synthesizer (G9) */
+/* wb_granular.c */
 void *wb_granular_create(uint32_t sr);
 void  wb_granular_destroy(void *inst);
 void  wb_granular_load(void *inst, const wb_sample *data, uint32_t count, int loop);
@@ -126,7 +153,17 @@ void  wb_granular_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
 double wb_midi_note_to_freq(int note);
 float  wb_midi_map01(float v01, float min, float max);
 
-/* wb_tuner.c — recursive learn/sense/act/measure/compare/fix loop */
+/* wb_transcript.c — needed by wb_text_edit.c for word-level editing */
+struct wb_transcript {
+    wb_word *words;
+    int   count;
+    int   cap;
+};
+
+/* wb_autoreframe.c */
+/* struct wb_autoreframe is defined in wbus.h */
+
+/* wb_tuner.c */
 typedef struct wb_tuner wb_tuner;
 wb_tuner *wb_tuner_create(wb_engine *e);
 void      wb_tuner_start(wb_tuner *t);
@@ -137,7 +174,7 @@ double    wb_tuner_last_loss(const wb_tuner *t);
 /* wb_unit.c */
 void wb_unit_ensure_all(void);
 
-/* wb_unit_clap.c — CLAP plugin bridge */
+/* wb_unit_clap.c */
 struct wb_clap_host;
 void wb_unit_clap_ensure(void);
 void *wb_unit_clap_create(struct wb_clap_host *h, const char *id, uint32_t sr);

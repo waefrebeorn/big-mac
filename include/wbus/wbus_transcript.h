@@ -50,6 +50,15 @@ double wb_transcript_duration_ms(const wb_transcript *t);
 /* Edit: replace a word's text (keeps its timing). */
 void wb_transcript_set_word(wb_transcript *t, int i, const char *word);
 
+/* Edit: get mutable pointer to word i (for internal use by text editing).
+ * Returns NULL on bad index. Use with care — caller must not break ordering. */
+wb_word *wb_transcript_word_mut(wb_transcript *t, int i);
+
+/* Edit: shift all words from index `start_idx` onward by `delta_ms`.
+ * Positive delta shifts right (later), negative shifts left (earlier).
+ * Returns 0 on success, -1 on error. */
+int wb_transcript_shift_from(wb_transcript *t, int start_idx, double delta_ms);
+
 /* Edit: delete the word RANGE [i0, i1) (Descript-style text editing).
  * Words are removed; surrounding timing is untouched (the timeline gap is
  * real: playback of that span is what the editor cuts). Returns the number

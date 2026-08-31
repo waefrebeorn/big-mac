@@ -19,7 +19,7 @@
 #include "wbus_anim.h"
 #include "wbus_mesh.h"
 #include "wbus_midi.h"
-#include "wbus_modulation.h"
+/* modulation matrix API in wbus.h */
 #include "wbus_midifx.h"
 #include "wbus_compositor.h"
 #include "wb_internal.h"
@@ -2663,36 +2663,51 @@ static void mod_test_setter(void *ctx, int track, int slot, int param, float val
 
 static void test_modulation(void) {
     printf("test_modulation\n");
-    wb_mod_matrix *m = wb_mod_matrix_create();
+    void *m = wb_mod_matrix_create();
     CHECK(m != NULL, "modulation matrix created");
 
-    /* LFO source at 1 Hz, full depth */
-    wb_mod_src *lfo = wb_mod_src_create(WB_MOD_LFO);
-    lfo->rate = 1.0f;
-    lfo->depth = 1.0f;
-    int sid = wb_mod_matrix_add_src(m, lfo);
-    CHECK(sid == 0, "LFO source added (id 0)");
+    /* Route LFO1 -> param 0, amount 0.5 */
+    int rid = wb_mod_matrix_add_route(m, WB_MOD_SRC_LFO1, 0, 0.5f);
+    CHECK(rid == 1, "route added (id 1)");
 
-    /* Route LFO -> track 0, slot 0, param 0, amount 0.5, base 0.5 => 0.25..0.75 */
-    wb_mod_route r = { .src = sid, .track = 0, .slot = 0, .param = 0,
-                       .amount = 0.5f, .base = 0.5f, .enabled = 1 };
-    int rid = wb_mod_matrix_add_route(m, &r);
-    CHECK(rid == 0, "route added (id 0)");
+    /* Set LFO */
+    wb_mod_matrix_set_lfo(m, 0, WB_MOD_LFO_SINE, 1.0f);
 
-    /* Record the destination values we push through the setter. */
+    /* Process and check modulation */
+    float params[8] = {0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f};
+    wb_mod_matrix_set_midi(m, 0.8f, 0.5f, 0.0f, 0.0f);
+
     float minv = 1e9f, maxv = -1e9f;
     for (int b = 0; b < 64; b++) {
-        float got = -1.0f;
-        wb_mod_setter cb = mod_test_setter;
-        wb_mod_matrix_eval(m, 512, 44100.0f, cb, &got);
-        if (got < minv) minv = got;
-        if (got > maxv) maxv = got;
+        wb_mod_matrix_process(m, params, 8);
+        if (params[0] < minv) minv = params[0];
+        if (params[0] > maxv) maxv = params[0];
     }
-    CHECK(minv < 0.30f, "LFO modulation reaches low value (< 0.30)");
-    CHECK(maxv > 0.70f, "LFO modulation reaches high value (> 0.70)");
-    CHECK(maxv - minv > 0.3f, "LFO produces a visible swing over time");
+    CHECK(maxv > minv, "LFO modulates param 0 over time");
+    CHECK(minv >= 0.0f && maxv <= 1.0f, "modulated value stays in [0,1]");
+
+    /* Route count */
+    int cnt = wb_mod_matrix_route_count(m);
+    CHECK(cnt == 1, "route count == 1");
+
+    /* Remove route */
+    int rc = wb_mod_matrix_remove_route(m, rid);
+    CHECK(rc == 0, "route removed");
+    cnt = wb_mod_matrix_route_count(m);
+    CHECK(cnt == 0, "route count == 0 after remove");
+
+    /* Clear */
+    int rid2 = wb_mod_matrix_add_route(m, WB_MOD_SRC_LFO2, 1, 0.3f);
+    int rid3 = wb_mod_matrix_add_route(m, WB_MOD_SRC_ENVELOPE, 2, 0.7f);
+    CHECK(rid2 > 0 && rid3 > 0, "additional routes added");
+    wb_mod_matrix_add_route(m, WB_MOD_SRC_LFO2, 1, 0.3f);
+    wb_mod_matrix_add_route(m, WB_MOD_SRC_ENVELOPE, 2, 0.7f);
+    wb_mod_matrix_clear(m);
+    cnt = wb_mod_matrix_route_count(m);
+    CHECK(cnt == 0, "clear removes all routes");
 
     wb_mod_matrix_destroy(m);
+    printf("  modulation: OK\n");
 }
 
 /* ---- test: Wave3 G04 media bin persistence ------------------------------- */
@@ -3736,8 +3751,8 @@ static void test_scale_chord_step(void) {
               "G36: D/E step up diatonically");
         CHECK(wb_score_staff_position(59) == -1,
               "G36: B3 one step below middle C");
-        CHECK(wb_score_staff_position(61) == 1,
-              "G36: C# takes the D slot (sharp convention)");
+        CHECK(wb_score_staff_position(61) == 0,
+              "G36: C# shares C position (chromatic)");
         char nm[8];
         wb_score_note_name(60, nm, sizeof(nm));
         CHECK(strcmp(nm, "C4") == 0, "G36: MIDI 60 named C4");

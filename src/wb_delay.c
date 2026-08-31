@@ -36,6 +36,19 @@ void wb_delay_destroy(void *inst) {
     if (d) { free(d->bufL); free(d->bufR); free(d); }
 }
 
+/* Parameter setter for macro rack binding.
+ * param: 0=time_ms, 1=feedback, 2=mix */
+void wb_delay_set(void *inst, int param, float v) {
+    wb_delay_inst *d = inst;
+    if (!d) return;
+    switch (param) {
+    case 0: d->time_ms = v; break;
+    case 1: d->feedback = v; break;
+    case 2: d->mix = v; break;
+    default: break;
+    }
+}
+
 void wb_delay_process(void *inst, wb_sample *L, wb_sample *R, uint32_t n) {
     wb_delay_inst *d = inst;
     uint32_t delay_len = (uint32_t)(d->time_ms * 0.001f * d->sr);

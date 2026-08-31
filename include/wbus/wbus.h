@@ -14,7 +14,10 @@
 #include "wbus_captions.h"
 #include "wbus_clip_edit.h"
 #include "wbus_transcript.h"
+#include "wbus_text_edit.h"
 #include "wbus_import.h"
+#include "wbus_sonogram.h"
+#include "wbus_midi_remote.h"
 
 /* Forward declarations for cross-referenced types. */
 typedef struct wb_mod_matrix wb_mod_matrix;
@@ -32,6 +35,8 @@ extern "C" {
 #define WB_MAX_INSERT_SLOTS 8
 
 typedef float wb_sample;
+
+#include "wbus_ai_mix.h"
 
 typedef struct wb_engine wb_engine;
 
@@ -60,6 +65,10 @@ typedef struct wb_note {
      * lane editors. Defaults 0 (mod off) / 0 (no aftertouch). */
     uint8_t mod;     /* CC1 modulation wheel 0-127 */
     uint8_t atouch;  /* channel aftertouch 0-127 */
+    /* G91: expression-map articulation index applied to this note.
+     * -1 = none, else index into the active expression map's articulation
+     * table. Set by wb_session_apply_articulation_to_note(). */
+    int articulation; /* articulation index, -1 = none */
 } wb_note;
 
 /* ---- clips ------------------------------------------------------------ */
@@ -105,6 +114,7 @@ typedef struct wb_plugin_slot {
 #define WB_TRACK_KIND_AUDIO  1   /* audio clip track */
 #define WB_TRACK_KIND_BUS    2   /* bus/group (audio mix bus) */
 #define WB_TRACK_KIND_VIDEO  3   /* video track (FFmpeg-backed, R009) */
+#define WB_TRACK_KIND_FOLDER 4   /* folder track (groups child tracks) */
 
 /* ---- track ------------------------------------------------------------ */
 typedef struct wb_track {
@@ -138,6 +148,10 @@ typedef struct wb_track {
     int active_lane;
     /* G09 (Wave2): per-track record-arm (arrangement REC button). */
     int rec_armed;
+    /* Track folders: folder_idx = index of the folder this track belongs to
+     * (-1 = top-level, not in any folder). For folder tracks themselves,
+     * folder_idx = their own index (self-referential). */
+    int folder_idx;
 } wb_track;
 
 /* ---- automation envelopes ---------------------------------------------- */
@@ -183,6 +197,18 @@ typedef struct wb_bin_entry {
     int      color;          /* G68: label slot 0..7 (0 = none) for bin views */
 } wb_bin_entry;
 
+/* ---- time signature changes -------------------------------------------- */
+/* A time signature change on the timeline. Each change takes effect at its
+ * sample position and holds until the next change. The session's base
+ * time_sig_num/den applies before the first change. */
+typedef struct wb_time_sig_change {
+    double pos;        /* sample position where this time sig takes effect */
+    int    num;        /* numerator (beats per bar), 1..32 */
+    int    den;        /* denominator (beat unit), power of 2: 1,2,4,8,16,32 */
+} wb_time_sig_change;
+
+#define WB_MAX_TIME_SIG_CHANGES 64
+
 /* G82: one chord event on the chord track. */
 typedef struct wb_chord_ev {
     double pos;        /* sample position */
@@ -222,6 +248,51 @@ typedef struct wb_session {
     uint32_t  bin_count;
 #define WB_MAX_BIN 256
     wb_bin_entry bin_entries[WB_MAX_BIN];
+    /* Time signature changes on the timeline (sorted by pos). The session's
+     * base time_sig_num/den applies before the first change. */
+    uint32_t  time_sig_change_count;
+    wb_time_sig_change time_sig_changes[WB_MAX_TIME_SIG_CHANGES];
+    /* Track folders: parallel array of folder metadata. Each folder is also a
+     * track (kind == WB_TRACK_KIND_FOLDER); the metadata here tracks parent
+     * folder, mute/solo/collapsed state, and child track membership. */
+    uint32_t  folder_count;
+#define WB_MAX_FOLDERS 64
+    struct {
+        int parent_folder_idx; /* -1 = top-level folder */
+        int collapsed;         /* 1 = collapsed in UI */
+        int track_list[WB_MAX_TRACKS]; /* indices of child tracks */
+        int track_count;
+    } folders[WB_MAX_FOLDERS];
+    /* Linked track groups: Ableton-style simultaneous multi-track editing.
+     * Each group is a collection of track indices that share edit operations
+     * (move/trim/delete/add-note on clips at the same index). */
+    uint32_t  link_group_count;
+#define WB_MAX_LINK_GROUPS 16
+    struct {
+        int track_list[WB_MAX_TRACKS]; /* indices of member tracks */
+        int track_count;
+    } link_groups[WB_MAX_LINK_GROUPS];
+    /* G91: expression maps — Cubase-style per-note articulation switching
+     * for orchestral libraries. Up to 16 maps, each with up to 32 articulations. */
+#define WB_MAX_EXPRESSION_MAPS 16
+#define WB_MAX_ARTICULATIONS_PER_MAP 32
+#define WB_MAX_TRACK_LANES 128
+    uint32_t expr_map_count;
+    struct {
+        char name[64];
+        uint32_t articulation_count;
+        struct {
+            char name[64];
+            int midi_channel;  /* 1-16 */
+            int cc_number;     /* 0-127, -1 = none */
+            int cc_value;      /* 0-127 */
+            int keyswitch;     /* MIDI note number, -1 = none */
+        } articulations[WB_MAX_ARTICULATIONS_PER_MAP];
+        int active_articulation; /* index of currently active articulation, -1 = none */
+    } expr_maps[WB_MAX_EXPRESSION_MAPS];
+    /* Per-track expression lane: which expression map is active for each track.
+     * -1 = no expression map assigned. */
+    int track_expr_lane[WB_MAX_TRACK_LANES];
 } wb_session;
 
 /* G69: multiple timelines (sequences) per project. A wb_project owns N
@@ -252,6 +323,33 @@ wb_session *wb_session_demo(void);         /* 2-track demo song */
 void        wb_session_destroy(wb_session *s);
 wb_session *wb_session_copy(const wb_session *s); /* deep independent copy */
 wb_track   *wb_session_add_track(wb_session *s, const char *name, int kind);
+
+/* ---- time signature changes -------------------------------------------- */
+/* Add a time signature change at a sample position. Keeps the array sorted
+ * by pos. Returns the new change's index, or -1 on error (invalid sig or
+ * array full). */
+int  wb_session_add_time_sig_change(wb_session *s, double pos_samples, int num, int den);
+/* Remove the change at `index`. Returns 0 on success, -1 on bad index. */
+int  wb_session_remove_time_sig_change(wb_session *s, int index);
+/* Get the effective time signature at a sample position (binary search for
+ * the most recent change at or before pos_samples; falls back to the
+ * session's base time_sig_num/den). Returns 0 on success. */
+int  wb_session_get_time_sig_at(wb_session *s, double pos_samples, int *num_out, int *den_out);
+/* Number of time sig changes currently in the session. */
+int  wb_session_time_sig_change_count(const wb_session *s);
+/* Read back the i-th change. Returns 0 on success, -1 on bad index. */
+int  wb_session_get_time_sig_change(const wb_session *s, int index, double *pos_out, int *num_out, int *den_out);
+/* Get the sample position where `bar_number` begins (0-based), accounting
+ * for all time sig changes. Returns the position in samples. */
+double wb_session_get_bar_start(const wb_session *s, int bar_number);
+/* Get the bar number (0-based) at a sample position. */
+int  wb_session_get_bar_at(const wb_session *s, double pos_samples);
+/* Convert samples to beats (quarter notes) at the given sample position
+ * (uses the time sig at that position for the beat unit). */
+double wb_session_samples_to_beats(const wb_session *s, double samples);
+/* Convert beats (quarter notes) to samples at the given beat position
+ * (uses the time sig at the corresponding sample for the beat unit). */
+double wb_session_beats_to_samples(const wb_session *s, double beats);
 int          wb_session_remove_track(wb_session *s, uint32_t idx); /* G09 */
 int          wb_session_move_track(wb_session *s, uint32_t idx, int delta); /* G09 */
 int         wb_session_add_note(wb_track *tr, double start, double dur, int pitch, int vel);
@@ -291,6 +389,39 @@ int         wb_session_trim_clip_head(wb_session *s, void *ed,
                                       int track, int clip, double delta);
 int         wb_session_trim_clip_tail(wb_session *s, void *ed,
                                       int track, int clip, double delta);
+
+/* ---- track folders ------------------------------------------------------ */
+/* Create a folder track. parent_folder_idx=-1 for top-level. Returns the
+ * track index of the new folder, or -1 on error. */
+int wb_session_create_folder(wb_session *s, const char *name, int parent_folder_idx);
+/* Add a track to a folder. Returns 0 on success, -1 on error. */
+int wb_session_add_track_to_folder(wb_session *s, int track_idx, int folder_idx);
+/* Remove a track from a folder (moves it to top-level). Returns 0 on success. */
+int wb_session_remove_track_from_folder(wb_session *s, int track_idx, int folder_idx);
+/* Set folder collapsed state (UI). collapsed=1 to collapse. */
+int wb_session_set_folder_collapsed(wb_session *s, int folder_idx, int collapsed);
+/* Set folder mute. When muted, all child tracks are muted too. */
+int wb_session_set_folder_mute(wb_session *s, int folder_idx, int mute);
+/* Set folder solo. When soloed, all child tracks are soloed too. */
+int wb_session_set_folder_solo(wb_session *s, int folder_idx, int solo);
+/* Get the number of tracks in a folder. */
+int wb_session_get_folder_track_count(wb_session *s, int folder_idx);
+/* Fill track_indices with the track indices in a folder. Returns count filled. */
+int wb_session_get_folder_tracks(wb_session *s, int folder_idx, int *track_indices, int max_count);
+/* Remove a folder, moving its children to the folder's parent (or top-level
+ * if the folder was top-level). Returns 0 on success. */
+int wb_session_remove_folder(wb_session *s, int folder_idx);
+
+/* ---- bus routing matrix ------------------------------------------------- */
+/* Create a bus track (kind=WB_TRACK_KIND_BUS). Returns track index or -1. */
+int wb_session_create_bus(wb_session *s, const char *name);
+/* Route a track's output to a bus (dest_idx) or master (dest_idx=-1). */
+int wb_session_route_track_to(wb_session *s, int track_idx, int dest_idx);
+/* Configure an aux send: src_track sends to dest_track at level, using
+ * send_index 0 (SEND A) or 1 (SEND B). */
+int wb_session_set_send(wb_session *s, int src_track, int dest_track, float level, int send_index);
+/* Set a send's pre/post-fader tap. pre=1 taps before fader, pre=0 after. */
+int wb_session_set_send_pre_fader(wb_session *s, int src_track, int send_index, int pre);
 
 /* ---- undo/redo (session snapshots) -------------------------------------- */
 typedef struct wb_undo wb_undo;
@@ -599,8 +730,31 @@ uint32_t wb_timestretch_tr(const wb_sample *in, uint32_t frames, uint32_t chn,
                            double rate, double semitones,
                            const uint32_t *trans, uint32_t ntrans,
                            wb_sample **outp);
+/* R078: warp markers — Ableton-style elastic audio.
+ * Remap source audio timeline to a musical beat timeline. */
+typedef struct wb_warp wb_warp;
+wb_warp *wb_warp_create(uint32_t sr);
+void     wb_warp_destroy(wb_warp *w);
+int      wb_warp_set_source(wb_warp *w, const wb_sample *audio,
+                             uint32_t frames, uint32_t channels);
+int      wb_warp_add_marker(wb_warp *w, double src_sample, double dst_beat);
+int      wb_warp_remove_marker(wb_warp *w, int index);
+int      wb_warp_clear_markers(wb_warp *w);
+int      wb_warp_marker_count(const wb_warp *w);
+double   wb_warp_src_to_dst(const wb_warp *w, double src_sample);
+double   wb_warp_dst_to_src(const wb_warp *w, double beat);
+int      wb_warp_auto_warp(wb_warp *w, const double *beat_positions, int num_beats);
+void     wb_warp_process(wb_warp *w, double beat_start, double beat_end,
+                          wb_sample *out, uint32_t frames);
 /* G48: DAWproject-format export (core project.json body). */
 int wb_session_export_dawproject(const wb_session *s, const char *path);
+/* AAF/OMF interchange export (Pro Tools / Logic / Premiere interchange).
+ * wb_aaf_export writes a simplified AAF-style XML/EDL hybrid;
+ * wb_omf_export writes an OMF2 binary header + media refs + edit decisions.
+ * Both return 0 on success, -1 on error (see wb_aaf_last_error()). */
+int wb_aaf_export(const wb_session *session, const char *path);
+int wb_omf_export(const wb_session *session, const char *path);
+const char *wb_aaf_last_error(void);
 /* G20: multicam — group video clips as angles and switch live. */
 int wb_session_multicam_group(struct wb_clip_edit_table *et, int track,
                               const int *clip_indices, int n);
@@ -611,9 +765,37 @@ int wb_session_multicam_switch(struct wb_clip_edit_table *et, int track,
 int  wb_session_set_spatial(wb_session *s, int track, double angle_deg,
                             float elevation_gain);
 void wb_session_spatial_enable(wb_session *s, int on);
-/* G36: score view — diatonic staff position (0 = middle C line) and name. */
+/* R079: HRTF binaural 3D audio panner — Dolby Atmos-style positioning.
+ * Simplified parametric HRTF: ITD (head radius), IID (head shadow),
+ * pinna notch (elevation), air absorption (distance lowpass),
+ * early reflections room model. Binaural mode = stereo L/R with
+ * per-ear delay+gains; non-binaural = VBAP constant-power pan. */
+void *wb_spatial_create(uint32_t sr);
+void  wb_spatial_destroy(void *sp);
+void  wb_spatial_set_position(void *sp, float azimuth, float elevation, float distance);
+void  wb_spatial_set_listener_orientation(void *sp, float yaw, float pitch, float roll);
+void  wb_spatial_process(void *sp, const wb_sample *in, wb_sample *out_l, wb_sample *out_r, uint32_t frames);
+void  wb_spatial_set_binaural(void *sp, int enable);
+void  wb_spatial_set_room(void *sp, float reverb_level, float room_size);
+/* R080: object-based spatial audio panner (Dolby Atmos-style).
+ * Up to 16 mono audio objects positioned in 3D space, rendered to
+ * stereo binaural output via parametric HRTF (ITD + IID + distance + elevation). */
+void *wb_atmos_create(uint32_t sr);
+void  wb_atmos_destroy(void *a);
+void  wb_atmos_set_position(void *a, int obj_id, float azimuth, float elevation, float distance);
+void  wb_atmos_set_object_gain(void *a, int obj_id, float gain);
+int   wb_atmos_process(void *a, const wb_sample **inputs, wb_sample **output_binaural,
+                       int num_objects, uint32_t frames);
+int   wb_atmos_get_object_count(const void *a);
+/* G36: score view — diatonic staff position (0 = middle C line),
+ * note-to-staff conversion, measure rendering, accidental/black-key checks. */
+int  wb_score_note_to_staff(int midi_pitch, char *name_out, int cap, int *octave_out);
+int  wb_score_pitch_to_line(int midi_pitch);
 int  wb_score_staff_position(int midi_pitch);
-void wb_score_note_name(int midi_pitch, char *out, int cap);
+int  wb_score_render_measure(wb_note *notes, int note_count, char *text_out, int cap);
+int  wb_score_note_name(int midi_pitch, char *out, int cap);
+int  wb_score_is_accidental(int midi_pitch);
+int  wb_score_is_black_key(int midi_pitch);
 /* G07: capture ingest — register one captured RGBA frame at `dest` and add
  * its source to the media bin. Hardware backends feed this; tests too. */
 int wb_capture_frame(struct wb_session *s, int track, double dest,
@@ -649,6 +831,18 @@ int         wb_session_set_articulation(wb_session *s, int track, int art_id);
 const char *wb_articulation_name(int art_id);
 int         wb_articulation_keyswitch(int art_id);
 int         wb_articulation_count(void);
+
+/* ---- G91: expression maps (Cubase-style articulation management) ---- */
+int  wb_session_add_expression_map(wb_session *s, const char *name);
+int  wb_session_add_articulation(wb_session *s, int map_id, const char *name,
+                                 int channel, int cc, int value, int keyswitch);
+int  wb_session_set_active_articulation(wb_session *s, int map_id, int articulation_idx);
+int  wb_session_get_articulation_count(wb_session *s, int map_id);
+const char *wb_session_get_articulation_name(wb_session *s, int map_id, int idx);
+int  wb_session_apply_articulation_to_note(wb_session *s, int track, int note_idx,
+                                           int articulation_idx);
+int  wb_session_set_expression_lane(wb_session *s, int track, int map_id);
+int  wb_session_expression_map_count(wb_session *s);
 
 /* (Re)compute the `offline` flag of every bin entry and video clip from disk
  * existence. Called on project load (G70) and before relink searches. */
@@ -747,8 +941,769 @@ int  wb_session_three_point_edit(wb_session *s, int track, const char *source,
 int  wb_session_transcript_cut(wb_session *s, int track,
                                struct wb_transcript *tr, int w0, int w1);
 
+/* R078: autocorrelation-based BPM detection from a raw audio buffer.
+ * Returns detected BPM (60..200), or 0.0 on failure (silence/too short).
+ * wb_tempo_detect_confidence() returns the last detection's confidence 0..1. */
+float wb_tempo_detect(const wb_sample *audio, uint32_t frames, uint32_t sample_rate);
+float wb_tempo_detect_confidence(void);
+
+/* Audio-to-MIDI: monophonic pitch tracking via YIN + onset detection.
+ * Converts an audio buffer to MIDI note events (wb_note array).
+ * Only monophonic (single pitch at a time). */
+typedef struct wb_audio_to_midi wb_audio_to_midi;
+
+wb_audio_to_midi* wb_audio_to_midi_create(uint32_t sr);
+void wb_audio_to_midi_destroy(wb_audio_to_midi *a);
+int wb_audio_to_midi_convert(wb_audio_to_midi *a, const wb_sample *audio,
+                              uint32_t frames, wb_note *out_notes,
+                              int max_notes, int *out_count);
+void wb_audio_to_midi_set_threshold(wb_audio_to_midi *a, float threshold);
+void wb_audio_to_midi_set_min_duration(wb_audio_to_midi *a, float min_dur_ms);
+
+/* ---- background (offline) render thread ---------------------------------- */
+/* Format codes for wb_bg_render_start. */
+#define WB_BG_FORMAT_WAV16  0   /* 16-bit PCM WAV */
+#define WB_BG_FORMAT_WAV32F 1   /* 32-bit float WAV */
+#define WB_BG_FORMAT_MP3    2   /* MP3 via ffmpeg */
+#define WB_BG_FORMAT_MP4    3   /* MP4 (audio+black video) via ffmpeg */
+
+typedef struct wb_bg_render wb_bg_render;
+
+/* Start a background render thread. Returns a handle, or NULL on error.
+ * `session` is caller-owned (referenced, not copied). `format` is one of
+ * WB_BG_FORMAT_*. The render runs on a separate pthread; use poll/wait/cancel
+ * to monitor or abort. */
+wb_bg_render *wb_bg_render_start(const wb_session *session,
+                                 const char *output_path, int format);
+
+/* Poll for completion. Returns 1 if still running, 0 if done (success,
+ * error, or cancelled). Writes current progress (0..1) to *progress_out
+ * if non-NULL. */
+int  wb_bg_render_poll(wb_bg_render *r, float *progress_out);
+
+/* Block until done or timeout. Returns 0 on success, 1 on timeout, -1 on
+ * error. NOTE: on success or error, this JOINS the thread and FREES the
+ * handle — do not use `r` afterwards. On timeout, `r` remains valid. */
+int  wb_bg_render_wait(wb_bg_render *r, int timeout_ms);
+
+/* Signal a running render to cancel. The thread aborts at the next block
+ * boundary; use wait() to join. */
+void wb_bg_render_cancel(wb_bg_render *r);
+
+/* Query status. Returns 0=pending, 1=running, 2=done, 3=error, 4=cancelled. */
+int  wb_bg_render_status(wb_bg_render *r);
+
+/* Return the error string if status==3 (error), else NULL. */
+const char *wb_bg_render_error(wb_bg_render *r);
+
+/* Force-cleanup a render (cancel + join + free). Use when you don't need
+ * the result and want to tear down immediately. */
+void wb_bg_render_destroy(wb_bg_render *r);
+
+/* ---- drum rack (pad sampler) ------------------------------------------- */
+typedef struct wb_drum_rack wb_drum_rack;
+
+wb_drum_rack *wb_drum_rack_create(uint32_t sr);
+void  wb_drum_rack_destroy(wb_drum_rack *r);
+int   wb_drum_rack_load_pad(wb_drum_rack *r, int pad_index,
+                            const wb_sample *audio, uint32_t frames,
+                            uint32_t channels);
+int   wb_drum_rack_load_pad_file(wb_drum_rack *r, int pad_index,
+                                 const char *path);
+int   wb_drum_rack_trigger(wb_drum_rack *r, int pad_index, float velocity);
+int   wb_drum_rack_trigger_note(wb_drum_rack *r, int midi_note, float velocity);
+void  wb_drum_rack_process(wb_drum_rack *r, wb_sample *out, uint32_t frames);
+void  wb_drum_rack_set_pad_volume(wb_drum_rack *r, int pad, float vol);
+void  wb_drum_rack_set_pad_pan(wb_drum_rack *r, int pad, float pan);
+void  wb_drum_rack_set_pad_mute(wb_drum_rack *r, int pad, int mute);
+void  wb_drum_rack_set_pad_solo(wb_drum_rack *r, int pad, int solo);
+void  wb_drum_rack_set_master_volume(wb_drum_rack *r, float vol);
+void  wb_drum_rack_clear(wb_drum_rack *r);
+int   wb_drum_rack_pad_count(wb_drum_rack *r);
+
+/* ---- MIDI scale quantizer -------------------------------------------- */
+typedef struct wb_midi_scale wb_midi_scale;
+
+enum {
+    WB_SCALE_MAJOR = 0,
+    WB_SCALE_MINOR,
+    WB_SCALE_HARMONIC_MINOR,
+    WB_SCALE_MELODIC_MINOR,
+    WB_SCALE_DORIAN,
+    WB_SCALE_PHRYGIAN,
+    WB_SCALE_LYDIAN,
+    WB_SCALE_MIXOLYDIAN,
+    WB_SCALE_PENTATONIC_MAJOR,
+    WB_SCALE_PENTATONIC_MINOR,
+    WB_SCALE_BLUES,
+    WB_SCALE_JAPANESE,
+    WB_SCALE_FLAMENCO,
+    WB_SCALE_WHOLE_TONE,
+    WB_SCALE_DIMINISHED,
+    WB_SCALE_CHROMATIC
+};
+
+wb_midi_scale *wb_midi_scale_create(void);
+void           wb_midi_scale_destroy(void *ptr);
+void           wb_midi_scale_set_root(void *ptr, int root_note);
+void           wb_midi_scale_set_type(void *ptr, int type);
+int            wb_midi_scale_snap(void *ptr, int midi_note);
+int            wb_midi_scale_snap_up(void *ptr, int midi_note);
+int            wb_midi_scale_snap_down(void *ptr, int midi_note);
+int            wb_midi_scale_is_in_scale(void *ptr, int midi_note);
+const char    *wb_midi_scale_get_name(int type);
+
+/* ---- R079: MIDI generators ---- */
+void *wb_midi_gen_create(uint32_t sr);
+void  wb_midi_gen_destroy(void *gen);
+void  wb_midi_gen_set_seed(void *gen, uint32_t seed);
+int   wb_midi_gen_generate_melody(void *gen, int scale_root, int scale_type,
+                                   int num_notes, int start_note, int range_semitones,
+                                   uint32_t *seed_out, int *out_notes,
+                                   int *out_positions, int *out_velocities,
+                                   int *out_durations);
+int   wb_midi_gen_generate_chords(void *gen, int scale_root, int scale_type,
+                                    int num_chords, int progression_type,
+                                    uint32_t *seed_out, int *out_roots,
+                                    int *out_types);
+int   wb_midi_gen_generate_rhythm(void *gen, int num_steps, int division,
+                                    float density, float swing,
+                                    uint32_t *seed_out, int *out_hits,
+                                    int *out_velocities);
+
+/* ---- AI melody composer ---------------------------------------------- */
+void *wb_melody_ai_create(uint32_t sr);
+void  wb_melody_ai_destroy(void *ai);
+int   wb_melody_ai_compose(void *ai, int scale_root, int scale_type, int mood,
+                            int num_bars, int ppq,
+                            int *out_notes, int *out_positions,
+                            int *out_durations, int *out_velocities,
+                            int max_notes);
+void  wb_melody_ai_set_tempo(void *ai, float bpm);
+void  wb_melody_ai_set_mood(void *ai, int mood); /* 0=happy,1=sad,2=energetic,3=calm */
+void  wb_melody_ai_set_range(void *ai, int min_note, int max_note);
+
+/* ---- R079: AI chord progression generator ---- */
+typedef struct wb_chord_ai wb_chord_ai;  /* struct defined in wb_chord_ai.c */
+wb_chord_ai *wb_chord_ai_create(uint32_t sr);
+void  wb_chord_ai_destroy(wb_chord_ai *ai);
+int   wb_chord_ai_generate(wb_chord_ai *ai, int key, int mode, int num_chords,
+                             int *out_roots, int *out_types, uint32_t *seed);
+int   wb_chord_ai_generate_variation(wb_chord_ai *ai, uint32_t seed,
+                                       int *out_roots, int *out_types);
+void  wb_chord_ai_set_complexity(wb_chord_ai *ai, float complexity);
+void  wb_chord_ai_set_mood(wb_chord_ai *ai, int mood);
+float wb_chord_ai_get_tension(const wb_chord_ai *ai);
+
+/* ---- R079: stem separation ---- */
+int wb_stem_split(const wb_sample *mix, uint32_t frames, uint32_t chn,
+                   wb_sample *vocals, wb_sample *drums, wb_sample *bass, wb_sample *other);
+
+/* ---- R079: auto-reframe ---- */
+typedef struct wb_autoreframe {
+    int src_w, src_h, dst_w, dst_h;
+    int mode;
+    float smoothing;
+    int sub_x, sub_y, sub_w, sub_h;
+    float crop_x, crop_y;
+    int initialized;
+} wb_autoreframe;
+int wb_autoreframe_init(wb_autoreframe *ar, int src_w, int src_h, int dst_w, int dst_h);
+int wb_autoreframe_process(wb_autoreframe *ar, const uint8_t *frame_rgba,
+                            int src_w, int src_h, uint8_t *out_rgba, int dst_w, int dst_h);
+void wb_autoreframe_set_subject(wb_autoreframe *ar, int x, int y, int w, int h);
+void wb_autoreframe_set_mode(wb_autoreframe *ar, int mode);
+void wb_autoreframe_set_smoothing(wb_autoreframe *ar, float smoothing);
+
+/* ---- R079: advanced dynamics ---- */
+void *wb_dynamics_create(uint32_t sr);
+void  wb_dynamics_destroy(void *d);
+void  wb_dynamics_set_mode(void *d, int mode);
+void  wb_dynamics_set_band_count(void *d, int bands);
+void  wb_dynamics_set_band_freq(void *d, int band, float freq);
+void  wb_dynamics_set_threshold(void *d, int band, float db);
+void  wb_dynamics_set_ratio(void *d, int band, float ratio);
+void  wb_dynamics_set_attack(void *d, int band, float ms);
+void  wb_dynamics_set_release(void *d, int band, float ms);
+void  wb_dynamics_set_knee(void *d, int band, float db);
+void  wb_dynamics_set_parallel_mix(void *d, float mix);
+void  wb_dynamics_set_sidechain_source(void *d, const wb_sample *ext, uint32_t frames);
+void  wb_dynamics_set_sidechain_eq(void *d, float freq, float q, float gain);
+void  wb_dynamics_process(void *d, wb_sample *out, const wb_sample *in, uint32_t frames);
+
+/* ---- R079: Lottie renderer ---- */
+void *wb_lottie_create(void);
+void  wb_lottie_destroy(void *ptr);
+int   wb_lottie_load_json(void *ptr, const char *json_str, int json_len);
+int   wb_lottie_load_file(void *ptr, const char *path);
+int   wb_lottie_render_frame(void *ptr, uint8_t *rgba_out, int w, int h, float time_sec);
+float wb_lottie_get_duration(const void *ptr);
+int   wb_lottie_get_fps(const void *ptr);
+
+/* ---- R078: project templates ---- */
+int         wb_proj_template_count(void);
+const char *wb_proj_template_get_name(int template_id);
+const char *wb_proj_template_get_description(int template_id);
+int         wb_proj_template_apply(wb_session *session, int template_id);
+
+/* ---- R078: wavetable synthesizer ---- */
+#define WT_TABLE_SIZE 2048
+#define WT_MAX_TABLES 64
+#define WT_MAX_VOICES 16
+#define WT_MAX_UNISON 8
+typedef struct wb_wavetable {
+    uint32_t sr;
+    int table_count, table_size;
+    float *tables[WT_MAX_TABLES];
+    float *mipmaps[WT_MAX_TABLES][8];
+    int mip_levels[WT_MAX_TABLES];
+    float position;
+    int interp_mode, unison_voices;
+    float unison_spread, filter_cutoff, filter_resonance, filter_z1;
+    struct wt_voice { float phase, phase_inc; int active, midi_note; float velocity; } voices[WT_MAX_VOICES];
+    int active_voices;
+} wb_wavetable;
+void *wb_wavetable_create(uint32_t sr);
+void  wb_wavetable_destroy(void *inst);
+int   wb_wavetable_generate_wavetable(void *inst, int table_count, int preset);
+void  wb_wavetable_note(void *inst, int note, int vel);
+void  wb_wavetable_set_position(void *inst, float pos);
+void  wb_wavetable_set_interpolation(void *inst, int mode);
+void  wb_wavetable_render(void *inst, wb_sample *L, wb_sample *R, uint32_t n);
+void  wb_wavetable_set_unison(void *inst, int voices, float spread);
+void  wb_wavetable_set_filter(void *inst, float cutoff, float resonance);
+
+/* ---- R078: vocal/formant synthesizer ---- */
+void *wb_vocal_synth_create(uint32_t sr);
+void  wb_vocal_synth_destroy(void *inst);
+void  wb_vocal_synth_speak(void *inst, const char *phonemes);
+void  wb_vocal_synth_set_pitch(void *inst, int midi_note);
+void  wb_vocal_synth_render(void *inst, wb_sample *out, uint32_t frames);
+void  wb_vocal_synth_set_vowel(void *inst, float vowel_position);
+void  wb_vocal_synth_set_breathiness(void *inst, float amount);
+
+/* ---- MPE (MIDI Polyphonic Expression) synthesizer ---- */
+void *wb_mpe_create(uint32_t sr);
+void  wb_mpe_destroy(void *mpe);
+void  wb_mpe_note_on(void *mpe, int channel, int note, int velocity);
+void  wb_mpe_note_off(void *mpe, int channel, int note);
+void  wb_mpe_set_pitch_bend(void *mpe, int channel, int note, float semitones);
+void  wb_mpe_set_pressure(void *mpe, int channel, int note, float pressure);
+void  wb_mpe_set_timbre(void *mpe, int channel, int note, float timbre);
+int   wb_mpe_active_notes(const void *mpe);
+void  wb_mpe_render(void *mpe, wb_sample *out, uint32_t frames);
+void  wb_mpe_set_global_bend(void *mpe, float semitones);
+
+/* ---- linked track groups (Ableton-style multi-track editing) ----------- */
+/* Create a link group from an array of track indices. Returns the group id
+ * (0..WB_MAX_LINK_GROUPS-1), or -1 on error (too many groups, bad indices). */
+int wb_session_create_link_group(wb_session *s, const int *track_indices, int num_tracks);
+/* Remove a link group by id. Returns 0 on success, -1 on bad group_id. */
+int wb_session_remove_link_group(wb_session *s, int group_id);
+/* Add a track to an existing link group. Returns 0 on success, -1 on error. */
+int wb_session_add_to_link_group(wb_session *s, int group_id, int track_index);
+/* Remove a track from a link group. Returns 0 on success, -1 on error. */
+int wb_session_remove_from_link_group(wb_session *s, int group_id, int track_index);
+/* Move the clip at (track,clip) index to new_start on ALL linked tracks.
+ * Only affects tracks that have a clip at the given index. Returns 0 on
+ * success, -1 on bad group_id. */
+int wb_session_linked_move_clip(wb_session *s, int group_id, int track, int clip, double new_start);
+/* Trim the clip at (track,clip) by delta_head/delta_tail on ALL linked tracks.
+ * delta_head: positive shortens the head (moves start later).
+ * delta_tail: positive shortens the tail (moves end earlier).
+ * Only affects tracks that have a clip at the given index. */
+int wb_session_linked_trim_clip(wb_session *s, int group_id, int track, int clip, double delta_head, double delta_tail);
+/* Delete the clip at (track,clip) from ALL linked tracks that have one. */
+int wb_session_linked_delete_clip(wb_session *s, int group_id, int track, int clip);
+/* Add a note to the clip at (track,clip) on ALL linked tracks that have one. */
+int wb_session_linked_add_note(wb_session *s, int group_id, int track, double start, double dur, int pitch, int vel);
+/* Get the track indices in a link group. Fills track_indices_out[0..max_count-1].
+ * Returns the number filled, or -1 on bad group_id. */
+int wb_session_get_link_group(const wb_session *s, int group_id, int *track_indices_out, int max_count);
+/* Return the number of active link groups. */
+int wb_session_link_group_count(const wb_session *s);
+
+/* ---- Spectral audio repair (denoise / declick / dehum / gain) ---- */
+#include "wbus/wbus_spectral_edit.h"
+
+/* ---- Spectral effects (resonator / blur / time-freeze) ---- */
+#include "wbus/wbus_spectral_fx.h"
+
+/* ---- Audio restoration suite (iZotope RX style) ---- */
+/* All functions process mono float buffers. Return 0 on success, -1 on error. */
+
+/* ---- R079: color grading (DaVinci Resolve style) ---- */
+void *wb_color_grading_create(int width, int height);
+void  wb_color_grading_destroy(void *cg);
+int   wb_color_grading_process(void *cg, uint8_t *rgba, int width, int height);
+void  wb_color_grading_set_lift(void *cg, float r, float g, float b);
+void  wb_color_grading_set_gamma(void *cg, float r, float g, float b);
+void  wb_color_grading_set_gain(void *cg, float r, float g, float b);
+void  wb_color_grading_set_saturation(void *cg, float sat);
+void  wb_color_grading_set_contrast(void *cg, float contrast);
+void  wb_color_grading_set_temperature(void *cg, float temp);
+void  wb_color_grading_set_tint(void *cg, float tint);
+int   wb_color_grading_load_lut(void *cg, const char *path);
+
+/* Spectral subtraction denoise. strength in [0,1]: 0 = no-op, 1 = max reduction.
+ * Estimates noise profile from first 100ms, applies spectral subtraction. */
+int wb_restoration_denoise(const float *in, float *out, int n, float strength);
+
+/* Declick: detect transient spikes via median filter deviation, interpolate
+ * affected samples. threshold is the deviation above which a sample is
+ * considered a click (e.g. 0.05–0.3). */
+int wb_restoration_declick(const float *in, float *out, int n, float threshold);
+
+/* Declip: detect clipped samples (near ±threshold), reconstruct via cubic
+ * Catmull-Rom interpolation from surrounding clean samples. */
+int wb_restoration_declip(const float *in, float *out, int n, float threshold);
+
+/* Dehum: notch filter at hum_freq (typically 50 or 60 Hz) and harmonics
+ * up to ~4kHz. Uses cascaded 2nd-order IIR notch filters. */
+int wb_restoration_dehum(const float *in, float *out, int n, float hum_freq);
+
+/* Voice isolation: bandpass filter 300Hz-4kHz + spectral gating to suppress
+ * non-voice content. strength in [0,1]: higher = more aggressive isolation. */
+int wb_restoration_voice_isolate(const float *in, float *out, int n, float strength);
+
+/* ---- Podcast production workflow -------------------------------------- */
+/* Voice isolation, noise gating, loudness normalization, chapter detection.
+ * Opaque wb_podcast struct; allocate via wb_podcast_alloc(). */
+typedef struct wb_podcast wb_podcast;
+
+struct wb_podcast *wb_podcast_alloc(void);
+void wb_podcast_free(struct wb_podcast *pc);
+
+/* Initialize a podcast context. sr = sample rate (e.g. 44100). */
+int wb_podcast_init(wb_podcast *pc, uint32_t sr);
+
+/* Voice isolation: bandpass 300Hz-4kHz + spectral gating.
+ * strength 0.0 = bypass, 1.0 = maximum isolation. */
+void wb_podcast_set_voice_isolation_strength(void *pc, float strength);
+int  wb_podcast_process_voice(void *pc, const float *in, float *out, int n);
+
+/* Noise gate: attenuate signal below threshold (linear amplitude, e.g. 0.01). */
+int wb_podcast_process_noise_gate(void *pc, const float *in, float *out,
+                                   int n, float threshold);
+
+/* Loudness normalization: measure LUFS, apply gain to reach target_lufs
+ * (e.g. -16.0 for podcasts). Modifies audio in-place. */
+int wb_podcast_normalize_loudness(void *pc, float *audio, int n,
+                                   float target_lufs);
+
+/* Chapter detection: find silence gaps > 2 seconds.
+ * Returns number of chapter times written to chapter_times_out (max max_chapters).
+ * chapter_times_out is in seconds. */
+int wb_podcast_detect_chapters(void *pc, const float *audio, int n, float sr,
+                                double *chapter_times_out, int max_chapters);
+
+/* ---- R078: auto-reframe / smart crop ----------------------------------- */
+/* AI-powered video reframing for vertical/square output (Premiere/AutoFlip
+ * style). Pure-C11, zero-third-party: uses brightness/motion saliency and
+ * skin-color detection (YCrCb) instead of a neural net. */
+
+#define WB_AR_MODE_CENTER        0  /* center-lock on source frame */
+#define WB_AR_MODE_FACE_TRACK    1  /* track detected faces (skin color) */
+#define WB_AR_MODE_ACTION_TRACK  2  /* track motion-based saliency */
+#define WB_AR_MODE_RULE_OF_THIRDS 3 /* rule-of-thirds composition */
+
+/* Max frame dimensions supported (kept generous but bounded). */
+#define WB_AR_MAX_DIM 8192
+
+/* ---- macro/parameter rack (Ableton Instrument Rack style) ---- */
+typedef struct wb_rack wb_rack;
+
+void *wb_rack_create(uint32_t sr, const char *name);
+void  wb_rack_destroy(void *rack);
+int   wb_rack_add_unit(void *rack, const char *unit_type);
+int   wb_rack_remove_unit(void *rack, int index);
+int   wb_rack_unit_count(const void *rack);
+void  wb_rack_set_macro(void *rack, int macro_index, float value);
+void  wb_rack_set_macro_name(void *rack, int macro_index, const char *name);
+int   wb_rack_bind_param(void *rack, int macro_index, int unit_index,
+                         int param_index, float min_val, float max_val);
+void  wb_rack_process(void *rack, wb_sample *out, uint32_t frames);
+void  wb_rack_note(void *rack, int note, int vel);
+void  wb_rack_set_midi_in(void *rack, int enable);
+
+/* ---- professional mastering chain (iZotope Ozone style) ---- */
+void *wb_mastering_create(uint32_t sr);
+void  wb_mastering_destroy(void *m);
+void  wb_mastering_set_input_gain(void *m, float db);
+void  wb_mastering_set_output_gain(void *m, float db);
+void  wb_mastering_set_loudness_target(void *m, float lufs);
+void  wb_mastering_set_stereo_width(void *m, float width);
+void  wb_mastering_set_bass_mono(void *m, int enable);
+void wb_mastering_process(void *m, wb_sample *out_l, wb_sample *out_r, uint32_t frames);
+float wb_mastering_get_loudness(const void *m);
+float wb_mastering_get_peak(const void *m);
+
+/* Advanced mastering suite (iZotope Ozone style) — multiband compression,
+ * stereo imaging, loudness maximization, dithering. */
+void *wb_master_adv_create(uint32_t sr);
+void  wb_master_adv_destroy(void *m);
+void  wb_master_adv_set_input_gain(void *m, float db);
+void  wb_master_adv_set_output_gain(void *m, float db);
+void  wb_master_adv_set_loudness_target(void *m, float lufs);
+void  wb_master_adv_set_stereo_width(void *m, float width);
+void  wb_master_adv_set_bass_mono(void *m, int enable);
+int   wb_master_adv_process(void *m, wb_sample *out_l, wb_sample *out_r,
+                            const wb_sample *in_l, const wb_sample *in_r,
+                            uint32_t frames);
+float wb_master_adv_get_loudness(const void *m);
+float wb_master_adv_get_peak(const void *m);
+
+/* ---- plugin delay compensation (PDC) ---------------------------------- */
+/* Standalone PDC engine: delays non-latency tracks to match the longest
+ * track's plugin chain latency, keeping all tracks sample-aligned at the
+ * mix bus. Zero third-party, ring-buffer based. */
+typedef struct wb_pdc wb_pdc;
+
+wb_pdc *wb_pdc_create(int num_tracks, uint32_t sr);
+void    wb_pdc_destroy(wb_pdc *p);
+void    wb_pdc_set_latency(wb_pdc *p, int track, int samples);
+int     wb_pdc_get_delay(const wb_pdc *p, int track);
+int     wb_pdc_get_max_latency(const wb_pdc *p);
+void    wb_pdc_set_enabled(wb_pdc *p, int enabled);
+int     wb_pdc_is_enabled(const wb_pdc *p);
+void    wb_pdc_process(wb_pdc *p, wb_sample **buffers, int num_tracks, uint32_t frames);
+
+/* Engine-facing PDC wrappers (full integration wires these to engine->pdc). */
+int  wb_engine_set_plugin_latency(wb_engine *engine, int track, int slot, int latency_samples);
+int  wb_engine_get_track_latency(wb_engine *engine, int track);
+int  wb_engine_get_max_latency(wb_engine *engine);
+void wb_engine_apply_pdc(wb_engine *engine, wb_sample **track_buffers, int num_tracks, uint32_t frames);
+int  wb_engine_set_pdc_enabled(wb_engine *engine, int enabled);
+
+/* ---- cloud project sync (local-filesystem backend with versioning) ---- */
+/* Store projects under ~/bigmac_cloud/<project_name>/ with immutable
+ * version_N.wbus files. Uses wb_session_save/load for serialization. */
+
+/* Initialize the cloud storage directory. Returns 0 on success. */
+int wb_cloud_init(void);
+
+/* Save a new version of a project. Returns the new version number (0-based),
+ * or -1 on error. */
+int wb_cloud_save_project(const char *project_name, const wb_session *s);
+
+/* Load a specific version of a project. If version < 0, loads the current
+ * version. Returns a new session (caller owns), or NULL on error. Sets
+ * *out_version to the loaded version number (pass NULL to ignore). */
+wb_session *wb_cloud_load_project(const char *project_name, int version, int *out_version);
+
+/* List all projects in the cloud. Fills names_out[0..max_count-1] with
+ * project directory names (caller must free each with free()). Returns the
+ * number of projects found, capped at max_count. */
+int wb_cloud_list_projects(char **names_out, int max_count);
+
+/* Delete a project and all its versions. Returns 0 on success. */
+int wb_cloud_delete_project(const char *project_name);
+
+/* Get the number of versions stored for a project. Returns 0 if not found. */
+int wb_cloud_get_version_count(const char *project_name);
+
+/* Restore a specific version as the current version. Copies the version file
+ * to a new version slot (so history is preserved). Returns the new version
+ * number, or -1 on error. */
+int wb_cloud_restore_version(const char *project_name, int version);
+
+/* Remove all but the latest N versions of a project. Keeps versions
+ * [version_count - keep_count, version_count - 1]. Returns the number of
+ * versions removed, or -1 on error. */
+int wb_cloud_cleanup(const char *project_name, int keep_count);
+
+/* ---- R079: multi-language subtitle translation ----
+ * Dictionary-based subtitle caption translator (AI-subtitle-generator style).
+ * Scans a transcript, matches common phrases against an in-memory dictionary,
+ * and replaces them with translations in the selected target language.
+ * Timing information is preserved (words keep their [start,end] spans); only
+ * the displayed word text is replaced. No ML model — pure lookup table. */
+
+typedef struct wb_subtitle_translate {
+    wb_session *session;        /* associated session (context; may be NULL) */
+    int         lang_index;     /* currently selected target language */
+    wb_transcript *transcript;  /* internal transcript to translate */
+    char        output[8192];  /* rendered translated output (NUL-terminated) */
+    int         processed;     /* 1 after wb_subtitle_translate_process() */
+} wb_subtitle_translate;
+
+/* Initialize a subtitle translator with a session. Populates a default
+ * transcript of common subtitle phrases. Returns 0 on success, -1 on error
+ * (NULL session / allocation failure). */
+int wb_subtitle_translate_init(wb_subtitle_translate *st, wb_session *session);
+
+/* Select the target language by ISO 639-1 code (e.g. "es", "ja", "zh").
+ * Returns 0 on success, -1 on unknown code. */
+int wb_subtitle_translate_language(wb_subtitle_translate *st, const char *lang_code);
+
+/* Run the translation: scan the internal transcript, match each word/phrase
+ * against the dictionary for the currently selected language, and build the
+ * translated output string (timing preserved in the transcript). Returns 0
+ * on success, -1 on error (not initialized / no language set). */
+int wb_subtitle_translate_process(wb_subtitle_translate *st);
+
+/* Copy the translated output into `out` (NUL-terminated, capped at `cap`).
+ * Returns 0 on success, -1 on error. */
+int wb_subtitle_translate_get_output(const wb_subtitle_translate *st,
+                                     char *out, int cap);
+
+/* Number of supported languages (28). */
+int wb_subtitle_translate_get_language_count(void);
+
+/* Get the human-readable language name for index [0, count).
+ * Returns NULL on out-of-range. */
+const char *wb_subtitle_translate_get_language_name(int index);
+
+/* ---- Session View (Ableton-style clip launcher) ----------------------- */
+#define WB_LAUNCH_TRIGGER 0  /* play while held / until stopped */
+#define WB_LAUNCH_GATE   1  /* play while active */
+#define WB_LAUNCH_TOGGLE 2  /* flip play/stop state */
+#define WB_QUANT_FREE 0     /* immediate launch */
+#define WB_QUANT_1_4  1     /* quantize to next quarter note */
+#define WB_QUANT_1_8  2     /* quantize to next eighth note */
+#define WB_QUANT_1_16 3     /* quantize to next sixteenth note */
+
+/* Opaque handle. Create with wb_session_view_create(session). */
+typedef struct wb_session_view wb_session_view;
+
+/* Arrangement log entry — records a clip launch/stop event. */
+typedef struct {
+    double   time_samples; /* session time of the event */
+    int      track;        /* track index */
+    int      clip_ref;     /* clip index on the track */
+    int      active;       /* 1 = launch, 0 = stop */
+} wb_arrangement_entry;
+
+/* Lifecycle. */
+wb_session_view *wb_session_view_create(wb_session *session);
+void wb_session_view_destroy(wb_session_view *sv);
+
+/* Slot management — wb_session* variants use a default per-session view. */
+int wb_session_create_slot(wb_session *session, int track, int scene);
+int wb_session_view_create_slot(wb_session_view *sv, int track, int scene);
+
+/* Assign a clip to a slot (must exist first). */
+int wb_session_view_set_slot_clip(wb_session_view *sv, int track, int scene, int clip_ref);
+
+/* Clip launch / stop. */
+int wb_session_launch_clip(wb_session *session, int track, int scene);
+int wb_session_stop_clip(wb_session *session, int track);
+int wb_session_view_launch_clip(wb_session_view *sv, int track, int scene);
+int wb_session_view_stop_clip(wb_session_view *sv, int track);
+
+/* Scene launch (all tracks in a row simultaneously) / stop all. */
+int wb_session_launch_scene(wb_session *session, int scene);
+int wb_session_stop_all(wb_session *session);
+int wb_session_view_launch_scene(wb_session_view *sv, int scene);
+int wb_session_view_stop_all(wb_session_view *sv);
+
+/* Launch mode: 0=trigger, 1=gate, 2=toggle. */
+int wb_session_set_clip_launch_mode(wb_session *session, int track, int mode);
+int wb_session_view_set_clip_launch_mode(wb_session_view *sv, int track, int mode);
+
+/* Quantize: 0=free, 1=1/4, 2=1/8, 3=1/16. */
+int wb_session_set_clip_quantize(wb_session *session, int track, int quantize);
+int wb_session_view_set_clip_quantize(wb_session_view *sv, int track, int quantize);
+
+/* Query: clip_ref currently playing on a track, or lowest playing scene. */
+int wb_session_get_playing_clip(const wb_session *session, int track);
+int wb_session_get_playing_scene(const wb_session *session);
+int wb_session_view_get_playing_scene(const wb_session_view *sv, int track);
+
+/* Arrangement recording. */
+int wb_session_record_to_arrangement(wb_session *session, int enable);
+int wb_session_view_record_to_arrangement(wb_session_view *sv, int enable);
+uint32_t wb_session_view_arr_log_count(const wb_session_view *sv);
+const wb_arrangement_entry *wb_session_view_arr_log(const wb_session_view *sv, uint32_t idx);
+
+/* Slot introspection. */
+int wb_session_view_get_slot_clip(const wb_session_view *sv, int track, int scene);
+int wb_session_view_slot_exists(const wb_session_view *sv, int track, int scene);
+int wb_session_view_slot_playing(const wb_session_view *sv, int track, int scene);
+int wb_session_view_get_slot_launch_mode(const wb_session_view *sv, int track, int scene);
+int wb_session_view_get_slot_quantize(const wb_session_view *sv, int track, int scene);
+
+/* Advance session time (for arrangement recording). */
+void wb_session_view_advance_time(wb_session_view *sv, double delta_samples);
+
+/* ---- GPU-accelerated particle system (wb_particle_gpu.c) ---- */
+
+/* Create a particle system with up to max_particles (capped at 10000).
+ * Returns opaque handle, or NULL on failure. */
+void *wb_gpu_particle_create(uint32_t max_particles);
+
+/* Destroy a particle system. */
+void wb_gpu_particle_destroy(void *ps);
+
+/* Emit `count` particles at position (x, y, z) with random velocity spread. */
+void wb_gpu_particle_emit(void *ps, float x, float y, float z, int count);
+
+/* Update particle physics by dt seconds (SSE2 vectorized, 4 at a time). */
+void wb_gpu_particle_update(void *ps, float dt);
+
+/* Render particles to an RGBA buffer (w×h pixels, 4 bytes per pixel).
+ * 3D→2D perspective projection, additive or alpha blending. */
+void wb_gpu_particle_render(void *ps, uint8_t *rgba_out, int w, int h);
+
+/* Set gravity vector (gx, gy, gz). */
+void wb_gpu_particle_set_gravity(void *ps, float gx, float gy, float gz);
+
+/* Set particle lifetime range (min_sec, max_sec). */
+void wb_gpu_particle_set_lifetime(void *ps, float min_sec, float max_sec);
+
+/* Set start/end colors (ARGB format). Color interpolates start→end over lifetime. */
+void wb_gpu_particle_set_colors(void *ps, uint32_t start_color, uint32_t end_color);
+
+/* Set particle size range (min_size, max_size) in pixels. */
+void wb_gpu_particle_set_size(void *ps, float min_size, float max_size);
+
+/* Get current number of active (alive) particles. */
+int wb_gpu_particle_get_active_count(const void *ps);
+
+/* ---- video stabilization (phase-correlation motion estimation) ---- */
+
+/* Create a stabilizer instance for frames of size width x height.
+ * Returns opaque handle, or NULL on failure. */
+void *wb_stabilize2_create(int width, int height);
+
+/* Destroy a stabilizer instance. */
+void wb_stabilize2_destroy(void *s);
+
+/* Process a frame in-place. Estimates motion relative to the previous
+ * frame, smooths the trajectory, and applies a corrective translation.
+ * Returns 0 on success, -1 on error. */
+int wb_stabilize2_process(void *s, uint8_t *frame_rgba, int width, int height);
+
+/* Set smoothing strength (0.0 = none, 0.99 = maximum). Default 0.85. */
+void wb_stabilize2_set_smoothing(void *s, float smoothing);
+
+/* Set crop percentage (0.0 = none, 0.4 = 40%). Default 0.05.
+ * Higher values hide more border artifacts but reduce frame size. */
+void wb_stabilize2_set_crop(void *s, float crop_percent);
+
+/* Reset motion history (clears accumulated translation and smoothing state). */
+void wb_stabilize2_reset(void *s);
+
+/* ---- audio analysis (broadcast/metering style, wb_analysis.c) ---- */
+
+/* Simplified BS.1770-4 K-weighted integrated loudness (LUFS).
+ * Cascades a +4 dB high-shelf pre-filter (1513 Hz) and a 60 Hz RLB
+ * high-pass, then computes -0.691 + 10*log10(mean-square). Suitable for
+ * live metering; not a full compliance measurement (no gating). */
+int wb_analysis_loudness(const float *audio, int n, float sr, float *lufs_out);
+
+/* Peak sample magnitude in dBFS (0 dBFS = full scale). */
+int wb_analysis_peak(const float *audio, int n, float *peak_db);
+
+/* RMS level in dBFS (sqrt of mean square). */
+int wb_analysis_rms(const float *audio, int n, float *rms_db);
+
+/* Crest factor = peak_dB - RMS_dB in dB. */
+int wb_analysis_crest_factor(const float *audio, int n, float *crest_db);
+
+/* FFT magnitude spectrum binned into num_bins octave-spaced bands (dB).
+ * Reuses wb_fft internally. bins must hold num_bins floats. */
+int wb_analysis_spectrum(const float *audio, int n, float *bins, int num_bins, float sr);
+
+/* Phase correlation between two channels: -1..+1 (Pearson r).
+ * +1 = mono-compatible, 0 = uncorrelated, -1 = anti-phase. */
+int wb_analysis_phase_correlation(const float *l, const float *r, int n, float *correlation);
+
+/* ---- modulation matrix (wb_mod_matrix.c) ---- */
+/* Bitwig-style modular modulation routing. Routes modulation sources
+ * (LFOs, envelope, MIDI controllers) to parameter destinations with
+ * bipolar amount scaling. Max 64 concurrent routes. */
+
+/* Source IDs */
+#define WB_MOD_SRC_LFO1       0
+#define WB_MOD_SRC_LFO2       1
+#define WB_MOD_SRC_ENVELOPE   2
+#define WB_MOD_SRC_VELOCITY   3
+#define WB_MOD_SRC_MODWHEEL   4
+#define WB_MOD_SRC_PITCHBEND  5
+#define WB_MOD_SRC_AFTERTOUCH 6
+
+/* LFO waveform shapes */
+#define WB_MOD_LFO_SINE     0
+#define WB_MOD_LFO_TRIANGLE 1
+#define WB_MOD_LFO_SAW      2
+#define WB_MOD_LFO_SQUARE   3
+
+/* Create / destroy a modulation matrix. */
+void *wb_mod_matrix_create(void);
+void  wb_mod_matrix_destroy(void *mm);
+
+/* Add a modulation route. Returns route ID (>0) on success, -1 on error. */
+int   wb_mod_matrix_add_route(void *mm, int src, int dst, float amount);
+
+/* Remove a route by ID. Returns 0 on success, -1 on error. */
+int   wb_mod_matrix_remove_route(void *mm, int route_id);
+
+/* Set a route's amount (-1.0..+1.0, clamped). */
+void  wb_mod_matrix_set_amount(void *mm, int route_id, float amount);
+
+/* Process: compute source values and apply to param_values[0..num_params-1]. */
+void  wb_mod_matrix_process(void *mm, float *param_values, int num_params);
+
+/* Current number of active routes. */
+int   wb_mod_matrix_route_count(const void *mm);
+
+/* Remove all routes. */
+void  wb_mod_matrix_clear(void *mm);
+
+/* Configure an LFO (lfo_idx: 0=LFO1, 1=LFO2). freq in Hz (0.1..20, clamped). */
+void  wb_mod_matrix_set_lfo(void *mm, int lfo_idx, int waveform, float freq);
+
+/* Trigger envelope (ADSR in seconds). */
+void  wb_mod_matrix_note_on(void *mm, float a, float d, float s, float r);
+void  wb_mod_matrix_note_off(void *mm);
+
+/* Set MIDI controller state (all normalized 0..1, except pitchbend -1..1). */
+void  wb_mod_matrix_set_midi(void *mm, float vel, float mw, float pb, float at);
+
+/* Evaluate modulation at sample position */
+void  wb_mod_matrix_eval(void *mm, uint32_t n, float sample_rate,
+                           void (*cb)(void *ctx, int track, int slot, int param, float value01),
+                           void *ctx);
+
+/* ---- R079: video transition pack ---- */
+typedef struct wb_transition wb_transition;
+int wb_transition_init(wb_transition *t, int type, int src_w, int src_h);
+int wb_transition_process(wb_transition *t, const uint8_t *from, const uint8_t *to, uint8_t *out, float progress);
+void wb_transition_set_duration(wb_transition *t, float seconds);
+void wb_transition_set_param(wb_transition *t, int param, float value);
+
+/* ---- AI arrangement assistant ---- */
+/* Auto-arrange clips into song structures (verse/chorus/bridge/etc). */
+void *wb_arrange_ai_create(void);
+void  wb_arrange_ai_destroy(void *a);
+int   wb_arrange_ai_arrange(void *a, const char *style, int num_clips,
+                            int *clip_durations, int *out_order, int *out_sections);
+int   wb_arrange_ai_get_section_name(int section_id, char *name_out, int cap);
+void  wb_arrange_ai_set_tempo(void *a, float bpm);
+
+/* Section ids for wb_arrange_ai_get_section_name / out_sections */
+#define WB_ARR_SECTION_INTRO     0
+#define WB_ARR_SECTION_VERSE     1
+#define WB_ARR_SECTION_CHORUS    2
+#define WB_ARR_SECTION_BRIDGE    3
+#define WB_ARR_SECTION_SOLO      4
+#define WB_ARR_SECTION_OUTRO     5
+#define WB_ARR_SECTION_BUILD     6
+#define WB_ARR_SECTION_DROP      7
+#define WB_ARR_SECTION_BREAKDOWN 8
+#define WB_ARR_SECTION_HEAD      9
+
+/* ---- R079: cloud collaboration ---- */
+void *wb_cloud_collab_create(const char *room_name);
+void  wb_cloud_collab_destroy(void *inst);
+int   wb_cloud_collab_join(void *inst, const char *user_id);
+int   wb_cloud_collab_leave(void *inst, const char *user_id);
+int   wb_cloud_collab_apply_op(void *inst, const char *user_id, const char *op_json);
+int   wb_cloud_collab_get_state(void *inst, char *json_out, int cap);
+int   wb_cloud_collab_user_count(const void *inst);
+
 #ifdef __cplusplus
 }
 #endif
-
 #endif /* WUBUS_WBUS_H */

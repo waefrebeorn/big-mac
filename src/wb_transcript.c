@@ -81,6 +81,20 @@ void wb_transcript_set_word(wb_transcript *t, int i, const char *word) {
     t->words[i].word = dup_str(word);
 }
 
+wb_word *wb_transcript_word_mut(wb_transcript *t, int i) {
+    if (!t || i < 0 || i >= t->count) return NULL;
+    return &t->words[i];
+}
+
+int wb_transcript_shift_from(wb_transcript *t, int start_idx, double delta_ms) {
+    if (!t || start_idx < 0 || start_idx > t->count) return -1;
+    for (int i = start_idx; i < t->count; i++) {
+        t->words[i].start_ms += delta_ms;
+        t->words[i].end_ms += delta_ms;
+    }
+    return 0;
+}
+
 int wb_transcript_remove_range(wb_transcript *t, int i0, int i1) {
     if (!t || i0 < 0 || i1 <= i0 || i1 > t->count) return -1;
     for (int i = i0; i < i1; i++) free(t->words[i].word);

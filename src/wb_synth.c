@@ -78,6 +78,26 @@ void *wb_synth_create(uint32_t sr) {
 
 void wb_synth_destroy(void *inst) { free(inst); }
 
+/* Parameter setter for macro rack binding.
+ * param: 0=filter_cutoff, 1=filter_res, 2=master_vol, 3=waveform */
+void wb_synth_set(void *inst, int param, float v) {
+    wb_synth_inst *s = inst;
+    if (!s) return;
+    switch (param) {
+    case 0: s->filter_cutoff = v;
+        for (int i = 0; i < MAX_VOICES; i++)
+            wb_biquad_set(&s->voices[i].filter, 0, s->filter_cutoff, s->filter_res, 0);
+        break;
+    case 1: s->filter_res = v;
+        for (int i = 0; i < MAX_VOICES; i++)
+            wb_biquad_set(&s->voices[i].filter, 0, s->filter_cutoff, s->filter_res, 0);
+        break;
+    case 2: s->master_vol = v; break;
+    case 3: s->waveform = (int)v; break;
+    default: break;
+    }
+}
+
 static double midi_to_freq(int note) {
     return 440.0 * pow(2.0, (note - 69) / 12.0);
 }

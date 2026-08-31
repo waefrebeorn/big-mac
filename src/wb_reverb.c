@@ -58,6 +58,18 @@ void wb_reverb_destroy(void *inst) {
     free(r);
 }
 
+/* Parameter setter for macro rack binding.
+ * param: 0=feedback, 1=mix */
+void wb_reverb_set(void *inst, int param, float v) {
+    wb_reverb_inst *r = inst;
+    if (!r) return;
+    switch (param) {
+    case 0: r->feedback = v; break;
+    case 1: r->mix = v; break;
+    default: break;
+    }
+}
+
 static float comb_tick(float *buf, uint32_t len, uint32_t *pos,
                        float input, float fb) {
     float out = buf[*pos];

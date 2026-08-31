@@ -2367,30 +2367,6 @@ void wb_session_spatial_enable(wb_session *s, int on) {
 }
 
 /* ---- G36: score/notation view — pitch helpers ----------------------------- */
-/* Diatonic staff position for a MIDI pitch in C major (no key signature yet):
- * returns the step index where 0 = middle C (C4) on its line, odd/even gives
- * line vs space. Negative = below middle C. */
-int wb_score_staff_position(int midi_pitch) {
-    /* semitone offsets of natural notes within an octave */
-    static const int nat[12] = { 0,-1,1,-1,2,-1,3,-1,4,-1,5,-1 };
-    int octave = (midi_pitch / 12) - 5;          /* octave 0 = MIDI 60..71 */
-    int pc = ((midi_pitch % 12) + 12) % 12;
-    int step = nat[pc];
-    if (step < 0) {
-        /* accidental: use the natural below it (sharps) or above (flats) —
-         * sharps convention: C#,D#,F#,G#,A# take the lower natural's slot+0 */
-        step = nat[(pc + 11) % 12] + 1;
-    }
-    return octave * 7 + step;
-}
-/* Note name with octave, e.g. "C4". Writes up to cap bytes. */
-void wb_score_note_name(int midi_pitch, char *out, int cap) {
-    static const char *names[12] = { "C","C#","D","D#","E","F","F#",
-                                     "G","G#","A","A#","B" };
-    int oct = (midi_pitch / 12) - 1;             /* scientific pitch notation */
-    snprintf(out, cap, "%s%d", names[((midi_pitch % 12)+12)%12], oct);
-}
-
 /* ---- G07: screen/camera capture ingest ------------------------------------- */
 /* Capture a frame sequence into the session: each commit writes the current
  * frame buffer as a PNG-frame "stills" clip marker and registers the source

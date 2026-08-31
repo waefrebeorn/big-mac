@@ -224,9 +224,9 @@ int wb_video_decoder_get_height(wb_video_decoder *d) { return d ? d->codec_ctx->
 int wb_video_make_proxy(const char *src, const char *proxy) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
-             "\"%s\" -y -i \"%s\" -vf \"scale=%d:%d\" -c:v libx264 -preset fast -crf 23 "
+             "\"%s\" -y -i \"%s\" -vf \"scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2\" -c:v libx264 -preset veryfast -crf 23 "
              "-c:a aac -b:a 64k \"%s\" > /dev/null 2>&1",
-             FFmpeg_BIN, src, PROXY_SCALE_W, PROXY_SCALE_H, proxy);
+             FFmpeg_BIN, src, PROXY_SCALE_W, PROXY_SCALE_H, PROXY_SCALE_W, PROXY_SCALE_H, proxy);
     return run_cmd(cmd, "proxy generation") == 0 ? 0 : -1;
 }
 
@@ -380,7 +380,7 @@ int wb_video_export_full(wb_session *s, wb_engine *e,
         case WB_VIDEO_CODEC_H264:
         default:
             venc  = "libx264";
-            vopts = "-preset fast -crf 20 -pix_fmt yuv420p";
+            vopts = "-preset veryfast -crf 23 -pix_fmt yuv420p";
             break;
     }
 
@@ -444,7 +444,7 @@ int wb_video_export_full(wb_session *s, wb_engine *e,
     }
 
     off += snprintf(cmd + off, sizeof(cmd) - off,
-                    "-c:v %s %s%s -r 60 -c:a aac -b:a 192k -shortest \"%s\" >/dev/null 2>&1",
+                    "-c:v %s %s%s -r 30 -c:a aac -b:a 128k -shortest \"%s\" >/dev/null 2>&1",
                     venc, vopts, prof, output_path);
 
     /* G38: run ffmpeg as a real child so we can poll CANCEL and kill it. */

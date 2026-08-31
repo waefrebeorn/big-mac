@@ -225,7 +225,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | `wb_compositor_pro.c` | Professional node compositor — Fusion/Nuke style graph eval, 6 node types | 8/8 |
 
 ## R080 YTP experiments — HANDS-ON EDITING ✅ (2026-08-30)
-26 experiments + mega mix. 1173+ source files (14GB). Context-aware editing.
+27 experiments + mega mix. 1173+ source files (14GB). Context-aware editing.
 
 | # | Source | Techniques |
 |---|--------|------------|
@@ -247,6 +247,7 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | 023 | Michael Rosen "Bear Hunt" | chipmunk, demon, earrape, VHS, fry, reverse |
 | 024 | Adventures of Sonic the Hedgehog (pilot) | chipmunk, demon, earrape, VHS, fry, reverse |
 | 026 | Bowser roar (Hotel Mario) - CONTEXT-AWARE | stutter, demon, earrape, deep-fry, reverse, chipmunk |
+| 027 | SMW title card - CONTEXT-AWARE | stutter, demon, earrape, VHS, reverse, deep-fry |
 | 019 | Chroma key compositing (Popeye + PD bg) | colorkey, green screen overlay, datamosh, deep-fry+datamosh |
 | 020 | Animaniacs + Batman 1993 commercials | chipmunk, demon, earrape, VHS, deep fry, stutter, cartoon mix |
 | 021 | Glitch/datamosh pipeline (Popeye) | pixel shift, glitch crush, frame drop, reverse segments |

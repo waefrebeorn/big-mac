@@ -31,10 +31,19 @@ def probe_duration(path):
 
 def extract_segment(src_path, start_sec, dur_sec, output_path, vfilter, afilter, intensity):
     """Extract a segment with effects applied.
-    Uses input seeking (-ss before -i) for speed, with output seeking as fallback.
+    Uses input seeking (-ss before -i) for speed, with output seeking for reverse.
     """
-    # Fast path: input seeking (works well for most files)
-    cmd = [FFMPEG, "-y", "-ss", f"{start_sec:.3f}", "-i", src_path, "-t", f"{dur_sec:.3f}"]
+    is_reverse = "reverse" in (vfilter or "")
+    
+    if is_reverse:
+        # For reverse, we need output seeking (decode from start, trim, then reverse)
+        # Extract a larger window to ensure we have enough frames
+        seek_start = max(0, start_sec - 5)
+        cmd = [FFMPEG, "-y", "-ss", f"{seek_start:.3f}", "-i", src_path,
+               "-t", f"{dur_sec + 10:.3f}"]
+    else:
+        # Fast path: input seeking (works well for most files)
+        cmd = [FFMPEG, "-y", "-ss", f"{start_sec:.3f}", "-i", src_path, "-t", f"{dur_sec:.3f}"]
     
     vf_parts = []
     if vfilter:

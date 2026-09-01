@@ -17,16 +17,17 @@ test_media/
 
 # === Large asset libraries (not committed — tracked via manifest) ===
 # YTP source videos (~12GB) — ignore media but keep manifests
-assets/ytp_sources/video/*.mp4
+assets/ytp_sources/video/*
+!assets/ytp_sources/video/*.json
 assets/ytp_sources/video/**/*.mp4
-assets/ytp_sources/video/*.avi
 assets/ytp_sources/video/**/*.avi
-assets/ytp_sources/video/*.mkv
 assets/ytp_sources/video/**/*.mkv
-assets/ytp_sources/video/*.webm
 assets/ytp_sources/video/**/*.webm
-assets/ytp_sources/video/*.mov
 assets/ytp_sources/video/**/*.mov
+assets/ytp_sources/video/**/*.mp
+assets/ytp_sources/video/**/*.html
+!assets/ytp_sources/video/**/
+!assets/ytp_sources/video/**/*.json
 assets/ytp_sources/audio/
 assets/ytp_sources/audio/*
 assets/ytp_sources/audio/**/*.mp3

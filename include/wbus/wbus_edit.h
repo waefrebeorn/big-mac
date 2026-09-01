@@ -261,6 +261,17 @@ int wb_edit_set_keyframe(wb_edit_graph *g, int track, int clip, int fx,
 float wb_edit_get_keyframed_value(wb_edit_graph *g, int track, int clip,
                                    int fx, const char *param_name, double time);
 
+/* ---- undo/redo ---------------------------------------------------------- */
+
+void wb_edit_undo_init(void);
+void wb_edit_undo_shutdown(void);
+void wb_edit_undo_checkpoint(void);
+void wb_edit_undo_set_current(wb_edit_graph *g);
+wb_edit_graph *wb_edit_undo_undo(wb_edit_graph *current);
+wb_edit_graph *wb_edit_undo_redo(wb_edit_graph *current);
+int wb_edit_undo_can_undo(void);
+int wb_edit_undo_can_redo(void);
+
 /* ---- transitions ------------------------------------------------------- */
 
 /* Add a transition between two adjacent clips. Returns index or -1. */

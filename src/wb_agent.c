@@ -691,8 +691,10 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
     if (strcmp(cmd, "edit-add-track") == 0) {
         char *name = tok(&p);
         if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        wb_edit_undo_checkpoint();
         if (!name || !name[0]) name = "Video";
         int ti = wb_edit_add_track(g_agent_edit, name);
+        wb_edit_undo_set_current(g_agent_edit);
         printf("edit-add-track: %d '%s'\n", ti, name);
         return ti >= 0 ? 0 : -1;
     }
@@ -932,6 +934,30 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         float v = wb_edit_get_keyframed_value(g_agent_edit, track, clip, fx, param, time);
         printf("edit-kf-get: track %d clip %d fx %d %s @ %.2fs = %.3f\n",
                track, clip, fx, param, time, v);
+        return 0;
+    }
+
+    /* Undo/redo commands */
+    if (strcmp(cmd, "edit-undo") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        if (!wb_edit_undo_can_undo()) { printf("edit-undo: nothing to undo\n"); return 0; }
+        wb_edit_graph *prev = wb_edit_undo_undo(g_agent_edit);
+        if (prev) {
+            wb_edit_graph_destroy(g_agent_edit);
+            g_agent_edit = prev;
+            printf("edit-undo: restored previous state\n");
+        }
+        return 0;
+    }
+    if (strcmp(cmd, "edit-redo") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        if (!wb_edit_undo_can_redo()) { printf("edit-redo: nothing to redo\n"); return 0; }
+        wb_edit_graph *next = wb_edit_undo_redo(g_agent_edit);
+        if (next) {
+            wb_edit_graph_destroy(g_agent_edit);
+            g_agent_edit = next;
+            printf("edit-redo: restored next state\n");
+        }
         return 0;
     }
 

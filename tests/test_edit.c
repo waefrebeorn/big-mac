@@ -447,6 +447,70 @@ int main(void) {
         wb_edit_graph_destroy(g);
     }
 
+    /* ---- Undo/Redo ---- */
+    printf("\n--- Undo/Redo ---\n");
+    {
+        wb_edit_undo_init();
+        wb_edit_graph *g = wb_edit_graph_create(30.0, 854, 480);
+        CHECK(g != NULL, "undo: graph created");
+
+        /* Initial state: 0 tracks */
+        wb_edit_undo_checkpoint();
+        wb_edit_undo_set_current(g);
+        CHECK(g->track_count == 0, "undo: initial state has 0 tracks");
+
+        /* Add track */
+        wb_edit_undo_checkpoint();
+        wb_edit_add_track(g, "V1");
+        wb_edit_undo_set_current(g);
+        CHECK(g->track_count == 1, "undo: after add track, count is 1");
+
+        /* Add another track */
+        wb_edit_undo_checkpoint();
+        wb_edit_add_track(g, "V2");
+        wb_edit_undo_set_current(g);
+        CHECK(g->track_count == 2, "undo: after second track, count is 2");
+
+        /* Can undo? */
+        CHECK(wb_edit_undo_can_undo(), "undo: can undo after changes");
+
+        /* Undo once */
+        wb_edit_graph *prev = wb_edit_undo_undo(g);
+        CHECK(prev != NULL, "undo: undo returns previous state");
+        if (prev) {
+            CHECK(prev->track_count == 1, "undo: previous state has 1 track");
+            wb_edit_graph_destroy(g);
+            g = prev;
+        }
+
+        /* Undo again */
+        prev = wb_edit_undo_undo(g);
+        CHECK(prev != NULL, "undo: second undo returns state");
+        if (prev) {
+            CHECK(prev->track_count == 0, "undo: initial state has 0 tracks");
+            wb_edit_graph_destroy(g);
+            g = prev;
+        }
+
+        /* Can't undo past beginning */
+        CHECK(!wb_edit_undo_can_undo(), "undo: can't undo past beginning");
+
+        /* Can redo? */
+        CHECK(wb_edit_undo_can_redo(), "undo: can redo");
+
+        /* Redo */
+        wb_edit_graph *next = wb_edit_undo_redo(g);
+        CHECK(next != NULL, "undo: redo returns next state");
+        if (next) {
+            CHECK(next->track_count == 1, "undo: redo restores 1 track");
+            wb_edit_graph_destroy(g);
+            g = next;
+        }
+
+        wb_edit_graph_destroy(g);
+        wb_edit_undo_shutdown();
+    }
+
     printf("\n%s\n", pass ? "ALL PASS" : "SOME FAILED");
     return pass ? 0 : 1;
 }

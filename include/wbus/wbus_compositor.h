@@ -276,6 +276,30 @@ wb_node *wb_node_source_text(const char *text, int scale,
                              int w, int h);
 /* R073 hop 58: set the text animation preset on a text source node. */
 void wb_node_source_text_anim(wb_node *text_node, int mode, double dur);
+
+/* ---- Per-character text animator (AE parity) ----------------------- */
+/* Effect node: animates text one character at a time with stagger,
+ * easing, and selector ranges. Uses wb_ui_font rasterizer. */
+wb_node *wb_node_effect_text_animator(const char *text, int scale,
+                                       float r, float g, float b, float a,
+                                       int w, int h);
+/* Select character range [start_char, end_char) to animate.
+ * Pass start=0, end=0 to animate all characters. */
+void wb_node_effect_text_animator_set_range(wb_node *n, int start_char,
+                                              int end_char);
+/* Set animated properties: offset/scale/rotation/opacity each char
+ * animates FROM at u=0 (resolving to identity at u=1). */
+void wb_node_effect_text_animator_set_properties(wb_node *n,
+                                                   float offset_x,
+                                                   float offset_y,
+                                                   float scale_val,
+                                                   float rotation,
+                                                   float opacity);
+/* Set easing: 0=linear, 1=ease-in, 2=ease-out, 3=ease-in-out,
+ * 4=elastic, 5=bounce. */
+void wb_node_effect_text_animator_set_easing(wb_node *n, int ease_type);
+/* Set stagger delay per character in seconds. */
+void wb_node_effect_text_animator_set_delay(wb_node *n, double delay_per_char);
 /* R074 hop 113: position a text node in pixels. */
 void wb_node_source_text_pos(wb_node *text_node, int x, int y);
 /* #92: resolution-relative title scale. */

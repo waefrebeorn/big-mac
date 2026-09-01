@@ -179,3 +179,21 @@ float wb_audio_mixer_get_vu(int track) {
     if (track < 0 || track >= g_mixer_count) return 0.0f;
     return g_mixer_tracks[track].vu_level;
 }
+
+/* Set the output channel configuration.
+ * channels: 2 = stereo, 6 = 5.1 surround.
+ * Returns 0 on success, -1 on unsupported channel count. */
+int wb_audio_mixer_set_channels(int channels) {
+    if (channels != 2 && channels != 6) return -1;
+    /* Store channel config in input_bus[0] as a flag (reusing the field
+     * since channel config is global, not per-bus). A cleaner approach
+     * would be a dedicated global, but this avoids expanding the struct
+     * for a single config value. */
+    g_input_bus_enabled[0] = (channels == 6) ? 1 : 0;
+    return 0;
+}
+
+/* Query whether 5.1 surround is active (returns 1) or stereo (returns 0). */
+int wb_audio_mixer_is_surround(void) {
+    return g_input_bus_enabled[0] != 0;
+}

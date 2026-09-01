@@ -387,6 +387,32 @@ int wb_node_window_track_path(wb_node *win_effect,
                               const double *ts, const float xs[],
                               const float ys[], int n, double dur);
 
+/* ---- Metal GPU acceleration (G12) ------------------------------------ */
+/* Initialize Metal compute pipeline. Returns 0 on success, -1 if Metal
+ * is unavailable (caller should use CPU path). Call once at startup. */
+int  wb_compositor_metal_init(void);
+/* Check if Metal GPU processing is available */
+int  wb_compositor_metal_is_available(void);
+/* Shutdown Metal and release all GPU resources */
+void wb_compositor_metal_shutdown(void);
+
+/* GPU-accelerated primary color grade (mirrors CPU op 8).
+ * Writes results back to f->px. Returns 0 on success, -1 on failure
+ * (caller should fall back to CPU). */
+int wb_compositor_metal_process_grade(wb_frame *f,
+                                       float lift, float gamma,
+                                       float gain, float saturation);
+
+/* GPU-accelerated brightness gain (mirrors CPU op 1). */
+int wb_compositor_metal_process_gain(wb_frame *f, float gain);
+
+/* GPU-accelerated deep fry effect. */
+int wb_compositor_metal_process_deep_fry(wb_frame *f,
+                                          float saturation,
+                                          float contrast,
+                                          float brightness,
+                                          float noise);
+
 #ifdef __cplusplus
 }
 #endif

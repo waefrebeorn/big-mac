@@ -183,6 +183,14 @@ struct wb_clap_host;
 void wb_unit_clap_ensure(void);
 void *wb_unit_clap_create(struct wb_clap_host *h, const char *id, uint32_t sr);
 
+/* ---- Noise Gate (spectral subtraction) ---- */
+typedef struct wb_noise_gate wb_noise_gate;
+wb_noise_gate *wb_noise_gate_create(float sample_rate);
+void           wb_noise_gate_destroy(wb_noise_gate *ng);
+void           wb_noise_gate_set_params(wb_noise_gate *ng, float sensitivity, float reduction_db, float attack_ms, float release_ms);
+int            wb_noise_gate_learn(wb_noise_gate *ng, const float *buf, int n_frames, int channels, int fft_size);
+int            wb_noise_gate_process(wb_noise_gate *ng, float *buf, int n_frames, int channels);
+
 #ifdef __cplusplus
 }
 #endif

@@ -25,7 +25,7 @@ LIBS     := third_party/SDL2-2.32.10/build/.libs/libSDL2.a \
             -Wl,-weak_framework,CoreHaptics -Wl,-weak_framework,GameController \
             -Wl,-framework,ForceFeedback -Wl,-framework,CoreVideo \
             -Wl,-framework,Cocoa -Wl,-framework,Carbon -Wl,-framework,IOKit \
-            -Wl,-weak_framework,QuartzCore -Wl,-weak_framework,Metal -Wl,-framework,CoreMIDI -Wl,-framework,CoreFoundation \
+            -Wl,-weak_framework,QuartzCore -Wl,-framework,Metal -Wl,-framework,MetalKit -Wl,-framework,CoreMIDI -Wl,-framework,CoreFoundation \
             -framework VideoToolbox -framework CoreFoundation -framework CoreMedia -framework CoreServices -framework Security \
             -L/Users/waefrebeorn/homebrew/lib -lavformat -lavcodec -lswscale -lavutil -lswresample
 
@@ -37,7 +37,7 @@ CORE_SRCS := src/wb_core.c src/wb_transport.c src/wb_cmd.c src/wb_session.c src/
              src/wb_sampler.c src/wb_wav.c src/wb_backend.c src/wb_bg_render.c \
              src/wb_tuner.c src/wb_ui_font.c src/wb_midi_coremidi.c src/wb_clap.c \
              src/wb_session_file.c src/wb_unit.c src/wb_fm.c src/wb_fm_g2.c src/wb_fm_g3.c src/wb_synth_simd.c src/wb_drum_simd.c src/wb_granular.c src/wb_formant.c src/wb_bleep.c src/wb_kaleidoscope.c src/wb_chromakey.c src/wb_datamosh.c src/wb_audio_color.c src/wb_wah.c src/wb_char2d.c src/wb_vfx.c src/wb_vfx_node.c src/wb_light2d.c src/wb_video_edit.c src/wb_video_node.c src/wb_ytp.c src/wb_keys.c src/wb_drums.c \
-             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_midifx.c src/wb_midi_remote.c src/wb_sat_simd.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c src/wb_voice_polish.c src/wb_voice_isolate.c src/wb_fft.c src/wb_param_track.c src/wb_compositor.c src/wb_compositor_pro.c src/wb_compositor_encode.c src/wb_transcript.c src/wb_subtitle_translate.c src/wb_ofx.c src/wb_ofx_plugin_builtin.c src/wb_agent.c src/wb_tts.c src/wb_hpss.c src/wb_workspace.c src/wb_clip_edit.c src/wb_cgi.c src/wb_agi.c src/wb_rast.c src/wb_mesh.c src/wb_anim.c src/wb_bvh.c src/wb_mod.c src/wb_gltf.c src/wb_assets.c src/wb_cgiexport.c src/wb_shadowbin.c src/wb_duck.c src/wb_delivery.c src/wb_perf.c src/wb_perfclip.c src/wb_wavcache.c src/wb_import.c src/wb_capture.c src/wb_export_job.c src/wb_precision.c src/wb_lufs.c src/wb_ai_mix.c src/wb_input.c src/wb_limiter.c src/wb_master_adv.c src/wb_mastering_pro.c src/wb_cgi_react.c src/wb_cgi_bands.c src/wb_timestretch.c src/wb_smf.c src/wb_sf2.c src/wb_bitcrush.c src/wb_sfx.c src/wb_waveview.c src/wb_scenedesc.c src/wb_pattern.c src/wb_tga.c src/wb_csg.c src/wb_graphio.c src/wb_conv.c src/wb_biquad_cascade_simd.c src/wb_comp_simd.c src/wb_mix_simd.c src/wb_stereo.c src/wb_yin.c src/wb_tempo_detect.c src/wb_phaser.c src/wb_pitch_correct.c src/wb_ladder.c src/wb_drum_machine.c src/wb_drum_rack.c src/wb_fuzz.c src/wb_karplus.c src/wb_macro_rack.c src/wb_bass_boost.c src/wb_meme_sounds.c src/wb_beat_sync.c src/wb_auto_captions.c src/wb_chroma_key.c src/wb_stutter.c src/wb_transitions.c src/wb_transitions_pro.c src/wb_ftz.c src/wb_sidechain.c src/wb_pitch_bend.c src/wb_audio_reactive.c src/wb_audio_reactive_node.c src/wb_video_fx_pro.c src/wb_lut_node.c src/wb_motion_overlay.c src/wb_tape_stop.c src/wb_spectrum.c src/wb_beat_slicer.c src/wb_parallel_comp.c src/wb_lfo_sidechain.c src/wb_deep_fry.c src/wb_vhs_effect.c src/wb_lyric_video.c src/wb_speed_ramp.c src/wb_transient_shaper.c src/wb_deesser.c src/wb_exciter.c src/wb_text_animate.c src/wb_text_edit.c src/wb_particle.c src/wb_particle_gpu.c src/wb_true_peak.c src/wb_dynamic_eq.c src/wb_stereo_image.c src/wb_mod_matrix.c src/wb_stabilize.c src/wb_stabilize2.c src/wb_chord_detect.c src/wb_audio_to_midi.c src/wb_cloud.c src/wb_cloud_collab.c src/wb_chord_ai.c src/wb_arrange_ai.c src/wb_arpeggiator.c src/wb_quantize.c src/wb_restore.c src/wb_freeze.c src/wb_spectral_edit.c src/wb_vocal_remove.c src/wb_midi_humanize.c src/wb_color_grading.c src/wb_comping.c src/wb_vca.c src/wb_mastering_chain.c src/wb_stem_export.c src/wb_reaction.c src/wb_keyframes.c src/wb_scene_detect.c src/wb_lut.c src/wb_motion_track.c src/wb_text_templates.c src/wb_surround.c src/wb_export_queue.c src/wb_midi_chordgen.c src/wb_proxy.c src/wb_midi_scale.c src/wb_midi_generators.c src/wb_melody_ai.c src/wb_aaf_export.c src/wb_track_folder.c src/wb_warp.c src/wb_vocal_synth.c src/wb_project_templates.c src/wb_wavetable.c src/wb_spatial_audio.c src/wb_linked_tracks.c src/wb_stem_split.c src/wb_autoreframe.c src/wb_dynamics_adv.c src/wb_lottie.c src/wb_sonogram.c src/wb_score.c src/wb_session_view.c src/wb_spectral_fx.c src/wb_edit.c src/wb_edit_serialize.c src/wb_edit_undo.c src/wb_multicam.c src/wb_audio_fx.c src/wb_audio_mixer.c src/wb_audio_mix.c src/wb_audio_mux.c
+             src/wb_chorus.c src/wb_eq.c src/wb_automation.c src/wb_recorder.c src/wb_undo.c src/wb_unit_clap.c src/wb_midifx.c src/wb_midi_remote.c src/wb_sat_simd.c src/wb_gate.c src/wb_multiband.c src/wb_captions.c src/wb_video.c src/wb_voice_polish.c src/wb_voice_isolate.c src/wb_fft.c src/wb_param_track.c src/wb_compositor.c src/wb_compositor_pro.c src/wb_compositor_encode.c src/wb_transcript.c src/wb_subtitle_translate.c src/wb_ofx.c src/wb_ofx_plugin_builtin.c src/wb_agent.c src/wb_tts.c src/wb_hpss.c src/wb_workspace.c src/wb_clip_edit.c src/wb_cgi.c src/wb_agi.c src/wb_rast.c src/wb_mesh.c src/wb_anim.c src/wb_bvh.c src/wb_mod.c src/wb_gltf.c src/wb_assets.c src/wb_cgiexport.c src/wb_shadowbin.c src/wb_duck.c src/wb_delivery.c src/wb_perf.c src/wb_perfclip.c src/wb_wavcache.c src/wb_import.c src/wb_capture.c src/wb_export_job.c src/wb_precision.c src/wb_lufs.c src/wb_ai_mix.c src/wb_input.c src/wb_limiter.c src/wb_master_adv.c src/wb_mastering_pro.c src/wb_cgi_react.c src/wb_cgi_bands.c src/wb_timestretch.c src/wb_smf.c src/wb_sf2.c src/wb_bitcrush.c src/wb_sfx.c src/wb_waveview.c src/wb_scenedesc.c src/wb_pattern.c src/wb_tga.c src/wb_csg.c src/wb_graphio.c src/wb_conv.c src/wb_biquad_cascade_simd.c src/wb_comp_simd.c src/wb_mix_simd.c src/wb_stereo.c src/wb_yin.c src/wb_tempo_detect.c src/wb_phaser.c src/wb_pitch_correct.c src/wb_ladder.c src/wb_drum_machine.c src/wb_drum_rack.c src/wb_fuzz.c src/wb_karplus.c src/wb_macro_rack.c src/wb_bass_boost.c src/wb_meme_sounds.c src/wb_beat_sync.c src/wb_auto_captions.c src/wb_chroma_key.c src/wb_stutter.c src/wb_transitions.c src/wb_transitions_pro.c src/wb_ftz.c src/wb_sidechain.c src/wb_pitch_bend.c src/wb_audio_reactive.c src/wb_audio_reactive_node.c src/wb_video_fx_pro.c src/wb_lut_node.c src/wb_motion_overlay.c src/wb_tape_stop.c src/wb_spectrum.c src/wb_beat_slicer.c src/wb_parallel_comp.c src/wb_lfo_sidechain.c src/wb_deep_fry.c src/wb_vhs_effect.c src/wb_lyric_video.c src/wb_speed_ramp.c src/wb_transient_shaper.c src/wb_deesser.c src/wb_exciter.c src/wb_text_animate.c src/wb_text_edit.c src/wb_particle.c src/wb_particle_gpu.c src/wb_true_peak.c src/wb_dynamic_eq.c src/wb_stereo_image.c src/wb_mod_matrix.c src/wb_stabilize.c src/wb_stabilize2.c src/wb_chord_detect.c src/wb_audio_to_midi.c src/wb_cloud.c src/wb_cloud_collab.c src/wb_chord_ai.c src/wb_arrange_ai.c src/wb_arpeggiator.c src/wb_quantize.c src/wb_restore.c src/wb_freeze.c src/wb_spectral_edit.c src/wb_vocal_remove.c src/wb_midi_humanize.c src/wb_color_grading.c src/wb_comping.c src/wb_vca.c src/wb_mastering_chain.c src/wb_stem_export.c src/wb_reaction.c src/wb_keyframes.c src/wb_scene_detect.c src/wb_lut.c src/wb_motion_track.c src/wb_text_templates.c src/wb_surround.c src/wb_export_queue.c src/wb_midi_chordgen.c src/wb_proxy.c src/wb_midi_scale.c src/wb_midi_generators.c src/wb_melody_ai.c src/wb_aaf_export.c src/wb_track_folder.c src/wb_warp.c src/wb_vocal_synth.c src/wb_project_templates.c src/wb_wavetable.c src/wb_spatial_audio.c src/wb_linked_tracks.c src/wb_stem_split.c src/wb_autoreframe.c src/wb_dynamics_adv.c src/wb_lottie.c src/wb_sonogram.c src/wb_score.c src/wb_session_view.c src/wb_spectral_fx.c src/wb_edit.c src/wb_edit_serialize.c src/wb_edit_undo.c src/wb_multicam.c src/wb_audio_fx.c src/wb_audio_mixer.c src/wb_audio_mix.c src/wb_audio_mux.c src/wb_noise_gate.c src/wb_gif_export.c
 CXX_SRCS := src/wb_vst3_host.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/module.cpp \
              third_party/vst3sdk/public.sdk/source/vst/hosting/processdata.cpp \
@@ -48,7 +48,8 @@ CXX_SRCS := src/wb_vst3_host.cpp \
              third_party/vst3sdk/pluginterfaces/base/coreiids.cpp \
              third_party/vst3sdk/pluginterfaces/base/ustring.cpp \
              third_party/vst3sdk/public.sdk/source/vst/vstinitiids.cpp
-MM_OBJS := build/third_party/vst3sdk/public.sdk/source/vst/hosting/module_mac.mm.o
+MM_OBJS := build/third_party/vst3sdk/public.sdk/source/vst/hosting/module_mac.mm.o \
+           build/src/wb_compositor_metal.mm.o
 CORE_OBJS := $(CORE_SRCS:%.c=build/%.o)
 CORE_OBJS += $(CXX_SRCS:%.cpp=build/%.o)
 CORE_OBJS += $(MM_OBJS)
@@ -72,6 +73,17 @@ build/third_party/vst3sdk/public.sdk/source/vst/hosting/module_mac.mm.o: third_p
 build/%.o: %.mm
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -fobjc-arc $(INC) -c $< -o $@
+
+# Metal compositor: double-extension .mm.o needs explicit rule
+build/src/wb_compositor_metal.mm.o: src/wb_compositor_metal.mm
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -fobjc-arc $(INC) -c $< -o $@
+
+# Pre-compile Metal shaders into a metallib for faster load
+build/metal_shaders.metallib: shaders/metal_shaders.metal
+	@mkdir -p $(dir $@)
+	xcrun -sdk macosx metal -c $< -o build/metal_shaders.air
+	xcrun -sdk macosx metallib build/metal_shaders.air -o $@
 
 build/wb_daw: build/tools/wb_daw.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ $(LIBS)
@@ -269,6 +281,19 @@ build/wb_test_compositor: build/tools/test_compositor.o $(CORE_OBJS)
 
 test_compositor: build/wb_test_compositor
 	./build/wb_test_compositor
+
+# ---- Metal GPU compositor test ----
+build/wb_test_metal: tests/test_metal_compositor.c $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ tests/test_metal_compositor.c $(CORE_OBJS) -lm $(LIBS)
+
+test_metal: build/wb_test_metal
+	./build/wb_test_metal
+
+build/wb_test_surround: tests/test_surround_mix.c $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $< $(filter %.o,$^) $(LIBS)
+
+test_surround: build/wb_test_surround
+	./build/wb_test_surround
 
 build/wb_test_voice_polish: build/tools/test_voice_polish.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)

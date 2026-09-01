@@ -627,6 +627,25 @@ int main(void) {
         free(buf);
     }
 
+    /* ---- Noise Gate ---- */
+    printf("\n--- Noise Gate ---\n");
+    {
+        float *noise = (float *)malloc(4800 * sizeof(float));
+        for (int i = 0; i < 4800; i++)
+            noise[i] = 0.01f * ((float)rand() / RAND_MAX - 0.5f);
+        wb_noise_gate *ng = wb_noise_gate_create(48000.0f);
+        CHECK(ng != NULL, "noise gate created");
+        int rc = wb_noise_gate_learn(ng, noise, 4800, 1, 512);
+        CHECK(rc == 0, "noise profile learned");
+        /* Add a signal that should pass through */
+        for (int i = 2048; i < 4096; i++)
+            noise[i] += 0.5f * sinf(2.0f * M_PI * 440.0f * i / 48000.0f);
+        rc = wb_noise_gate_process(ng, noise, 4800, 1);
+        CHECK(rc == 0, "noise gate applied");
+        wb_noise_gate_destroy(ng);
+        free(noise);
+    }
+
     /* ---- BWF (Broadcast Wave Format) ---- */
     printf("\n--- BWF ---\n");
     {

@@ -352,6 +352,7 @@ int wb_edit_add_audio_clip(wb_edit_graph *g, int track,
     ac->timeline_pos = tl_pos;
     ac->volume = 1.0f;
     ac->speed = 1.0f;
+    ac->pan = 0.0f;  /* default center */
 
     tr->audio_clip_count++;
 
@@ -369,6 +370,19 @@ int wb_edit_set_audio_volume(wb_edit_graph *g, int track, int clip_idx,
     if (clip_idx < 0 || (uint32_t)clip_idx >= tr->audio_clip_count) return -1;
     if (vol < 0.0f) vol = 0.0f;
     tr->audio_clips[clip_idx].volume = vol;
+    return 0;
+}
+
+/* Set the pan of an audio clip. pan ranges from -1 (full left) to +1 (full right),
+ * with 0 = center. Returns 0 on success, -1 on error. */
+int wb_edit_set_audio_pan(wb_edit_graph *g, int track, int clip_idx,
+                           float pan) {
+    if (!g || track < 0 || (uint32_t)track >= g->track_count) return -1;
+    wb_edit_track *tr = &g->tracks[track];
+    if (clip_idx < 0 || (uint32_t)clip_idx >= tr->audio_clip_count) return -1;
+    if (pan < -1.0f) pan = -1.0f;
+    if (pan > 1.0f) pan = 1.0f;
+    tr->audio_clips[clip_idx].pan = pan;
     return 0;
 }
 

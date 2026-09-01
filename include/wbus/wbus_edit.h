@@ -123,6 +123,7 @@ struct wb_edit_audio_clip {
     double timeline_pos;      /* seconds on timeline where clip starts */
     float volume;             /* volume multiplier (0..1+, 1.0 = unity) */
     float speed;              /* playback speed (1.0 = normal) */
+    float pan;                /* pan position: -1 (left) .. +1 (right), 0 = center */
 
     /* Per-clip audio effects chain */
     wb_audio_fx fx_chain[WB_AUDIO_FX_PER_CLIP];
@@ -296,6 +297,11 @@ int  wb_edit_add_audio_clip(wb_edit_graph *g, int track,
 int  wb_edit_set_audio_volume(wb_edit_graph *g, int track, int clip_idx,
                                float vol);
 
+/* Set the pan of an audio clip. pan ranges from -1 (full left) to +1 (full right),
+ * 0 = center. Returns 0 on success, -1 on error. */
+int  wb_edit_set_audio_pan(wb_edit_graph *g, int track, int clip_idx,
+                            float pan);
+
 /* Set an audio effect on a clip's FX chain.
  * track: track index, clip_idx: audio clip index
  * fx_slot: slot index (0..WB_AUDIO_FX_PER_CLIP-1)
@@ -317,6 +323,22 @@ int  wb_edit_clear_audio_fx(wb_edit_graph *g, int track, int clip_idx,
  * n_frames: number of frames to mix
  * Returns number of clips that contributed. */
 int wb_audio_mix(wb_edit_graph *g, float *buf, double start_time, int n_frames);
+
+/* Mix audio from all tracks into 5.1 surround (6 channels).
+ * Outputs planar (non-interleaved) audio: each channel buffer must be
+ * n_frames floats. Channel order: L, R, C, LFE, Ls, Rs.
+ * Pan distribution:
+ *   - Center pan (pan == 0) -> C channel only
+ *   - Left pan (pan < 0)    -> L + Ls (gain scales with |pan|)
+ *   - Right pan (pan > 0)   -> R + Rs (gain scales with |pan|)
+ *   - LFE gets a low-passed version of the full mix (sum of all channels)
+ * g: edit graph
+ * start_time: timeline start time in seconds
+ * n_frames: number of frames to mix
+ * Returns number of clips that contributed. */
+int wb_audio_mix_surround(wb_edit_graph *g, float *ch_L, float *ch_R,
+                          float *ch_C, float *ch_LFE, float *ch_Ls, float *ch_Rs,
+                          double start_time, int n_frames);
 
 /* Get total audio duration in seconds. */
 double wb_audio_get_duration(const wb_edit_graph *g);
@@ -340,6 +362,13 @@ void wb_audio_mixer_set_solo(int track, int solo);
 void wb_audio_mixer_set_master_volume(float vol);
 float wb_audio_mixer_get_vu(int track);
 int wb_audio_mixer_get_track_count(void);
+
+/* Set the output channel configuration.
+ * channels: 2 = stereo, 6 = 5.1 surround. Returns 0 on success, -1 on error. */
+int wb_audio_mixer_set_channels(int channels);
+
+/* Query whether 5.1 surround output is active (1) or stereo (0). */
+int wb_audio_mixer_is_surround(void);
 
 /* ---- keyframe animation ------------------------------------------------ */
 

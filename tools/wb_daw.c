@@ -265,6 +265,10 @@ typedef struct app {
     int cgi_dragging;
     int cgi_last_x, cgi_last_y;
     SDL_Texture *vid_preview_tex; /* cached preview frame */
+    /* R043-G6b: FUSION tab live preview texture + source node */
+    SDL_Texture *fusion_preview_tex;
+    int          fusion_preview_w, fusion_preview_h;
+    wb_node     *fusion_preview_root;
 
     /* tool paths */
     char ffmpeg_path[256];
@@ -5977,6 +5981,7 @@ cleanup:
     for (int i = 0; i < WB_MAX_TRACKS; i++)   /* R043 (G4): free fader recorders */
         if (a->fader_rec[i]) wb_automation_recorder_destroy(a->fader_rec[i]);
     if (a->comp_graph) wb_node_graph_destroy(a->comp_graph);  /* R043-G6 */
+    if (a->fusion_preview_tex) { SDL_DestroyTexture(a->fusion_preview_tex); a->fusion_preview_tex = NULL; }
     wb_cgi_scene_destroy(a->cgi);
     wb_agi_destroy(a->agi);
     if (a->undo) wb_undo_destroy(a->undo);   /* Wave1 G08 */

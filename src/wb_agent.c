@@ -687,6 +687,7 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         else if (strcmp(fx_name, "vignette") == 0) fx = wb_node_effect_vignette();
         else if (strcmp(fx_name, "chromatic") == 0) fx = wb_node_effect_chromatic(3.0f);
         else if (strcmp(fx_name, "camera_shake") == 0) fx = wb_node_effect_camera_shake();
+        else if (strcmp(fx_name, "audio_reactive") == 0) fx = wb_node_effect_audio_reactive(1.0f);
         else { fprintf(stderr, "ERR:unknown-fx:%s\n", fx_name); return -1; }
         int rc = wb_edit_clip_add_effect(g_agent_edit, track, clip, fx);
         if (rc != 0) { fprintf(stderr, "ERR:edit-fx:failed\n"); return -1; }

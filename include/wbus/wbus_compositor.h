@@ -193,6 +193,14 @@ wb_node *wb_node_effect_posterize(void);
 wb_node *wb_node_effect_vignette(void);
 wb_node *wb_node_effect_vfx_chromatic(void);
 wb_node *wb_node_effect_camera_shake(void);
+
+/* R084: audio-reactive video FX — reads audio features (bass/beat/energy)
+ * and applies flash, shake, zoom, color shift to video. */
+wb_node *wb_node_effect_audio_reactive(float intensity);
+void wb_audio_reactive_node_set_params(float zoom, float flash, float shake,
+                                        float color_shift, float brightness);
+void wb_audio_reactive_node_get_params(float *zoom, float *flash, float *shake,
+                                        float *color_shift, float *brightness);
 /* #78: resolve a node's output dimensions without pulling. */
 int wb_node_output_dims(wb_node *n, int *w, int *h);
 /* G-SF080 v3: wire src into dst's input slot k (grows input count). */

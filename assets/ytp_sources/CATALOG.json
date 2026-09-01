@@ -1,0 +1,375 @@
+{
+  "meta": {
+    "project": "Big Mac YTP Source Library",
+    "created": "2026-08-30",
+    "license": "Public Domain / Fair Use",
+    "rule": "YOU MUST DOWNLOAD NEW AND RANDOM \u2014 BASE MEDIA MUST BE DIFFERENT EACH TIME"
+  },
+  "video": {
+    "full_episodes": [
+      {
+        "file": "video/sound_effects_archive.mp4",
+        "size_bytes": 8794209,
+        "name": "sound_effects_archive.mp4"
+      },
+      {
+        "file": "video/public_domain/Popeye The Sailor - Blow Me Down.mp4",
+        "size_bytes": 13924278,
+        "name": "Popeye The Sailor - Blow Me Down.mp4"
+      },
+      {
+        "file": "video/public_domain/Popeye The Sailor - Brotherly Love.mp4",
+        "size_bytes": 13609955,
+        "name": "Popeye The Sailor - Brotherly Love.mp4"
+      },
+      {
+        "file": "video/public_domain/Popeye The Sailor - Choose Your Weppins.mp4",
+        "size_bytes": 13976440,
+        "name": "Popeye The Sailor - Choose Your Weppins.mp4"
+      },
+      {
+        "file": "video/public_domain/Popeye The Sailor - Dizzy Drivers.mp4",
+        "size_bytes": 13849600,
+        "name": "Popeye The Sailor - Dizzy Drivers.mp4"
+      },
+      {
+        "file": "video/public_domain/Ub Iwerks cartoon Comicolor Little Boy Blue 1936 (old free cartoons public domain).mp4",
+        "size_bytes": 3893490,
+        "name": "Ub Iwerks cartoon Comicolor Little Boy Blue 1936 (old free cartoons public domain).mp4"
+      },
+      {
+        "file": "video/public_domain/Hercules1960sCartoon-DaedalusCopsTheThunderboltDisc.mp4",
+        "size_bytes": 9080266,
+        "name": "Hercules1960sCartoon-DaedalusCopsTheThunderboltDisc.mp4"
+      },
+      {
+        "file": "video/public_domain/Popeye The Sailor - A Clean Shaven Man.mp4",
+        "size_bytes": 13505315,
+        "name": "Popeye The Sailor - A Clean Shaven Man.mp4"
+      },
+      {
+        "file": "video/public_domain/Scatcrow.mp4",
+        "size_bytes": 3785550,
+        "name": "Scatcrow.mp4"
+      },
+      {
+        "file": "video/public_domain/Hercules1960sCartoon-DaedalusConcoctsABrew.mp4",
+        "size_bytes": 10101574,
+        "name": "Hercules1960sCartoon-DaedalusConcoctsABrew.mp4"
+      },
+      {
+        "file": "video/public_domain/Hercules1960sCartoon-DaedalusAndTheEvilUnicorn.mp4",
+        "size_bytes": 16573653,
+        "name": "Hercules1960sCartoon-DaedalusAndTheEvilUnicorn.mp4"
+      },
+      {
+        "file": "video/public_domain/Popeye The Sailor - Beware of Barnacle Bill.mp4",
+        "size_bytes": 12705063,
+        "name": "Popeye The Sailor - Beware of Barnacle Bill.mp4"
+      },
+      {
+        "file": "video/public_domain/Popeye The Sailor - Fowl Play.mp4",
+        "size_bytes": 13919633,
+        "name": "Popeye The Sailor - Fowl Play.mp4"
+      },
+      {
+        "file": "video/public_domain/Hercules1960sCartoon-DaedalusAndTheMinotaur.mp4",
+        "size_bytes": 8499802,
+        "name": "Hercules1960sCartoon-DaedalusAndTheMinotaur.mp4"
+      }
+    ],
+    "clips": [
+      {
+        "file": "video/clips/Hercules1960sCartoon-DaedalusAndTheEvilUnicorn_clip10s.mp4",
+        "size_bytes": 731613,
+        "name": "Hercules1960sCartoon-DaedalusAndTheEvilUnicorn_clip10s.mp4"
+      },
+      {
+        "file": "video/clips/Hercules1960sCartoon-DaedalusAndTheEvilUnicorn_clip30s.mp4",
+        "size_bytes": 530502,
+        "name": "Hercules1960sCartoon-DaedalusAndTheEvilUnicorn_clip30s.mp4"
+      },
+      {
+        "file": "video/clips/Hercules1960sCartoon-DaedalusAndTheEvilUnicorn_clip60s.mp4",
+        "size_bytes": 535569,
+        "name": "Hercules1960sCartoon-DaedalusAndTheEvilUnicorn_clip60s.mp4"
+      },
+      {
+        "file": "video/clips/Hercules1960sCartoon-DaedalusAndTheMinotaur_clip10s.mp4",
+        "size_bytes": 426412,
+        "name": "Hercules1960sCartoon-DaedalusAndTheMinotaur_clip10s.mp4"
+      },
+      {
+        "file": "video/clips/Hercules1960sCartoon-DaedalusAndTheMinotaur_clip30s.mp4",
+        "size_bytes": 339214,
+        "name": "Hercules1960sCartoon-DaedalusAndTheMinotaur_clip30s.mp4"
+      },
+      {
+        "file": "video/clips/Hercules1960sCartoon-DaedalusAndTheMinotaur_clip60s.mp4",
+        "size_bytes": 430670,
+        "name": "Hercules1960sCartoon-DaedalusAndTheMinotaur_clip60s.mp4"
+      },
+      {
+        "file": "video/clips/Hercules1960sCartoon-DaedalusConcoctsABrew_clip10s.mp4",
+        "size_bytes": 352994,
+        "name": "Hercules1960sCartoon-DaedalusConcoctsABrew_clip10s.mp4"
+      },
+      {
+        "file": "video/clips/Hercules1960sCartoon-DaedalusConcoctsABrew_clip30s.mp4",
+        "size_bytes": 377644,
+        "name": "Hercules1960sCartoon-DaedalusConcoctsABrew_clip30s.mp4"
+      },
+      {
+        "file": "video/clips/Hercules1960sCartoon-DaedalusConcoctsABrew_clip60s.mp4",
+        "size_bytes": 380989,
+        "name": "Hercules1960sCartoon-DaedalusConcoctsABrew_clip60s.mp4"
+      },
+      {
+        "file": "video/clips/Hercules1960sCartoon-DaedalusCopsTheThunderboltDisc_clip10s.mp4",
+        "size_bytes": 299859,
+        "name": "Hercules1960sCartoon-DaedalusCopsTheThunderboltDisc_clip10s.mp4"
+      },
+      {
+        "file": "video/clips/Hercules1960sCartoon-DaedalusCopsTheThunderboltDisc_clip30s.mp4",
+        "size_bytes": 393004,
+        "name": "Hercules1960sCartoon-DaedalusCopsTheThunderboltDisc_clip30s.mp4"
+      },
+      {
+        "file": "video/clips/Hercules1960sCartoon-DaedalusCopsTheThunderboltDisc_clip60s.mp4",
+        "size_bytes": 427087,
+        "name": "Hercules1960sCartoon-DaedalusCopsTheThunderboltDisc_clip60s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - A Clean Shaven Man_clip10s.mp4",
+        "size_bytes": 1064182,
+        "name": "Popeye The Sailor - A Clean Shaven Man_clip10s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - A Clean Shaven Man_clip30s.mp4",
+        "size_bytes": 1045032,
+        "name": "Popeye The Sailor - A Clean Shaven Man_clip30s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - A Clean Shaven Man_clip60s.mp4",
+        "size_bytes": 1194925,
+        "name": "Popeye The Sailor - A Clean Shaven Man_clip60s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Beware of Barnacle Bill_clip10s.mp4",
+        "size_bytes": 1320078,
+        "name": "Popeye The Sailor - Beware of Barnacle Bill_clip10s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Beware of Barnacle Bill_clip30s.mp4",
+        "size_bytes": 1221130,
+        "name": "Popeye The Sailor - Beware of Barnacle Bill_clip30s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Beware of Barnacle Bill_clip60s.mp4",
+        "size_bytes": 979602,
+        "name": "Popeye The Sailor - Beware of Barnacle Bill_clip60s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Blow Me Down_clip10s.mp4",
+        "size_bytes": 896675,
+        "name": "Popeye The Sailor - Blow Me Down_clip10s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Blow Me Down_clip30s.mp4",
+        "size_bytes": 1145721,
+        "name": "Popeye The Sailor - Blow Me Down_clip30s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Blow Me Down_clip60s.mp4",
+        "size_bytes": 1370326,
+        "name": "Popeye The Sailor - Blow Me Down_clip60s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Brotherly Love_clip10s.mp4",
+        "size_bytes": 1107044,
+        "name": "Popeye The Sailor - Brotherly Love_clip10s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Brotherly Love_clip30s.mp4",
+        "size_bytes": 1484579,
+        "name": "Popeye The Sailor - Brotherly Love_clip30s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Brotherly Love_clip60s.mp4",
+        "size_bytes": 1340641,
+        "name": "Popeye The Sailor - Brotherly Love_clip60s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Choose Your Weppins_clip10s.mp4",
+        "size_bytes": 1076643,
+        "name": "Popeye The Sailor - Choose Your Weppins_clip10s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Choose Your Weppins_clip30s.mp4",
+        "size_bytes": 1103442,
+        "name": "Popeye The Sailor - Choose Your Weppins_clip30s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Choose Your Weppins_clip60s.mp4",
+        "size_bytes": 1243577,
+        "name": "Popeye The Sailor - Choose Your Weppins_clip60s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Dizzy Drivers_clip10s.mp4",
+        "size_bytes": 1133361,
+        "name": "Popeye The Sailor - Dizzy Drivers_clip10s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Dizzy Drivers_clip30s.mp4",
+        "size_bytes": 907485,
+        "name": "Popeye The Sailor - Dizzy Drivers_clip30s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Dizzy Drivers_clip60s.mp4",
+        "size_bytes": 976118,
+        "name": "Popeye The Sailor - Dizzy Drivers_clip60s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Fowl Play_clip10s.mp4",
+        "size_bytes": 950310,
+        "name": "Popeye The Sailor - Fowl Play_clip10s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Fowl Play_clip30s.mp4",
+        "size_bytes": 850594,
+        "name": "Popeye The Sailor - Fowl Play_clip30s.mp4"
+      },
+      {
+        "file": "video/clips/Popeye The Sailor - Fowl Play_clip60s.mp4",
+        "size_bytes": 1274947,
+        "name": "Popeye The Sailor - Fowl Play_clip60s.mp4"
+      },
+      {
+        "file": "video/clips/Scatcrow_clip10s.mp4",
+        "size_bytes": 1329794,
+        "name": "Scatcrow_clip10s.mp4"
+      },
+      {
+        "file": "video/clips/Ub Iwerks cartoon Comicolor Little Boy Blue 1936 (old free cartoons public domain)_clip10s.mp4",
+        "size_bytes": 1041421,
+        "name": "Ub Iwerks cartoon Comicolor Little Boy Blue 1936 (old free cartoons public domain)_clip10s.mp4"
+      }
+    ]
+  },
+  "audio": {
+    "meme_sounds": [
+      {
+        "file": "audio/meme_sounds/discord_notification.mp3",
+        "size_bytes": 8301,
+        "name": "discord_notification.mp3"
+      },
+      {
+        "file": "audio/meme_sounds/taco_bell_bong.mp3",
+        "size_bytes": 31076,
+        "name": "taco_bell_bong.mp3"
+      },
+      {
+        "file": "audio/meme_sounds/vine_boom.flac",
+        "size_bytes": 238943,
+        "name": "vine_boom.flac"
+      },
+      {
+        "file": "audio/meme_sounds/yeet.mp3",
+        "size_bytes": 41118,
+        "name": "yeet.mp3"
+      }
+    ],
+    "extracted_tracks": [
+      {
+        "file": "audio/extracted/Hercules1960sCartoon-DaedalusAndTheEvilUnicorn.mp3",
+        "size_bytes": 3510983,
+        "name": "Hercules1960sCartoon-DaedalusAndTheEvilUnicorn.mp3"
+      },
+      {
+        "file": "audio/extracted/Hercules1960sCartoon-DaedalusAndTheMinotaur.mp3",
+        "size_bytes": 2931551,
+        "name": "Hercules1960sCartoon-DaedalusAndTheMinotaur.mp3"
+      },
+      {
+        "file": "audio/extracted/Hercules1960sCartoon-DaedalusConcoctsABrew.mp3",
+        "size_bytes": 3369815,
+        "name": "Hercules1960sCartoon-DaedalusConcoctsABrew.mp3"
+      },
+      {
+        "file": "audio/extracted/Hercules1960sCartoon-DaedalusCopsTheThunderboltDisc.mp3",
+        "size_bytes": 2823143,
+        "name": "Hercules1960sCartoon-DaedalusCopsTheThunderboltDisc.mp3"
+      },
+      {
+        "file": "audio/extracted/Popeye The Sailor - A Clean Shaven Man.mp3",
+        "size_bytes": 1815003,
+        "name": "Popeye The Sailor - A Clean Shaven Man.mp3"
+      },
+      {
+        "file": "audio/extracted/Popeye The Sailor - Beware of Barnacle Bill.mp3",
+        "size_bytes": 2086164,
+        "name": "Popeye The Sailor - Beware of Barnacle Bill.mp3"
+      },
+      {
+        "file": "audio/extracted/Popeye The Sailor - Blow Me Down.mp3",
+        "size_bytes": 2124805,
+        "name": "Popeye The Sailor - Blow Me Down.mp3"
+      },
+      {
+        "file": "audio/extracted/Popeye The Sailor - Brotherly Love.mp3",
+        "size_bytes": 1769156,
+        "name": "Popeye The Sailor - Brotherly Love.mp3"
+      },
+      {
+        "file": "audio/extracted/Popeye The Sailor - Choose Your Weppins.mp3",
+        "size_bytes": 2072749,
+        "name": "Popeye The Sailor - Choose Your Weppins.mp3"
+      },
+      {
+        "file": "audio/extracted/Popeye The Sailor - Dizzy Drivers.mp3",
+        "size_bytes": 2066907,
+        "name": "Popeye The Sailor - Dizzy Drivers.mp3"
+      },
+      {
+        "file": "audio/extracted/Popeye The Sailor - Fowl Play.mp3",
+        "size_bytes": 1268777,
+        "name": "Popeye The Sailor - Fowl Play.mp3"
+      },
+      {
+        "file": "audio/extracted/Scatcrow.mp3",
+        "size_bytes": 392312,
+        "name": "Scatcrow.mp3"
+      },
+      {
+        "file": "audio/extracted/Ub Iwerks cartoon Comicolor Little Boy Blue 1936 (old free cartoons public domain).mp3",
+        "size_bytes": 402173,
+        "name": "Ub Iwerks cartoon Comicolor Little Boy Blue 1936 (old free cartoons public domain).mp3"
+      }
+    ],
+    "music_loops": []
+  },
+  "references": {
+    "ytp_sources": [
+      "Popeye the Sailor (1930s-40s) - Fleischer Studios",
+      "Ub Iwerks Comicolor Cartoons (1935-36)",
+      "Hercules 1960s Cartoon",
+      "Scatcrow (Ub Iwerks)",
+      "Sound Effects Archive (general)"
+    ],
+    "meme_sounds": [
+      "Vine Boom",
+      "Yeet",
+      "Taco Bell Bong",
+      "Discord Notification"
+    ]
+  },
+  "summary": {
+    "total_video_files": 48,
+    "total_audio_files": 17,
+    "total_size_mb": 204.5,
+    "full_episodes": 14,
+    "short_clips": 35,
+    "meme_sfx": 4,
+    "extracted_audio": 13
+  }
+}

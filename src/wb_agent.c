@@ -6,6 +6,7 @@
 #include "wbus/wbus_graphio.h"   /* G-SF080 v3 */
 #include "wbus/wbus_video.h"
 #include "wbus/wbus_compositor.h"
+#include "wbus/wbus_vfx.h"
 #include "wbus/wbus_voice_polish.h"
 #include "wbus/wbus_captions.h"
 #include "wbus/wbus_mesh.h"
@@ -17,6 +18,7 @@
 #include "wbus/wbus_delivery.h"
 #include "wbus/wbus_cgiexport.h"
 #include "wbus/wbus_shadowbin.h"
+#include "wbus/wbus_edit.h"   /* R084: video edit graph */
 #include "wb_internal.h"   /* wb_wav_read/write_pcm16 (internal) */
 #include <unistd.h>
 #define WB_AGENT_FFMPEG "/Users/waefrebeorn/.local/bin/ffmpeg"
@@ -33,6 +35,9 @@ static char *trim(char *s) {
         s[--n] = '\0';
     return s;
 }
+
+/* R084: agent's edit graph for video editing via node pipeline */
+static wb_edit_graph *g_agent_edit = NULL;
 
 /* Read a quoted-or-unquoted token; advances *pp past it. Returns a pointer
  * into a small rotating buffer (so up to 4 tokens stay live simultaneously —
@@ -596,6 +601,132 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         return 0;
     }
     if (strcmp(cmd, "quit") == 0) return 0;
+
+    /* R084: video edit graph commands */
+    if (strcmp(cmd, "edit-new") == 0) {
+        double fps = atof(tok(&p));
+        int w = atoi(tok(&p));
+        int h = atoi(tok(&p));
+        if (fps <= 0) fps = 30.0;
+        if (w <= 0) w = 854;
+        if (h <= 0) h = 480;
+        if (g_agent_edit) wb_edit_graph_destroy(g_agent_edit);
+        g_agent_edit = wb_edit_graph_create(fps, w, h);
+        if (!g_agent_edit) { fprintf(stderr, "ERR:edit-new:failed\n"); return -1; }
+        printf("edit-new: %.1ffps %dx%d\n", fps, w, h);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-add-track") == 0) {
+        char *name = tok(&p);
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        if (!name || !name[0]) name = "Video";
+        int ti = wb_edit_add_track(g_agent_edit, name);
+        printf("edit-add-track: %d '%s'\n", ti, name);
+        return ti >= 0 ? 0 : -1;
+    }
+    if (strcmp(cmd, "edit-add-clip") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        char *src = tok(&p);
+        double start = atof(tok(&p));
+        double dur = atof(tok(&p));
+        double tl = atof(tok(&p));
+        if (!src || !src[0]) { fprintf(stderr, "ERR:usage:edit-add-clip <track> <src> <start> <dur> <tl>\n"); return -1; }
+        int ci = wb_edit_add_clip(g_agent_edit, track, src, start, dur, tl);
+        if (ci < 0) { fprintf(stderr, "ERR:edit-add-clip:failed\n"); return -1; }
+        printf("edit-add-clip: track %d clip %d src=%s\n", track, ci, src);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-split") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int clip = atoi(tok(&p));
+        double pos = atof(tok(&p));
+        int ni = wb_edit_split_clip(g_agent_edit, track, clip, pos);
+        if (ni < 0) { fprintf(stderr, "ERR:edit-split:failed\n"); return -1; }
+        printf("edit-split: track %d clip %d @ %.2fs -> new clip %d\n", track, clip, pos, ni);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-move") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int clip = atoi(tok(&p));
+        double pos = atof(tok(&p));
+        return wb_edit_move_clip(g_agent_edit, track, clip, pos);
+    }
+    if (strcmp(cmd, "edit-trans") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int clip_a = atoi(tok(&p));
+        char *type_str = tok(&p);
+        double dur = atof(tok(&p));
+        if (!type_str) type_str = "crossfade";
+        if (dur <= 0) dur = 1.0;
+        wb_edit_trans_type type = WB_EDIT_TRANS_CROSSFADE;
+        if (strcmp(type_str, "dip-black") == 0) type = WB_EDIT_TRANS_DIP_TO_BLACK;
+        else if (strcmp(type_str, "wipe") == 0) type = WB_EDIT_TRANS_WIPE;
+        else if (strcmp(type_str, "dissolve") == 0) type = WB_EDIT_TRANS_DISSOLVE;
+        else if (strcmp(type_str, "flash") == 0) type = WB_EDIT_TRANS_FLASH;
+        int ti = wb_edit_add_transition(g_agent_edit, track, clip_a, type, dur);
+        if (ti < 0) { fprintf(stderr, "ERR:edit-trans:failed\n"); return -1; }
+        printf("edit-trans: track %d clip_a %d type=%s dur=%.2fs\n", track, clip_a, type_str, dur);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-fx") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int clip = atoi(tok(&p));
+        char *fx_name = tok(&p);
+        if (!fx_name) { fprintf(stderr, "ERR:usage:edit-fx <track> <clip> <fx_name>\n"); return -1; }
+        /* Create the effect node by name */
+        wb_node *fx = NULL;
+        if (strcmp(fx_name, "deep_fry") == 0) fx = wb_node_effect_deep_fry();
+        else if (strcmp(fx_name, "vhs") == 0) fx = wb_node_effect_vhs();
+        else if (strcmp(fx_name, "rgb_glitch") == 0) fx = wb_node_effect_rgb_glitch();
+        else if (strcmp(fx_name, "posterize") == 0) fx = wb_node_effect_posterize();
+        else if (strcmp(fx_name, "vignette") == 0) fx = wb_node_effect_vignette();
+        else if (strcmp(fx_name, "chromatic") == 0) fx = wb_node_effect_chromatic(3.0f);
+        else if (strcmp(fx_name, "camera_shake") == 0) fx = wb_node_effect_camera_shake();
+        else { fprintf(stderr, "ERR:unknown-fx:%s\n", fx_name); return -1; }
+        int rc = wb_edit_clip_add_effect(g_agent_edit, track, clip, fx);
+        if (rc != 0) { fprintf(stderr, "ERR:edit-fx:failed\n"); return -1; }
+        printf("edit-fx: %s added to track %d clip %d\n", fx_name, track, clip);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-eval") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        double t = atof(tok(&p));
+        wb_frame *f = wb_edit_graph_evaluate(g_agent_edit, t);
+        if (!f) { fprintf(stderr, "ERR:edit-eval:failed\n"); return -1; }
+        printf("edit-eval: t=%.2fs frame=%dx%d roi=%dx%d\n", t, f->w, f->h, f->roi_w, f->roi_h);
+        wb_frame_free(f);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-render") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        char *out = tok(&p);
+        if (!out || !out[0]) { fprintf(stderr, "ERR:usage:edit-render <out.mp4>\n"); return -1; }
+        printf("edit-render: rendering to %s ...\n", out);
+        int rc = wb_edit_graph_render_to_mp4(g_agent_edit, out, NULL, NULL, NULL);
+        printf("edit-render: done (rc=%d)\n", rc);
+        return rc;
+    }
+    if (strcmp(cmd, "edit-state") == 0) {
+        if (!g_agent_edit) { printf("edit-state: no edit graph\n"); return 0; }
+        printf("edit-state: %.1ffps %dx%d dur=%.2fs tracks=%u\n",
+               g_agent_edit->fps, g_agent_edit->width, g_agent_edit->height,
+               g_agent_edit->duration, g_agent_edit->track_count);
+        for (uint32_t t = 0; t < g_agent_edit->track_count; t++) {
+            wb_edit_track *tr = &g_agent_edit->tracks[t];
+            printf(" track[%u] '%s' clips=%u trans=%u\n", t, tr->name, tr->clip_count, tr->trans_count);
+            for (uint32_t c = 0; c < tr->clip_count; c++) {
+                wb_edit_clip *cl = &tr->clips[c];
+                printf("  clip[%u] src=%s start=%.2f dur=%.2f tl=%.2f\n",
+                       c, cl->source_path, cl->start_in_source, cl->duration, cl->timeline_pos);
+            }
+        }
+        return 0;
+    }
 
     /* R077: new module commands */
     if (strcmp(cmd, "fx") == 0) {

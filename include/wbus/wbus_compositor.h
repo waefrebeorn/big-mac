@@ -94,6 +94,8 @@ struct wb_node {
 
 wb_frame *wb_frame_alloc(int w, int h);
 void      wb_frame_free(wb_frame *f);
+/* Internal: create a node (used by external node-type modules). */
+wb_node *wb_node_create(wb_node_kind kind, const char *id);
 /* clip roi to (0,0,w,h); returns 0 if roi is empty */
 int  wb_roi_clip(int w, int h, int *rx, int *ry, int *rw, int *rh);
 
@@ -181,6 +183,16 @@ wb_node *wb_node_effect_scaler(int out_w, int out_h);
 wb_node *wb_node_effect_letterbox(float bar_fraction);
 wb_node *wb_node_effect_scanline(float strength);
 wb_node *wb_node_effect_chromatic(float offset_px);
+/* R077: VFX effect nodes — wrap wb_vfx.c as compositor nodes.
+ * Each takes a keyframable param (bind via wb_node_add_param) and converts
+ * float<->uint8 internally since wb_vfx operates on uint8_t RGBA. */
+wb_node *wb_node_effect_deep_fry(void);
+wb_node *wb_node_effect_vhs(void);
+wb_node *wb_node_effect_rgb_glitch(void);
+wb_node *wb_node_effect_posterize(void);
+wb_node *wb_node_effect_vignette(void);
+wb_node *wb_node_effect_vfx_chromatic(void);
+wb_node *wb_node_effect_camera_shake(void);
 /* #78: resolve a node's output dimensions without pulling. */
 int wb_node_output_dims(wb_node *n, int *w, int *h);
 /* G-SF080 v3: wire src into dst's input slot k (grows input count). */
@@ -202,6 +214,14 @@ wb_node *wb_node_source_scene(float r0, float g0, float b0,
 /* R074 hop 112: frame source — serve an external RGBA buffer (caller
  * updates the buffer between pulls; the node does not copy on create). */
 wb_node *wb_node_source_frame(int w, int h, uint8_t *rgba);
+
+/* VIDEO source node — wraps wb_video_decoder for pull-based compositing.
+ * Opens the file, seeks + decodes one frame per pull, converts uint8 RGBA
+ * to float wb_px. Output dimensions default to PROXY_SCALE_W/H (854x480). */
+wb_node *wb_node_source_video(const char *path, int proxy_w, int proxy_h);
+double   wb_node_source_video_duration(const wb_node *n);
+int      wb_node_source_video_width(const wb_node *n);
+int      wb_node_source_video_height(const wb_node *n);
 
 /* R073 hop 44: title/text generator node (built-in 5x7 font). */
 wb_node *wb_node_source_text(const char *text, int scale,
@@ -234,6 +254,15 @@ int wb_compositor_export_mp4(wb_node *trans, const char *mp4_path,
 int wb_compositor_export_mp4_audio(wb_node *trans, const char *mp4_path,
                                    const char *wav_path,
                                    double dur, int fps, int w, int h);
+
+/* R084: render the node graph to H.264 MP4 via libav (no ffmpeg CLI).
+ * Pulls frames from `root` at fps intervals up to `duration`, encodes via
+ * libx264 (crf=23, veryfast, yuv420p). Honors *cancel between frames;
+ * calls prog(ctx, 0..1) for progress. Returns 0 ok, -1 error, -2 cancelled. */
+int wb_compositor_render_to_mp4(wb_node *root, const char *out_path,
+                                double fps, int w, int h, double duration,
+                                volatile int *cancel,
+                                wb_export_prog_fn prog, void *prog_ctx);
 
 /* R073 hop 96: transition style presets — one call builds a configured
  * transition. 0=MusicVideo (crossfade, tight feather), 1=News (fast

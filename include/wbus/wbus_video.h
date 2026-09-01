@@ -34,6 +34,14 @@ typedef struct wb_session wb_session;
 #define FFmpeg_BIN "/Users/waefrebeorn/.local/bin/ffmpeg"
 #endif
 
+/* Default proxy/preview dimensions for video decoding nodes. */
+#ifndef PROXY_SCALE_W
+#define PROXY_SCALE_W 854
+#endif
+#ifndef PROXY_SCALE_H
+#define PROXY_SCALE_H 480
+#endif
+
 /* ---- video clip (stored on a video track) ----------------------------- */
 
 typedef struct wb_video_clip {

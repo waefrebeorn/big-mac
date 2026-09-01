@@ -15,6 +15,18 @@
  *   fcpxml <out.xml>            export Final Cut XML (G5)
  *   export <out.mp4> [srt]      render session -> mp4 (video + engine audio)
  *   quit                        stop reading
+ *
+ * R084 video editing commands (operate on the agent's edit graph):
+ *   edit-new <fps> <w> <h>      create a new edit graph
+ *   edit-add-track <name>       add a video track
+ *   edit-add-clip <track> <src> <start_in_src> <dur> <tl_pos>
+ *   edit-split <track> <clip> <tl_pos>
+ *   edit-move <track> <clip> <new_tl_pos>
+ *   edit-trans <track> <clip_a> <type> <dur>
+ *   edit-fx <track> <clip> <fx_name> [params]
+ *   edit-eval <time_s>          evaluate graph at time (debug)
+ *   edit-render <out.mp4>       render edit graph to mp4 via node pipeline
+ *   edit-state                  print edit graph state
  * Returns 0 if all commands succeeded, -1 on any error.
  */
 

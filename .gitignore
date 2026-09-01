@@ -1,8 +1,36 @@
+# Build artifacts
 build/
 *.o
 *.a
 third_party/SDL2-2.32.10/build/
 third_party/vst3sdk/
+
+# Hermes agent temp
 .hermes/
+tools/.hermes-tmp.*
+
+# Voice models (gitignored — large binaries)
 third_party/piper/voices/
+
+# Test media (generated)
 test_media/
+
+# === Large asset libraries (not committed — tracked via manifest) ===
+# YTP source videos (~12GB)
+assets/ytp_sources/video/
+assets/ytp_sources/audio/
+# BVH motion capture library (~1GB)
+assets/mocap/
+# Character sprites/models
+assets/characters/
+# YTP experiment outputs
+assets/ytp_experiments/
+
+# Reference clones (outside repo — studied but never committed)
+ref/
+
+# Temp Makefile fragments
+Makefile.fb*
+
+# macOS
+.DS_Store

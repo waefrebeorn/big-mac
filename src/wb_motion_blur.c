@@ -95,13 +95,18 @@ static wb_frame *mb_pull(wb_node *self, double t,
     mb_node_t *mb = (mb_node_t *)self->user;
     if (!mb) return NULL;
 
+    /* Resolve output format to get valid ROI for input pull */
+    int fw = 0, fh = 0;
+    wb_node_get_format(self, &fw, &fh);
+    if (fw <= 0 || fh <= 0) return NULL;
+
     /* G3: request inputs in phase 0 */
     if (phase == 0) {
-        wb_node_pull_request(self->inputs[0], t, -1, -1, -1, -1);
+        wb_node_pull_request(self->inputs[0], t, 0, 0, fw, fh);
         return NULL;
     }
 
-    wb_frame *in = wb_node_pull(self->inputs[0], t, -1, -1, -1, -1);
+    wb_frame *in = wb_node_pull(self->inputs[0], t, 0, 0, fw, fh);
     if (!in) return NULL;
 
     int W = in->w, H = in->h;

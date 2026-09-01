@@ -167,8 +167,8 @@ static wb_frame *mesh_warp_pull(wb_node *self, double t,
     wb_mesh_warp_t *mw = (wb_mesh_warp_t *)self->user;
     if (!mw || self->n_inputs < 1 || !self->inputs[0]) return NULL;
 
-    /* Pull the input frame at the full resolution */
-    wb_frame *in = wb_node_pull(self->inputs[0], t, 0, 0, 0, 0);
+    /* Pull input at the requested roi (pass through) */
+    wb_frame *in = wb_node_pull(self->inputs[0], t, rx, ry, rw, rh);
     if (!in) return NULL;
 
     int w = in->w, h = in->h;

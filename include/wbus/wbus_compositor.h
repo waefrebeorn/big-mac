@@ -451,4 +451,12 @@ void wb_node_frameblend_set_factor(wb_node *node, float factor);
 wb_node *wb_node_adjustment_create(void);
 int wb_node_adjustment_add_effect(wb_node *node, wb_node *effect);
 
+/* ---- Shape layers (After Effects parity) ---- */
+wb_node *wb_node_source_shape_rect(int w, int h);
+wb_node *wb_node_source_shape_ellipse(int w, int h);
+wb_node *wb_node_source_shape_polygon(int w, int h, int sides);
+wb_node *wb_node_source_shape_star(int w, int h, int points, float inner_radius, float outer_radius);
+void wb_node_shape_set_fill(wb_node *node, float r, float g, float b, float a);
+void wb_node_shape_set_stroke(wb_node *node, float r, float g, float b, float a, float width);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

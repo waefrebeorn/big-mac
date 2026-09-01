@@ -646,6 +646,67 @@ int main(void) {
         free(noise);
     }
 
+    /* ---- Shape Nodes ---- */
+    printf("\n--- Shape Nodes ---\n");
+    {
+        wb_node *rect = wb_node_source_shape_rect(100, 100);
+        CHECK(rect != NULL, "rect shape created");
+        wb_frame *f = wb_node_pull(rect, 0, 0, 0, 100, 100);
+        CHECK(f != NULL, "rect frame pulled");
+        if (f) {
+            /* Center pixel should be filled */
+            CHECK(f->px[50 * 100 + 50].a > 0.5f, "rect center filled");
+            /* Corner pixel should be transparent (rounded) */
+            CHECK(f->px[0].a < 0.5f, "rect corner empty");
+            wb_frame_free(f);
+        }
+        rect->free(rect);
+
+        wb_node *ellipse = wb_node_source_shape_ellipse(100, 100);
+        CHECK(ellipse != NULL, "ellipse shape created");
+        f = wb_node_pull(ellipse, 0, 0, 0, 100, 100);
+        CHECK(f != NULL, "ellipse frame pulled");
+        if (f) {
+            CHECK(f->px[50 * 100 + 50].a > 0.5f, "ellipse center filled");
+            CHECK(f->px[0 * 100 + 0].a < 0.5f, "ellipse corner empty");
+            wb_frame_free(f);
+        }
+        ellipse->free(ellipse);
+
+        wb_node *poly = wb_node_source_shape_polygon(100, 100, 6);
+        CHECK(poly != NULL, "polygon shape created");
+        f = wb_node_pull(poly, 0, 0, 0, 100, 100);
+        CHECK(f != NULL, "polygon frame pulled");
+        if (f) {
+            CHECK(f->px[50 * 100 + 50].a > 0.5f, "polygon center filled");
+            wb_frame_free(f);
+        }
+        poly->free(poly);
+
+        wb_node *star = wb_node_source_shape_star(100, 100, 5, 0.4f, 1.0f);
+        CHECK(star != NULL, "star shape created");
+        f = wb_node_pull(star, 0, 0, 0, 100, 100);
+        CHECK(f != NULL, "star frame pulled");
+        if (f) {
+            CHECK(f->px[50 * 100 + 50].a > 0.5f, "star center filled");
+            wb_frame_free(f);
+        }
+        star->free(star);
+
+        /* Test fill/stroke colors */
+        wb_node *colored = wb_node_source_shape_rect(50, 50);
+        wb_node_shape_set_fill(colored, 1.0f, 0.0f, 0.0f, 1.0f);
+        wb_node_shape_set_stroke(colored, 0.0f, 1.0f, 0.0f, 1.0f, 2.0f);
+        f = wb_node_pull(colored, 0, 0, 0, 50, 50);
+        CHECK(f != NULL, "colored rect pulled");
+        if (f) {
+            CHECK(f->px[25 * 50 + 25].r > 0.9f, "fill color red");
+            CHECK(f->px[25 * 50 + 25].g < 0.1f, "fill color not green");
+            wb_frame_free(f);
+        }
+        colored->free(colored);
+    }
+
     /* ---- BWF (Broadcast Wave Format) ---- */
     printf("\n--- BWF ---\n");
     {

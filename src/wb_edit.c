@@ -99,6 +99,7 @@ void wb_edit_graph_destroy(wb_edit_graph *g) {
         }
         free(tr->clips);
         free(tr->transitions);
+        free(tr->audio_clips);
     }
     free(g->tracks);
 
@@ -134,6 +135,9 @@ int wb_edit_add_track(wb_edit_graph *g, const char *name) {
     tr->clips = calloc(tr->clip_cap, sizeof(wb_edit_clip));
     tr->trans_cap = 16;
     tr->transitions = calloc(tr->trans_cap, sizeof(wb_edit_transition));
+    tr->audio_clip_cap = 16;
+    tr->audio_clips = calloc(tr->audio_clip_cap, sizeof(wb_edit_audio_clip));
+    tr->audio_clip_count = 0;
     tr->volume = 1.0f;
     g->track_count++;
     return idx;
@@ -150,6 +154,7 @@ void wb_edit_remove_track(wb_edit_graph *g, int track_idx) {
     }
     free(tr->clips);
     free(tr->transitions);
+    free(tr->audio_clips);
     /* Shift tracks down */
     memmove(&g->tracks[track_idx], &g->tracks[track_idx + 1],
             (g->track_count - track_idx - 1) * sizeof(wb_edit_track));
@@ -313,6 +318,55 @@ int wb_edit_auto_cut_scenes(wb_edit_graph *g, int track, int clip_idx,
     }
 
     return cuts;
+}
+
+/* ---- audio clip management --------------------------------------------- */
+
+int wb_edit_add_audio_clip(wb_edit_graph *g, int track,
+                             const char *source,
+                             double start, double dur, double tl_pos) {
+    if (!g || !source || track < 0 || (uint32_t)track >= g->track_count) return -1;
+    if (dur <= 0) return -1;
+    wb_edit_track *tr = &g->tracks[track];
+
+    /* Grow array if needed */
+    if (tr->audio_clip_count >= tr->audio_clip_cap) {
+        uint32_t new_cap = tr->audio_clip_cap > 0 ? tr->audio_clip_cap * 2 : 8;
+        wb_edit_audio_clip *new_clips = realloc(tr->audio_clips,
+                                                  new_cap * sizeof(wb_edit_audio_clip));
+        if (!new_clips) return -1;
+        memset(new_clips + tr->audio_clip_cap, 0,
+               (new_cap - tr->audio_clip_cap) * sizeof(wb_edit_audio_clip));
+        tr->audio_clips = new_clips;
+        tr->audio_clip_cap = new_cap;
+    }
+
+    int idx = (int)tr->audio_clip_count;
+    wb_edit_audio_clip *ac = &tr->audio_clips[idx];
+    snprintf(ac->source_path, sizeof(ac->source_path), "%s", source);
+    ac->start_in_source = start;
+    ac->duration = dur;
+    ac->timeline_pos = tl_pos;
+    ac->volume = 1.0f;
+    ac->speed = 1.0f;
+
+    tr->audio_clip_count++;
+
+    /* Update timeline duration */
+    double clip_end = tl_pos + dur;
+    if (clip_end > g->duration) g->duration = clip_end;
+
+    return idx;
+}
+
+int wb_edit_set_audio_volume(wb_edit_graph *g, int track, int clip_idx,
+                               float vol) {
+    if (!g || track < 0 || (uint32_t)track >= g->track_count) return -1;
+    wb_edit_track *tr = &g->tracks[track];
+    if (clip_idx < 0 || (uint32_t)clip_idx >= tr->audio_clip_count) return -1;
+    if (vol < 0.0f) vol = 0.0f;
+    tr->audio_clips[clip_idx].volume = vol;
+    return 0;
 }
 
 /* ---- transitions ------------------------------------------------------- */

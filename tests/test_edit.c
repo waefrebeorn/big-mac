@@ -314,6 +314,79 @@ int main(void) {
 
     wb_edit_graph_destroy(g3);
 
+    /* ---- Audio clip management tests ---- */
+    printf("\n--- Audio clip management ---\n");
+    {
+        wb_edit_graph *g = wb_edit_graph_create(30.0, 854, 480);
+        CHECK(g != NULL, "edit graph created for audio tests");
+
+        int t = wb_edit_add_track(g, "Audio Track");
+        CHECK(t == 0, "track added for audio tests");
+
+        /* Test: add audio clip */
+        int ai = wb_edit_add_audio_clip(g, 0, "/tmp/test_audio.wav", 0.0, 5.0, 0.0);
+        CHECK(ai == 0, "audio clip added to track 0");
+        CHECK(g->tracks[0].audio_clip_count == 1, "audio clip count is 1");
+
+        /* Test: audio clip fields set correctly */
+        wb_edit_audio_clip *ac = &g->tracks[0].audio_clips[0];
+        CHECK(strcmp(ac->source_path, "/tmp/test_audio.wav") == 0, "audio clip source path correct");
+        CHECK(ac->start_in_source == 0.0, "audio clip start_in_source correct");
+        CHECK(ac->duration == 5.0, "audio clip duration correct");
+        CHECK(ac->timeline_pos == 0.0, "audio clip timeline_pos correct");
+        CHECK(ac->volume == 1.0f, "audio clip default volume is 1.0");
+        CHECK(ac->speed == 1.0f, "audio clip default speed is 1.0");
+
+        /* Test: timeline duration updated by audio clip */
+        CHECK(g->duration == 5.0, "timeline duration updated by audio clip");
+
+        /* Test: add second audio clip */
+        int ai2 = wb_edit_add_audio_clip(g, 0, "/tmp/test_audio2.wav", 2.0, 3.0, 5.0);
+        CHECK(ai2 == 1, "second audio clip added");
+        CHECK(g->tracks[0].audio_clip_count == 2, "audio clip count is 2");
+        CHECK(g->duration == 8.0, "timeline duration updated for second audio clip");
+
+        /* Test: set audio volume */
+        int rc = wb_edit_set_audio_volume(g, 0, 0, 0.5f);
+        CHECK(rc == 0, "set audio volume succeeds");
+        CHECK(g->tracks[0].audio_clips[0].volume == 0.5f, "audio volume set to 0.5");
+
+        /* Test: set audio volume clamping (negative -> 0) */
+        rc = wb_edit_set_audio_volume(g, 0, 0, -1.0f);
+        CHECK(rc == 0, "set negative volume succeeds (clamped)");
+        CHECK(g->tracks[0].audio_clips[0].volume == 0.0f, "negative volume clamped to 0");
+
+        /* Test: set volume on invalid clip */
+        rc = wb_edit_set_audio_volume(g, 0, 99, 0.5f);
+        CHECK(rc == -1, "set volume on invalid clip returns -1");
+
+        /* Test: set volume on invalid track */
+        rc = wb_edit_set_audio_volume(g, 99, 0, 0.5f);
+        CHECK(rc == -1, "set volume on invalid track returns -1");
+
+        /* Test: add audio clip with invalid track */
+        int ai3 = wb_edit_add_audio_clip(g, 99, "/tmp/x.wav", 0.0, 1.0, 0.0);
+        CHECK(ai3 == -1, "add audio clip to invalid track returns -1");
+
+        /* Test: add audio clip with zero duration */
+        int ai4 = wb_edit_add_audio_clip(g, 0, "/tmp/x.wav", 0.0, 0.0, 0.0);
+        CHECK(ai4 == -1, "add audio clip with zero duration returns -1");
+
+        /* Test: add audio clip with NULL source */
+        int ai5 = wb_edit_add_audio_clip(g, 0, NULL, 0.0, 1.0, 0.0);
+        CHECK(ai5 == -1, "add audio clip with NULL source returns -1");
+
+        /* Test: add audio clip with NULL graph */
+        int ai6 = wb_edit_add_audio_clip(NULL, 0, "/tmp/x.wav", 0.0, 1.0, 0.0);
+        CHECK(ai6 == -1, "add audio clip with NULL graph returns -1");
+
+        /* Test: set volume with NULL graph */
+        rc = wb_edit_set_audio_volume(NULL, 0, 0, 0.5f);
+        CHECK(rc == -1, "set volume with NULL graph returns -1");
+
+        wb_edit_graph_destroy(g);
+    }
+
     /* ---- Save/Load ---- */
     printf("\n--- Save/Load ---\n");
     {

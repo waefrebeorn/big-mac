@@ -847,6 +847,31 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         printf("edit-proxy-size: %dx%d\n", g_agent_edit->proxy_w, g_agent_edit->proxy_h);
         return 0;
     }
+    /* Audio clip commands */
+    if (strcmp(cmd, "edit-add-audio") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        char *src = tok(&p);
+        double start = atof(tok(&p));
+        double dur = atof(tok(&p));
+        double tl = atof(tok(&p));
+        if (!src || !src[0]) { fprintf(stderr, "ERR:usage:edit-add-audio <track> <src> <start> <dur> <tl>\n"); return -1; }
+        int ai = wb_edit_add_audio_clip(g_agent_edit, track, src, start, dur, tl);
+        if (ai < 0) { fprintf(stderr, "ERR:edit-add-audio:failed\n"); return -1; }
+        printf("edit-add-audio: track %d audio_clip %d src=%s\n", track, ai, src);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-audio-vol") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int clip = atoi(tok(&p));
+        float vol = (float)atof(tok(&p));
+        int rc = wb_edit_set_audio_volume(g_agent_edit, track, clip, vol);
+        if (rc != 0) { fprintf(stderr, "ERR:edit-audio-vol:failed\n"); return -1; }
+        printf("edit-audio-vol: track %d clip %d vol=%.2f\n", track, clip, vol);
+        return 0;
+    }
+
     /* R077: scene-detection auto-cut */
     if (strcmp(cmd, "edit-auto-cut") == 0) {
         if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }

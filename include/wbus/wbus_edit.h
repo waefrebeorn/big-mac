@@ -224,6 +224,19 @@ int  wb_edit_add_audio_clip(wb_edit_graph *g, int track,
 int  wb_edit_set_audio_volume(wb_edit_graph *g, int track, int clip_idx,
                                float vol);
 
+/* ---- audio mixing ------------------------------------------------------- */
+
+/* Mix audio from all tracks into an interleaved float buffer.
+ * buf: output buffer (interleaved LRLRLR...), must be n_frames * 2 floats
+ * g: edit graph
+ * start_time: timeline start time in seconds
+ * n_frames: number of frames to mix
+ * Returns number of clips that contributed. */
+int wb_audio_mix(wb_edit_graph *g, float *buf, double start_time, int n_frames);
+
+/* Get total audio duration in seconds. */
+double wb_audio_get_duration(const wb_edit_graph *g);
+
 /* ---- transitions ------------------------------------------------------- */
 
 /* Add a transition between two adjacent clips. Returns index or -1. */

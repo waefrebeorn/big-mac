@@ -746,7 +746,43 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         printf("edit-trans: track %d clip_a %d type=%s dur=%.2fs\n", track, clip_a, type_str, dur);
         return 0;
     }
-    if (strcmp(cmd, "edit-speed") == 0) {
+    /* Multi-camera commands */
+    if (strcmp(cmd, "edit-multicam") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        char *name = tok(&p);
+        if (!name) { fprintf(stderr, "ERR:usage:edit-multicam <name> <t,c> [t,c ...]\n"); return -1; }
+        int tracks[16], clips[16], n = 0;
+        char *token;
+        while ((token = tok(&p)) && n < 16) {
+            int t, c;
+            if (sscanf(token, "%d,%d", &t, &c) == 2) {
+                tracks[n] = t;
+                clips[n] = c;
+                n++;
+            }
+        }
+        if (n < 2) { fprintf(stderr, "ERR:edit-multicam:need 2+ angles\n"); return -1; }
+        double tl = 0;
+        if (tracks[0] < (int)g_agent_edit->track_count &&
+            clips[0] < (int)g_agent_edit->tracks[tracks[0]].clip_count) {
+            tl = g_agent_edit->tracks[tracks[0]].clips[clips[0]].timeline_pos;
+        }
+        int gi = wb_multicam_create_group(g_agent_edit, name, tracks, clips, n, tl);
+        if (gi < 0) { fprintf(stderr, "ERR:edit-multicam:failed\n"); return -1; }
+        printf("edit-multicam: group %d '%s' with %d angles\n", gi, name, n);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-angle") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int group = atoi(tok(&p));
+        int angle = atoi(tok(&p));
+        int rc = wb_multicam_set_active_angle(group, angle);
+        if (rc != 0) { fprintf(stderr, "ERR:edit-angle:failed\n"); return -1; }
+        const char *path = wb_multicam_get_active_path(group);
+        printf("edit-angle: group %d active=%d src=%s\n", group, angle, path ? path : "?");
+        return 0;
+    }
+    if (strcmp(cmd, "edit-fx") == 0) {
         if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
         int track = atoi(tok(&p));
         int clip = atoi(tok(&p));

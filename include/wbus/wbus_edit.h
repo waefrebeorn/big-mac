@@ -272,6 +272,31 @@ wb_edit_graph *wb_edit_undo_redo(wb_edit_graph *current);
 int wb_edit_undo_can_undo(void);
 int wb_edit_undo_can_redo(void);
 
+/* ---- multi-camera editing ----------------------------------------------- */
+
+/* Create a multi-camera group from clips on different tracks.
+ * track_indices[i], clip_indices[i] identify each angle.
+ * All clips should be at the same timeline position.
+ * Returns group index or -1. */
+int wb_multicam_create_group(wb_edit_graph *g, const char *name,
+                              int *track_indices, int *clip_indices,
+                              int num_angles, double timeline_pos);
+
+/* Switch active angle. Returns 0 on success, -1 on error. */
+int wb_multicam_set_active_angle(int group_idx, int angle);
+
+/* Get active angle's source path. */
+const char *wb_multicam_get_active_path(int group_idx);
+
+/* Expand group to individual tracks. */
+int wb_multicam_expand(int group_idx);
+
+/* Get number of multicam groups. */
+int wb_multicam_count(void);
+
+/* Clear all multicam groups. */
+void wb_multicam_clear(void);
+
 /* ---- transitions ------------------------------------------------------- */
 
 /* Add a transition between two adjacent clips. Returns index or -1. */

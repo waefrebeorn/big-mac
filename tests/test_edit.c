@@ -511,6 +511,36 @@ int main(void) {
         wb_edit_undo_shutdown();
     }
 
+    /* ---- Multi-camera ---- */
+    printf("\n--- Multi-camera ---\n");
+    {
+        wb_multicam_clear();
+        wb_edit_graph *g = wb_edit_graph_create(30.0, 854, 480);
+        int t0 = wb_edit_add_track(g, "Cam A");
+        int t1 = wb_edit_add_track(g, "Cam B");
+        CHECK(t0 == 0 && t1 == 1, "multicam: 2 tracks added");
+
+        /* Test: create group with no clips should fail */
+        int tracks[] = {0, 1};
+        int clips[] = {0, 0};
+        int gi = wb_multicam_create_group(g, "test", tracks, clips, 2, 0.0);
+        CHECK(gi == -1, "multicam: group with no clips returns -1");
+
+        /* Test: set active angle on invalid group */
+        int rc = wb_multicam_set_active_angle(0, 0);
+        CHECK(rc == -1, "multicam: set angle on invalid group returns -1");
+
+        /* Test: get path from invalid group */
+        const char *path = wb_multicam_get_active_path(0);
+        CHECK(path == NULL, "multicam: get path from invalid group returns NULL");
+
+        /* Test: count is 0 when no groups */
+        CHECK(wb_multicam_count() == 0, "multicam: count is 0 initially");
+
+        wb_multicam_clear();
+        wb_edit_graph_destroy(g);
+    }
+
     printf("\n%s\n", pass ? "ALL PASS" : "SOME FAILED");
     return pass ? 0 : 1;
 }

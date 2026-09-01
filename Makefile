@@ -324,41 +324,6 @@ build/wb_test_bvh: build/tools/test_bvh.o build/src/wb_bvh.o
 test_bvh: build/wb_test_bvh
 	./build/wb_test_bvh
 
-# ---- YTP tools (standalone test programs) --------------------------------
-
-build/wb_sentence_mix: tools/wb_sentence_mix.c
-	$(CC) $(CFLAGS) $(INC) -o $@ $< -lm
-
-sentence_mix_test: build/wb_sentence_mix
-	./build/wb_sentence_mix
-
-build/wb_ytp_compose: tools/wb_ytp_compose.c
-	$(CC) $(CFLAGS) $(INC) -o $@ $< -lm
-
-ytp_compose_test: build/wb_ytp_compose
-	./build/wb_ytp_compose
-
-# ---- YTP Studio (R083: context-aware director) ----
-build/wb_ytp_studio: tools/wb_ytp_studio.c
-	$(CC) $(CFLAGS) $(INC) -o $@ $< -lm
-
-ytp_studio_test: build/wb_ytp_studio
-	./build/wb_ytp_studio
-
-# ---- YTP Transcribe (batch word-level transcription) ----
-build/ytp_transcribe: tools/ytp_transcribe.c
-	$(CC) $(CFLAGS) $(INC) -o $@ $< -lm
-
-ytp_transcribe_test: build/ytp_transcribe
-	./build/ytp_transcribe assets/ytp_sources/video/famous_clips/SHREK_somebody_P6antjcBFZ4.mp4
-
-# ---- Mocap Overlay (BVH skeleton on video) ----
-build/wb_mocap_overlay: tools/wb_mocap_overlay.c build/src/wb_bvh.o
-	$(CC) $(CFLAGS) $(INC) -o $@ tools/wb_mocap_overlay.c build/src/wb_bvh.o -lm
-
-mocap_overlay_test: build/wb_mocap_overlay
-	@echo "Mocap overlay built (test requires BVH file)"
-
 # ---- YTP Director (text description → edit) ----
 build/wb_ytp_director: tools/wb_ytp_director.c
 	$(CC) $(CFLAGS) $(INC) -o $@ $< -lm

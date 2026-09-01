@@ -694,6 +694,10 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         else if (strcmp(fx_name, "stabilize") == 0) fx = wb_node_effect_stabilize();
         else if (strcmp(fx_name, "chromakey") == 0) fx = wb_node_effect_chromakey(0.0f, 1.0f, 0.0f, 0.4f);
         else if (strcmp(fx_name, "transform") == 0) fx = wb_node_effect_transform_pro();
+        else if (strcmp(fx_name, "lut") == 0) {
+            char *lut_path = tok(&p);
+            fx = wb_node_effect_lut(lut_path && lut_path[0] ? lut_path : NULL);
+        }
         else { fprintf(stderr, "ERR:unknown-fx:%s\n", fx_name); return -1; }
         int rc = wb_edit_clip_add_effect(g_agent_edit, track, clip, fx);
         if (rc != 0) { fprintf(stderr, "ERR:edit-fx:failed\n"); return -1; }

@@ -211,6 +211,11 @@ wb_node *wb_node_effect_transform_pro(void);
 void wb_node_effect_transform_pro_set_pos(wb_node *n, float x, float y);
 void wb_node_effect_transform_pro_set_scale(wb_node *n, float s);
 void wb_node_effect_transform_pro_set_rotation(wb_node *n, float radians);
+
+/* R085: 3D LUT color grading node */
+wb_node *wb_node_effect_lut(const char *path);
+void wb_node_effect_lut_set_intensity(wb_node *n, float intensity);
+int wb_node_effect_lut_load(wb_node *n, const char *path);
 /* #78: resolve a node's output dimensions without pulling. */
 int wb_node_output_dims(wb_node *n, int *w, int *h);
 /* G-SF080 v3: wire src into dst's input slot k (grows input count). */

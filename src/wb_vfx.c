@@ -13,6 +13,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdio.h>
+#include "wbus/wbus_vfx.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979
@@ -54,23 +55,7 @@ static inline float blend_exclusion(float b, float s) {
     return b + s - 2.0f * b * s;
 }
 
-typedef enum {
-    WB_BLEND_NORMAL = 0,
-    WB_BLEND_MULTIPLY,
-    WB_BLEND_SCREEN,
-    WB_BLEND_OVERLAY,
-    WB_BLEND_DARKEN,
-    WB_BLEND_LIGHTEN,
-    WB_BLEND_COLOR_DODGE,
-    WB_BLEND_COLOR_BURN,
-    WB_BLEND_HARD_LIGHT,
-    WB_BLEND_SOFT_LIGHT,
-    WB_BLEND_DIFFERENCE,
-    WB_BLEND_EXCLUSION,
-    WB_BLEND_ADD,
-    WB_BLEND_SUBTRACT,
-    WB_BLEND_COUNT
-} wb_blend_mode;
+/* wb_blend_mode enum is now defined in wbus/wbus_vfx.h for cross-module use */
 
 /* Apply blend mode to RGBA src over RGBA dst */
 void wb_blend_pixels(uint8_t *dst, const uint8_t *src, int count, wb_blend_mode mode) {
@@ -127,12 +112,7 @@ void wb_blend_pixels(uint8_t *dst, const uint8_t *src, int count, wb_blend_mode 
 #define WB_LUT3D_SIZE 33
 #define WB_LUT3D_MAX_PATH 256
 
-typedef struct {
-    float data[WB_LUT3D_SIZE][WB_LUT3D_SIZE][WB_LUT3D_SIZE][3]; /* RGB */
-    int size;
-    float domain_min[3];
-    float domain_max[3];
-} wb_lut3d;
+/* wb_lut3d struct is now defined in wbus/wbus_vfx.h for cross-module use */
 
 /* Parse a .cube file. Returns 0 on success. */
 int wb_lut3d_load(wb_lut3d *lut, const char *path) {
@@ -251,15 +231,7 @@ void wb_lut3d_apply(const wb_lut3d *lut, uint8_t *rgba, int count) {
  * Color Correction (lift/gamma/gain + saturation + contrast)
  * =================================================================== */
 
-typedef struct {
-    float lift;     /* shadow offset (-1..1) */
-    float gamma;    /* midtone power (0.1..10, 1.0 = identity) */
-    float gain;     /* highlight multiplier (0..10) */
-    float contrast; /* contrast amount (0..2, 1.0 = identity) */
-    float saturation; /* saturation multiplier (0..10, 1.0 = identity) */
-    float temperature; /* warm/cool shift (-1..1) */
-    float hue;      /* hue rotation (radians) */
-} wb_color_params;
+/* wb_color_params struct is now defined in wbus/wbus_vfx.h for cross-module use */
 
 void wb_color_correct(uint8_t *rgba, int count, const wb_color_params *p) {
     for (int i = 0; i < count; i++) {
@@ -395,11 +367,7 @@ void wb_transition_flash(uint8_t *out, const uint8_t *a, const uint8_t *b,
  * =================================================================== */
 
 /* Camera shake: random offset per call. Intensity decays. */
-typedef struct {
-    float intensity;    /* current shake amount in pixels */
-    float decay;        /* decay rate per second */
-    float seed;         /* random seed accumulator */
-} wb_camera_shake;
+/* wb_camera_shake struct is now defined in wbus/wbus_vfx.h for cross-module use */
 
 void wb_camera_shake_init(wb_camera_shake *s) {
     s->intensity = 0;

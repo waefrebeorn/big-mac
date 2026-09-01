@@ -35,7 +35,14 @@ typedef enum {
 void wb_blend_pixels(uint8_t *dst, const uint8_t *src, int count, wb_blend_mode mode);
 
 /* 3D LUT */
-typedef struct wb_lut3d wb_lut3d;
+#define WB_LUT3D_SIZE 33
+typedef struct wb_lut3d {
+    float data[WB_LUT3D_SIZE][WB_LUT3D_SIZE][WB_LUT3D_SIZE][3]; /* RGB */
+    int size;
+    float domain_min[3];
+    float domain_max[3];
+    char title[128];
+} wb_lut3d;
 int  wb_lut3d_load(wb_lut3d *lut, const char *path);
 void wb_lut3d_apply(const wb_lut3d *lut, uint8_t *rgba, int count);
 
@@ -52,7 +59,9 @@ void wb_transition_wipe(uint8_t *out, const uint8_t *a, const uint8_t *b, int w,
 void wb_transition_flash(uint8_t *out, const uint8_t *a, const uint8_t *b, int count, float t);
 
 /* Camera effects */
-typedef struct wb_camera_shake wb_camera_shake;
+typedef struct wb_camera_shake {
+    float intensity, decay, seed;
+} wb_camera_shake;
 void wb_camera_shake_init(wb_camera_shake *s);
 void wb_camera_shake_trigger(wb_camera_shake *s, float amount);
 void wb_camera_shake_update(wb_camera_shake *s, float dt);

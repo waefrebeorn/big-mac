@@ -205,6 +205,139 @@ int main(void) {
 
     wb_edit_graph_destroy(g2);
 
+    /* ---- auto-cut scenes API contract tests ---- */
+    printf("\n-- auto-cut scenes --\n");
+    {
+        wb_edit_graph *g3 = wb_edit_graph_create(30.0, 854, 480);
+        CHECK(g3 != NULL, "edit graph created for auto-cut tests");
+
+        int t = wb_edit_add_track(g3, "V1");
+        CHECK(t == 0, "track added for auto-cut tests");
+
+        /* Test: auto-cut on empty track (no clips) returns -1 */
+        int cuts0 = wb_edit_auto_cut_scenes(g3, 0, 0, 0.3f);
+        CHECK(cuts0 == -1, "auto-cut on empty track returns -1");
+
+        /* Test: auto-cut with invalid track index returns -1 */
+        int cuts1 = wb_edit_auto_cut_scenes(g3, -1, 0, 0.3f);
+        CHECK(cuts1 == -1, "auto-cut with negative track returns -1");
+
+        int cuts2 = wb_edit_auto_cut_scenes(g3, 99, 0, 0.3f);
+        CHECK(cuts2 == -1, "auto-cut with out-of-range track returns -1");
+
+        /* Test: auto-cut with NULL graph returns -1 */
+        int cuts3 = wb_edit_auto_cut_scenes(NULL, 0, 0, 0.3f);
+        CHECK(cuts3 == -1, "auto-cut with NULL graph returns -1");
+
+        /* Test: auto-cut with invalid clip index (no clips added) returns -1 */
+        int cuts4 = wb_edit_auto_cut_scenes(g3, 0, 5, 0.3f);
+        CHECK(cuts4 == -1, "auto-cut with invalid clip index returns -1");
+
+        /* Test: auto-cut with threshold clamping (threshold <= 0 gets defaulted) */
+        /* We can't test with a real video file, but the API contract for
+         * invalid clips is already covered above. The threshold clamping
+         * and scene detection path require a valid video file. */
+
+        wb_edit_graph_destroy(g3);
+    }
+
+    /* ---- Subtitle burn-in tests ---- */
+    printf("\n--- Subtitle burn-in ---\n");
+    wb_edit_graph *g3 = wb_edit_graph_create(30.0, 320, 240);
+    CHECK(g3 != NULL, "edit graph created for subtitle tests");
+
+    /* Check defaults */
+    CHECK(g3->subtitle_text[0] == '\0', "subtitle text empty by default");
+    CHECK(g3->subtitle_pos_x == 0.05f, "default pos_x is 0.05");
+    CHECK(g3->subtitle_pos_y == 0.85f, "default pos_y is 0.85");
+    CHECK(g3->subtitle_size == 2.0f, "default size is 2.0");
+    CHECK(g3->subtitle_color == 0xFFFFFFFF, "default color is white");
+
+    /* Test set_subtitle */
+    wb_edit_set_subtitle(g3, "Hello World");
+    CHECK(strcmp(g3->subtitle_text, "Hello World") == 0, "subtitle text set");
+    wb_edit_set_subtitle(g3, "");
+    CHECK(g3->subtitle_text[0] == '\0', "subtitle cleared with empty string");
+    wb_edit_set_subtitle(g3, NULL);
+    CHECK(g3->subtitle_text[0] == '\0', "subtitle cleared with NULL");
+    wb_edit_set_subtitle(g3, "Test Caption");
+    CHECK(strcmp(g3->subtitle_text, "Test Caption") == 0, "subtitle text re-set");
+
+    /* Test set_subtitle_position */
+    wb_edit_set_subtitle_position(g3, 0.5f, 0.5f);
+    CHECK(g3->subtitle_pos_x == 0.5f, "pos_x set to 0.5");
+    CHECK(g3->subtitle_pos_y == 0.5f, "pos_y set to 0.5");
+    /* Test clamping */
+    wb_edit_set_subtitle_position(g3, -1.0f, 2.0f);
+    CHECK(g3->subtitle_pos_x == 0.0f, "pos_x clamped to 0");
+    CHECK(g3->subtitle_pos_y == 1.0f, "pos_y clamped to 1");
+
+    /* Test set_subtitle_size */
+    wb_edit_set_subtitle_size(g3, 3.0f);
+    CHECK(g3->subtitle_size == 3.0f, "size set to 3.0");
+    wb_edit_set_subtitle_size(g3, 0);
+    CHECK(g3->subtitle_size == 1.0f, "size clamped to 1.0 for 0");
+    wb_edit_set_subtitle_size(g3, -5);
+    CHECK(g3->subtitle_size == 1.0f, "size clamped to 1.0 for negative");
+
+    /* Test set_subtitle_color */
+    wb_edit_set_subtitle_color(g3, 0xFF0000);
+    CHECK(g3->subtitle_color == 0xFF0000FF, "color set with alpha forced to 0xFF");
+    wb_edit_set_subtitle_color(g3, 0x00FF00AA);
+    CHECK((g3->subtitle_color & 0xFF) == 0xFF, "alpha always forced to 0xFF");
+
+    /* Test that subtitle doesn't crash evaluate (render path) */
+    wb_edit_set_subtitle(g3, "Test");
+    wb_frame *fs = wb_edit_graph_evaluate(g3, 0.0);
+    CHECK(fs != NULL, "evaluate with subtitle set returns frame");
+    if (fs) wb_frame_free(fs);
+
+    /* Test with empty subtitle (should not crash) */
+    wb_edit_set_subtitle(g3, "");
+    fs = wb_edit_graph_evaluate(g3, 0.0);
+    CHECK(fs != NULL, "evaluate with empty subtitle returns frame");
+    if (fs) wb_frame_free(fs);
+
+    /* Test with NULL graph (should not crash) */
+    wb_edit_set_subtitle(NULL, "test");
+    wb_edit_set_subtitle_position(NULL, 0.5f, 0.5f);
+    wb_edit_set_subtitle_size(NULL, 2.0f);
+    wb_edit_set_subtitle_color(NULL, 0xFFFFFFFF);
+    printf("ok: NULL graph calls don't crash\n");
+
+    /* Test long text (truncation) */
+    char long_text[512];
+    memset(long_text, 'A', 511);
+    long_text[511] = '\0';
+    wb_edit_set_subtitle(g3, long_text);
+    CHECK(strlen(g3->subtitle_text) < 256, "long text truncated to buffer size");
+
+    wb_edit_graph_destroy(g3);
+
+    /* ---- Save/Load ---- */
+    printf("\n--- Save/Load ---\n");
+    {
+        wb_edit_graph *g = wb_edit_graph_create(30.0, 854, 480);
+        int t0 = wb_edit_add_track(g, "V1");
+        CHECK(t0 == 0, "save-load: track added");
+
+        const char *tmp_path = "/tmp/test_edit_save.bedit";
+        int rc = wb_edit_graph_save(g, tmp_path);
+        CHECK(rc == 0, "save: graph saved");
+
+        wb_edit_graph *loaded = wb_edit_graph_load(tmp_path);
+        CHECK(loaded != NULL, "load: graph loaded");
+        if (loaded) {
+            CHECK(loaded->fps == 30.0, "load: fps preserved");
+            CHECK(loaded->width == 854, "load: width preserved");
+            CHECK(loaded->height == 480, "load: height preserved");
+            CHECK(loaded->track_count == 1, "load: track count preserved");
+            wb_edit_graph_destroy(loaded);
+        }
+
+        wb_edit_graph_destroy(g);
+    }
+
     printf("\n%s\n", pass ? "ALL PASS" : "SOME FAILED");
     return pass ? 0 : 1;
 }

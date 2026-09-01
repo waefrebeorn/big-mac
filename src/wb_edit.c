@@ -32,6 +32,13 @@ wb_edit_graph *wb_edit_graph_create(double fps, int w, int h) {
     if (!g->tracks) { free(g); return NULL; }
     g->eval_time = -1.0;
 
+    /* Subtitle defaults */
+    g->subtitle_text[0] = '\0';
+    g->subtitle_pos_x = 0.05f;
+    g->subtitle_pos_y = 0.85f;
+    g->subtitle_size = 2.0f;
+    g->subtitle_color = 0xFFFFFFFF;
+
     /* Create the output composite node */
     g->output_composite = wb_node_composite();
     if (!g->output_composite) {
@@ -233,6 +240,75 @@ int wb_edit_split_clip(wb_edit_graph *g, int track, int clip_idx,
     return new_idx;
 }
 
+/* ---- scene-detection auto-cut ------------------------------------------ */
+
+int wb_edit_auto_cut_scenes(wb_edit_graph *g, int track, int clip_idx,
+                             float threshold) {
+    if (!g || track < 0 || (uint32_t)track >= g->track_count) return -1;
+    wb_edit_track *tr = &g->tracks[track];
+    if (clip_idx < 0 || (uint32_t)clip_idx >= tr->clip_count) return -1;
+    wb_edit_clip *cl = &tr->clips[clip_idx];
+
+    if (threshold <= 0.0f) threshold = 0.3f;
+    if (threshold > 1.0f) threshold = 1.0f;
+
+    /* Use wb_video_detect_segments() to find scene boundaries.
+     * mode 0 = scene changes, threshold = sensitivity.
+     * We allocate a reasonable number of segment slots. */
+    #define MAX_SEG 256
+    wb_video_segment segs[MAX_SEG];
+    double thr = (double)threshold;
+    int nseg = wb_video_detect_segments(cl->source_path, 0, thr, segs, MAX_SEG);
+    if (nseg <= 0) {
+        /* No scenes detected or error — return 0 cuts (not an error) */
+        return 0;
+    }
+
+    /* Split the clip at each scene boundary that falls within the clip's
+     * [timeline_pos, timeline_pos + duration) window. We must split from
+     * the end backward so earlier splits don't shift later positions. */
+    int cuts = 0;
+    /* Collect valid split points (timeline seconds) */
+    double split_points[MAX_SEG];
+    int nsplit = 0;
+    for (int i = 0; i < nseg && nsplit < MAX_SEG; i++) {
+        /* segs[i].start is in source seconds; map to timeline */
+        double src_boundary = segs[i].start;
+        /* Only consider boundaries within the clip's source window */
+        if (src_boundary <= cl->start_in_source ||
+            src_boundary >= cl->start_in_source + cl->duration) {
+            continue;
+        }
+        /* Convert source time to timeline time */
+        double local_src = src_boundary - cl->start_in_source;
+        double tl_pos = cl->timeline_pos + local_src;
+        split_points[nsplit++] = tl_pos;
+    }
+
+    /* Sort split points descending so we split from the end first.
+     * This keeps earlier split positions valid after each split. */
+    for (int i = 0; i < nsplit - 1; i++) {
+        for (int j = i + 1; j < nsplit; j++) {
+            if (split_points[j] > split_points[i]) {
+                double tmp = split_points[i];
+                split_points[i] = split_points[j];
+                split_points[j] = tmp;
+            }
+        }
+    }
+
+    /* Split at each point. After splitting, the original clip is truncated
+     * and a new clip is inserted at the split position. We always split
+     * clip_idx (the leftmost piece), since splits happen right-to-left. */
+    for (int i = 0; i < nsplit; i++) {
+        int new_idx = wb_edit_split_clip(g, track, clip_idx, split_points[i]);
+        if (new_idx < 0) break;  /* Stop on error but keep cuts so far */
+        cuts++;
+    }
+
+    return cuts;
+}
+
 /* ---- transitions ------------------------------------------------------- */
 
 int wb_edit_add_transition(wb_edit_graph *g, int track,
@@ -347,6 +423,230 @@ void wb_edit_set_tonemap(wb_edit_graph *g, wb_tm_op op) {
     /* Update post_output pointer (it's the chain endpoint) */
     g->post_output = g->tm_node;
     if (g->eval_frame) { wb_frame_free(g->eval_frame); g->eval_frame = NULL; }
+}
+
+/* ---- subtitle burn-in -------------------------------------------------- */
+
+void wb_edit_set_subtitle(wb_edit_graph *g, const char *text) {
+    if (!g) return;
+    if (text && text[0]) {
+        snprintf(g->subtitle_text, sizeof(g->subtitle_text), "%s", text);
+    } else {
+        g->subtitle_text[0] = '\0';
+    }
+}
+
+void wb_edit_set_subtitle_position(wb_edit_graph *g, float x, float y) {
+    if (!g) return;
+    g->subtitle_pos_x = x < 0 ? 0 : (x > 1 ? 1 : x);
+    g->subtitle_pos_y = y < 0 ? 0 : (y > 1 ? 1 : y);
+}
+
+void wb_edit_set_subtitle_size(wb_edit_graph *g, float size) {
+    if (!g) return;
+    g->subtitle_size = size > 0 ? size : 1.0f;
+}
+
+void wb_edit_set_subtitle_color(wb_edit_graph *g, uint32_t rgba) {
+    if (!g) return;
+    /* Input is 0xRRGGBB (24-bit hex). Store as 0xRRGGBBAA. */
+    uint32_t r = (rgba >> 16) & 0xFF;
+    uint32_t gg = (rgba >> 8) & 0xFF;
+    uint32_t b = rgba & 0xFF;
+    g->subtitle_color = (r << 24) | (gg << 16) | (b << 8) | 0xFF;
+}
+
+/* ---- 5x7 bitmap font (ASCII 32-127) ----------------------------------- */
+/* Each byte is a column, 5 columns per character, 7 rows tall.
+ * Bits are read top-to-bottom within each column byte (bit 6 = top row). */
+
+#define FONT_W 5
+#define FONT_H 7
+
+static const uint8_t font_5x7[][5] = {
+    /* space */ {0x00,0x00,0x00,0x00,0x00},
+    /* ! */     {0x00,0x00,0x5F,0x00,0x00},
+    /* " */     {0x00,0x07,0x00,0x07,0x00},
+    /* # */     {0x14,0x7F,0x14,0x7F,0x14},
+    /* $ */     {0x24,0x2A,0x7F,0x2A,0x12},
+    /* % */     {0x23,0x13,0x08,0x64,0x62},
+    /* & */     {0x36,0x49,0x55,0x22,0x50},
+    /* ' */     {0x00,0x05,0x03,0x00,0x00},
+    /* ( */     {0x00,0x1C,0x22,0x41,0x00},
+    /* ) */     {0x00,0x41,0x22,0x1C,0x00},
+    /* * */     {0x08,0x2A,0x1C,0x2A,0x08},
+    /* + */     {0x08,0x08,0x3E,0x08,0x08},
+    /* , */     {0x00,0x50,0x30,0x00,0x00},
+    /* - */     {0x08,0x08,0x08,0x08,0x08},
+    /* . */     {0x00,0x60,0x60,0x00,0x00},
+    /* / */     {0x20,0x10,0x08,0x04,0x02},
+    /* 0 */     {0x3E,0x51,0x49,0x45,0x3E},
+    /* 1 */     {0x00,0x42,0x7F,0x40,0x00},
+    /* 2 */     {0x42,0x61,0x51,0x49,0x46},
+    /* 3 */     {0x21,0x41,0x45,0x4B,0x31},
+    /* 4 */     {0x18,0x14,0x12,0x7F,0x10},
+    /* 5 */     {0x27,0x45,0x45,0x45,0x39},
+    /* 6 */     {0x3C,0x4A,0x49,0x49,0x30},
+    /* 7 */     {0x01,0x71,0x09,0x05,0x03},
+    /* 8 */     {0x36,0x49,0x49,0x49,0x36},
+    /* 9 */     {0x06,0x49,0x49,0x29,0x1E},
+    /* : */     {0x00,0x36,0x36,0x00,0x00},
+    /* ; */     {0x00,0x56,0x36,0x00,0x00},
+    /* < */     {0x00,0x08,0x14,0x22,0x41},
+    /* = */     {0x14,0x14,0x14,0x14,0x14},
+    /* > */     {0x41,0x22,0x14,0x08,0x00},
+    /* ? */     {0x02,0x01,0x51,0x09,0x06},
+    /* @ */     {0x32,0x49,0x79,0x41,0x3E},
+    /* A */     {0x7E,0x11,0x11,0x11,0x7E},
+    /* B */     {0x7F,0x49,0x49,0x49,0x36},
+    /* C */     {0x3E,0x41,0x41,0x41,0x22},
+    /* D */     {0x7F,0x41,0x41,0x22,0x1C},
+    /* E */     {0x7F,0x49,0x49,0x49,0x41},
+    /* F */     {0x7F,0x09,0x09,0x01,0x01},
+    /* G */     {0x3E,0x41,0x41,0x51,0x32},
+    /* H */     {0x7F,0x08,0x08,0x08,0x7F},
+    /* I */     {0x00,0x41,0x7F,0x41,0x00},
+    /* J */     {0x20,0x40,0x41,0x3F,0x01},
+    /* K */     {0x7F,0x08,0x14,0x22,0x41},
+    /* L */     {0x7F,0x40,0x40,0x40,0x40},
+    /* M */     {0x7F,0x02,0x04,0x02,0x7F},
+    /* N */     {0x7F,0x04,0x08,0x10,0x7F},
+    /* O */     {0x3E,0x41,0x41,0x41,0x3E},
+    /* P */     {0x7F,0x09,0x09,0x09,0x06},
+    /* Q */     {0x3E,0x41,0x51,0x21,0x5E},
+    /* R */     {0x7F,0x09,0x19,0x29,0x46},
+    /* S */     {0x46,0x49,0x49,0x49,0x31},
+    /* T */     {0x01,0x01,0x7F,0x01,0x01},
+    /* U */     {0x3F,0x40,0x40,0x40,0x3F},
+    /* V */     {0x1F,0x20,0x40,0x20,0x1F},
+    /* W */     {0x7F,0x20,0x18,0x20,0x7F},
+    /* X */     {0x63,0x14,0x08,0x14,0x63},
+    /* Y */     {0x03,0x04,0x78,0x04,0x03},
+    /* Z */     {0x61,0x51,0x49,0x45,0x43},
+    /* [ */     {0x00,0x00,0x7F,0x41,0x41},
+    /* \ */     {0x02,0x04,0x08,0x10,0x20},
+    /* ] */     {0x41,0x41,0x7F,0x00,0x00},
+    /* ^ */     {0x04,0x02,0x01,0x02,0x04},
+    /* _ */     {0x40,0x40,0x40,0x40,0x40},
+    /* ` */     {0x00,0x01,0x02,0x04,0x00},
+    /* a */     {0x20,0x54,0x54,0x54,0x78},
+    /* b */     {0x7F,0x48,0x44,0x44,0x38},
+    /* c */     {0x38,0x44,0x44,0x44,0x20},
+    /* d */     {0x38,0x44,0x44,0x48,0x7F},
+    /* e */     {0x38,0x54,0x54,0x54,0x18},
+    /* f */     {0x08,0x7E,0x09,0x01,0x02},
+    /* g */     {0x08,0x14,0x54,0x54,0x3C},
+    /* h */     {0x7F,0x08,0x04,0x04,0x78},
+    /* i */     {0x00,0x44,0x7D,0x40,0x00},
+    /* j */     {0x20,0x40,0x44,0x3D,0x00},
+    /* k */     {0x00,0x7F,0x10,0x28,0x44},
+    /* l */     {0x00,0x41,0x7F,0x40,0x00},
+    /* m */     {0x7C,0x04,0x18,0x04,0x78},
+    /* n */     {0x7C,0x08,0x04,0x04,0x78},
+    /* o */     {0x38,0x44,0x44,0x44,0x38},
+    /* p */     {0x7C,0x14,0x14,0x14,0x08},
+    /* q */     {0x08,0x14,0x14,0x18,0x7C},
+    /* r */     {0x7C,0x08,0x04,0x04,0x08},
+    /* s */     {0x48,0x54,0x54,0x54,0x20},
+    /* t */     {0x04,0x3F,0x44,0x40,0x20},
+    /* u */     {0x3C,0x40,0x40,0x20,0x7C},
+    /* v */     {0x1C,0x20,0x40,0x20,0x1C},
+    /* w */     {0x3C,0x40,0x30,0x40,0x3C},
+    /* x */     {0x44,0x28,0x10,0x28,0x44},
+    /* y */     {0x0C,0x50,0x50,0x50,0x3C},
+    /* z */     {0x44,0x64,0x54,0x4C,0x44},
+    /* { */     {0x00,0x08,0x36,0x41,0x00},
+    /* | */     {0x00,0x00,0x7F,0x00,0x00},
+    /* } */     {0x00,0x41,0x36,0x08,0x00},
+    /* ~ */     {0x08,0x04,0x08,0x10,0x08},
+};
+
+/* Render text into a uint8 RGBA buffer with outline for readability.
+ * Draws at pixel (origin_x, origin_y). scale is integer pixel size per font pixel.
+ * color is 0xRRGGBBAA. */
+static void subtitle_render_text(uint8_t *rgba, int w, int h,
+                                  int origin_x, int origin_y,
+                                  const char *text, int scale, uint32_t color) {
+    uint8_t cr = (color >> 24) & 0xFF;
+    uint8_t cg = (color >> 16) & 0xFF;
+    uint8_t cb = (color >> 8) & 0xFF;
+    uint8_t ca = color & 0xFF;
+
+    int cursor_x = origin_x;
+    int line_len = 0;
+
+    for (const char *c = text; *c; c++) {
+        /* Word wrap: if next word would exceed width, wrap */
+        if (*c == '\n' || *c == '\r') {
+            cursor_x = origin_x;
+            origin_y += (FONT_H + 2) * scale;
+            line_len = 0;
+            continue;
+        }
+        if (*c == ' ') {
+            /* Check if next word fits */
+            int next_word_end = cursor_x;
+            const char *wp = c + 1;
+            while (*wp && *wp != ' ' && *wp != '\n') {
+                next_word_end += (FONT_W + 1) * scale;
+                wp++;
+            }
+            if (next_word_end > w - scale) {
+                cursor_x = origin_x;
+                origin_y += (FONT_H + 2) * scale;
+                line_len = 0;
+                continue;
+            }
+        }
+
+        unsigned char ch = (unsigned char)*c;
+        if (ch < 32 || ch > 127) ch = '?';
+        const uint8_t *glyph = font_5x7[ch - 32];
+
+        /* Draw outline first (black shadow offset by 1px in each direction) */
+        for (int col = 0; col < FONT_W; col++) {
+            uint8_t column_bits = glyph[col];
+            for (int row = 0; row < FONT_H; row++) {
+                if (!(column_bits & (1 << (6 - row)))) continue;
+                for (int sy = 0; sy < scale; sy++) {
+                    for (int sx = 0; sx < scale; sx++) {
+                        /* Outline: draw at offsets -1 and +1 */
+                        for (int dy = -1; dy <= 1; dy += 2) {
+                            for (int dx = -1; dx <= 1; dx += 2) {
+                                int px = cursor_x + col * scale + sx + dx;
+                                int py = origin_y + row * scale + sy + dy;
+                                if (px < 0 || px >= w || py < 0 || py >= h) continue;
+                                int idx = (py * w + px) * 4;
+                                rgba[idx+0] = 0x00;
+                                rgba[idx+1] = 0x00;
+                                rgba[idx+2] = 0x00;
+                                rgba[idx+3] = 0xFF;
+                            }
+                        }
+                        /* Foreground pixel */
+                        int px = cursor_x + col * scale + sx;
+                        int py = origin_y + row * scale + sy;
+                        if (px < 0 || px >= w || py < 0 || py >= h) continue;
+                        int idx = (py * w + px) * 4;
+                        /* Blend foreground over whatever is there */
+                        float fg_a = ca / 255.0f;
+                        rgba[idx+0] = (uint8_t)(cr * fg_a + rgba[idx+0] * (1.0f - fg_a));
+                        rgba[idx+1] = (uint8_t)(cg * fg_a + rgba[idx+1] * (1.0f - fg_a));
+                        rgba[idx+2] = (uint8_t)(cb * fg_a + rgba[idx+2] * (1.0f - fg_a));
+                        rgba[idx+3] = 0xFF;
+                    }
+                }
+            }
+        }
+        cursor_x += (FONT_W + 1) * scale;
+        line_len++;
+        /* Hard wrap if text exceeds frame width */
+        if (cursor_x + (FONT_W + 1) * scale > w) {
+            cursor_x = origin_x;
+            origin_y += (FONT_H + 2) * scale;
+            line_len = 0;
+        }
+    }
 }
 
 /* ---- evaluation -------------------------------------------------------- */
@@ -678,6 +978,16 @@ int wb_edit_render_to_mp4(wb_edit_graph *g, const char *out_path,
             rgba[i*4+3] = (uint8_t)(f->px[i].a * 255.0f + 0.5f);
         }
         wb_frame_free(f);
+
+        /* Subtitle burn-in: render text onto the RGBA frame */
+        if (g->subtitle_text[0]) {
+            int scale = (int)g->subtitle_size;
+            if (scale < 1) scale = 1;
+            int ox = (int)(g->subtitle_pos_x * w);
+            int oy = (int)(g->subtitle_pos_y * h);
+            subtitle_render_text(rgba, w, h, ox, oy,
+                                 g->subtitle_text, scale, g->subtitle_color);
+        }
 
         /* Scale to YUV420P */
         const uint8_t *src_slices[4] = { rgba, NULL, NULL, NULL };

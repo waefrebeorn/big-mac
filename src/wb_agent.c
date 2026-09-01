@@ -738,6 +738,38 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         }
         return 0;
     }
+    if (strcmp(cmd, "edit-save") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        char *path = tok(&p);
+        if (!path || !path[0]) { fprintf(stderr, "ERR:usage:edit-save <path>\n"); return -1; }
+        int rc = wb_edit_graph_save(g_agent_edit, path);
+        printf("edit-save: %s (rc=%d)\n", path, rc);
+        return rc;
+    }
+    if (strcmp(cmd, "edit-load") == 0) {
+        char *path = tok(&p);
+        if (!path || !path[0]) { fprintf(stderr, "ERR:usage:edit-load <path>\n"); return -1; }
+        wb_edit_graph *loaded = wb_edit_graph_load(path);
+        if (!loaded) { fprintf(stderr, "ERR:edit-load:failed\n"); return -1; }
+        if (g_agent_edit) wb_edit_graph_destroy(g_agent_edit);
+        g_agent_edit = loaded;
+        printf("edit-load: %s (%.1ffps %dx%d tracks=%u)\n",
+               path, loaded->fps, loaded->width, loaded->height, loaded->track_count);
+        return 0;
+    }
+    /* R077: scene-detection auto-cut */
+    if (strcmp(cmd, "edit-auto-cut") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int clip = atoi(tok(&p));
+        float threshold = (float)atof(tok(&p));
+        if (threshold <= 0.0f) threshold = 0.3f;
+        int cuts = wb_edit_auto_cut_scenes(g_agent_edit, track, clip, threshold);
+        if (cuts < 0) { fprintf(stderr, "ERR:edit-auto-cut:failed\n"); return -1; }
+        printf("edit-auto-cut: track %d clip %d threshold=%.2f -> %d cuts\n",
+               track, clip, threshold, cuts);
+        return 0;
+    }
 
     /* R084: nested sequence commands */
     if (strcmp(cmd, "edit-new-seq") == 0) {
@@ -835,6 +867,47 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         else { fprintf(stderr, "ERR:unknown-tonemap:%s\n", tm_str); return -1; }
         wb_edit_set_tonemap(g_agent_edit, op);
         printf("edit-tonemap: tonemap set to %s\n", tm_str);
+        return 0;
+    }
+
+    /* Subtitle burn-in commands */
+    if (strcmp(cmd, "edit-subtitle") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        /* Remaining text is the subtitle (may contain spaces) */
+        while (*p == ' ') p++;
+        if (*p) {
+            wb_edit_set_subtitle(g_agent_edit, p);
+            printf("edit-subtitle: '%s'\n", p);
+        } else {
+            wb_edit_set_subtitle(g_agent_edit, NULL);
+            printf("edit-subtitle: cleared\n");
+        }
+        return 0;
+    }
+    if (strcmp(cmd, "edit-subtitle-pos") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        float x = atof(tok(&p));
+        float y = atof(tok(&p));
+        wb_edit_set_subtitle_position(g_agent_edit, x, y);
+        printf("edit-subtitle-pos: %.2f %.2f\n", x, y);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-subtitle-size") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        float size = atof(tok(&p));
+        if (size <= 0) size = 2.0f;
+        wb_edit_set_subtitle_size(g_agent_edit, size);
+        printf("edit-subtitle-size: %.1f\n", size);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-subtitle-color") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        char *hex = tok(&p);
+        if (!hex) { fprintf(stderr, "ERR:usage:edit-subtitle-color <rrggbb>\n"); return -1; }
+        unsigned int rgb = 0;
+        sscanf(hex, "%x", &rgb);
+        wb_edit_set_subtitle_color(g_agent_edit, rgb);
+        printf("edit-subtitle-color: #%s\n", hex);
         return 0;
     }
 

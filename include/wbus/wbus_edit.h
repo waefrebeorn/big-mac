@@ -117,6 +117,13 @@ struct wb_edit_graph {
     /* Evaluation cache */
     double eval_time;          /* last evaluation time */
     wb_frame *eval_frame;      /* cached output frame */
+
+    /* Subtitle overlay (burned in during export) */
+    char subtitle_text[256];   /* UTF-8 text (empty = none) */
+    float subtitle_pos_x;      /* normalized 0..1 horizontal position */
+    float subtitle_pos_y;      /* normalized 0..1 vertical position */
+    float subtitle_size;       /* font scale (1.0 = base) */
+    uint32_t subtitle_color;   /* RGBA color */
 };
 
 /* ---- nested sequence --------------------------------------------------- */
@@ -172,6 +179,15 @@ int  wb_edit_move_clip(wb_edit_graph *g, int track, int clip_idx,
 int  wb_edit_split_clip(wb_edit_graph *g, int track, int clip_idx,
                          double split_pos);
 
+/* Auto-cut a clip at scene-change points.
+ * Uses wb_video_detect_segments() to find scene boundaries in the source
+ * video, then splits the clip at each boundary via wb_edit_split_clip().
+ *   threshold: scene change sensitivity (0..1, e.g. 0.3 = sensitive).
+ * Returns the number of cuts made (0 if no scenes detected), or -1 on error.
+ * The clip must exist and the source_path must be a valid video file. */
+int  wb_edit_auto_cut_scenes(wb_edit_graph *g, int track, int clip_idx,
+                              float threshold);
+
 /* ---- transitions ------------------------------------------------------- */
 
 /* Add a transition between two adjacent clips. Returns index or -1. */
@@ -205,6 +221,14 @@ int wb_edit_render_to_mp4(wb_edit_graph *g, const char *out_path,
                            volatile int *cancel,
                            wb_export_prog_fn prog, void *prog_ctx);
 
+/* ---- serialization ----------------------------------------------------- */
+
+/* Save edit graph to a .bedit file. Returns 0 on success, -1 on error. */
+int wb_edit_graph_save(const wb_edit_graph *g, const char *path);
+
+/* Load edit graph from a .bedit file. Caller must wb_edit_graph_destroy(). */
+wb_edit_graph *wb_edit_graph_load(const char *path);
+
 /* ---- query ------------------------------------------------------------- */
 
 /* Get the clip active at a timeline position on a track. Returns index or -1. */
@@ -226,6 +250,20 @@ void wb_edit_set_output_colorspace(wb_edit_graph *g, wb_cs_mode mode);
 
 /* Set the HDR->SDR tonemap operator (applied after colorspace transforms). */
 void wb_edit_set_tonemap(wb_edit_graph *g, wb_tm_op op);
+
+/* ---- subtitle burn-in -------------------------------------------------- */
+
+/* Set subtitle text (empty string or NULL = no subtitle). */
+void wb_edit_set_subtitle(wb_edit_graph *g, const char *text);
+
+/* Set subtitle position in normalized 0..1 coords. */
+void wb_edit_set_subtitle_position(wb_edit_graph *g, float x, float y);
+
+/* Set subtitle font scale (1.0 = base size). */
+void wb_edit_set_subtitle_size(wb_edit_graph *g, float size);
+
+/* Set subtitle color as 0xRRGGBB (alpha defaults to 0xFF). */
+void wb_edit_set_subtitle_color(wb_edit_graph *g, uint32_t rgba);
 
 #ifdef __cplusplus
 }

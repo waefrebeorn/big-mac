@@ -883,6 +883,9 @@ int ytp_studio_export_edl(ytp_composition *c, const char *path) {
     return 0;
 }
 
+/* ---- Sound Effect Overlay ---------------------------------------------- */
+int overlay_sound_effects(ytp_composition *c, const char *video_path, const char *output_path);
+
 /* ---- Render (proper 480p encoding) ------------------------------------- */
 
 int ytp_studio_render(ytp_composition *c, source_media *sources,
@@ -1043,19 +1046,31 @@ int ytp_studio_render(ytp_composition *c, source_media *sources,
     
     /* Step 2: Concatenate all segments */
     printf("\n  Concatenating %d segments...\n", c->n_ops);
-    
+
     char cmd[MAX_CMD];
     snprintf(cmd, sizeof(cmd),
         "ffmpeg -y -f concat -safe 0 -i \"%s\" "
         "-c:v libx264 -preset ultrafast -crf 28 -r 24 "
         "-c:a aac -b:a 64k -movflags +faststart "
-        "\"%s\" 2>&1 | tail -3",
+        "\"%s.tmp.mp4\" 2>&1 | tail -3",
         concat_list, output_path);
     
     printf("  Rendering final output...\n");
     int ret = system(cmd);
     
     if (ret == 0) {
+        /* Step 3: Overlay sound effects */
+        char tmp_path[512];
+        snprintf(tmp_path, sizeof(tmp_path), "%s.tmp.mp4", output_path);
+        int sfx_ret = overlay_sound_effects(c, tmp_path, output_path);
+        if (sfx_ret != 0) {
+            /* SFX failed, just use the non-SFX version */
+            rename(tmp_path, output_path);
+        } else {
+            /* SFX succeeded, remove temp */
+            unlink(tmp_path);
+        }
+        
         struct stat st;
         if (stat(output_path, &st) == 0) {
             printf("  ✓ Done! %s (%.1f MB)\n",
@@ -1064,6 +1079,96 @@ int ytp_studio_render(ytp_composition *c, source_media *sources,
     } else {
         printf("  ✗ Render failed (exit %d)\n", ret);
     }
+    
+    return ret;
+}
+
+/* ---- Sound Effect Overlay ---------------------------------------------- */
+
+/* Overlay sound effects onto the final video at timestamps where effects occurred */
+int overlay_sound_effects(ytp_composition *c, const char *video_path, const char *output_path) {
+    /* Collect sound effect triggers: list of (timestamp_ms, sfx_name) */
+    typedef struct { double ts_ms; const char *sfx; } sfx_trigger;
+    sfx_trigger triggers[256];
+    int n_triggers = 0;
+    
+    const char *sfx_dir = "assets/sound_effects";
+    
+    for (int i = 0; i < c->n_ops && n_triggers < 256; i++) {
+        edit_op *op = &c->ops[i];
+        const char *sfx = NULL;
+        
+        switch (op->effect) {
+            case EFFECT_VINE_BOOM:     sfx = "vine_boom.wav"; break;
+            case EFFECT_EARRAPE:       sfx = "airhorn.wav"; break;
+            case EFFECT_TO_BE_CONTINUED: sfx = "to_be_continued.wav"; break;
+            case EFFECT_BLEEP:         sfx = "censor_beep.wav"; break;
+            case EFFECT_DATAMOSH:      sfx = "record_scratch.wav"; break;
+            case EFFECT_FLASH:         sfx = "pause_blip.wav"; break;
+            default: break;
+        }
+        
+        if (sfx) {
+            char sfx_path[512];
+            snprintf(sfx_path, sizeof(sfx_path), "%s/%s", sfx_dir, sfx);
+            struct stat st;
+            if (stat(sfx_path, &st) == 0) {
+                triggers[n_triggers].ts_ms = op->timeline_ms;
+                triggers[n_triggers].sfx = sfx;
+                n_triggers++;
+            }
+        }
+    }
+    
+    if (n_triggers == 0) return 0; /* No SFX to overlay */
+    
+    printf("  Overlaying %d sound effects...\n", n_triggers);
+    
+    /* Build ffmpeg command to mix sound effects at specific timestamps */
+    /* Strategy: create a silent audio track, then mix each SFX at its timestamp */
+    char cmd[MAX_CMD * 4];
+    int pos = 0;
+    
+    pos += snprintf(cmd + pos, sizeof(cmd) - pos,
+        "ffmpeg -y -i \"%s\" ", video_path);
+    
+    /* Input each sound effect */
+    for (int i = 0; i < n_triggers; i++) {
+        char sfx_path[512];
+        snprintf(sfx_path, sizeof(sfx_path), "%s/%s", sfx_dir, triggers[i].sfx);
+        pos += snprintf(cmd + pos, sizeof(cmd) - pos, "-i \"%s\" ", sfx_path);
+    }
+    
+    /* Build filter: delay each SFX to its timestamp, then mix all */
+    pos += snprintf(cmd + pos, sizeof(cmd) - pos, "-filter_complex \"");
+    
+    /* Original audio */
+    pos += snprintf(cmd + pos, sizeof(cmd) - pos, "[0:a]asplit=1[orig];");
+    
+    /* Delay each SFX */
+    for (int i = 0; i < n_triggers; i++) {
+        int delay_ms = (int)triggers[i].ts_ms;
+        pos += snprintf(cmd + pos, sizeof(cmd) - pos,
+            "[%d:a]adelay=%d|%d,volume=1.5[sfx%d];",
+            i + 1, delay_ms, delay_ms, i);
+    }
+    
+    /* Mix: start with original, then add each SFX */
+    pos += snprintf(cmd + pos, sizeof(cmd) - pos, "[orig]");
+    for (int i = 0; i < n_triggers; i++) {
+        pos += snprintf(cmd + pos, sizeof(cmd) - pos, "[sfx%d]", i);
+    }
+    pos += snprintf(cmd + pos, sizeof(cmd) - pos,
+        "amix=inputs=%d:duration=first:normalize=0[aout]\"",
+        n_triggers + 1);
+    
+    pos += snprintf(cmd + pos, sizeof(cmd) - pos,
+        " -map 0:v -map \"[aout]\""
+        " -c:v copy -c:a aac -b:a 64k -movflags +faststart"
+        " \"%s\" 2>&1 | tail -3", output_path);
+    
+    printf("    Mixing audio with %d sound effects...\n", n_triggers);
+    int ret = system(cmd);
     
     return ret;
 }

@@ -2,7 +2,8 @@
 
 ## Session Summary
 Continued from R081-R082 (lily pad research + YTP pipeline overhaul).
-This session: built YTP Studio, batch transcriber, committed 100+ uncommitted files.
+This session: built YTP Studio, batch transcriber, mocap overlay, YTP Director.
+**FIRST REAL YTP RENDERED** — 177s Shrek YTP with 102 edit operations.
 
 ## What Was Built
 
@@ -84,10 +85,44 @@ This session: built YTP Studio, batch transcriber, committed 100+ uncommitted fi
 - **753 checks, 0 failures** — clean build
 - All new modules compile and test clean
 
+### 5. Mocap Overlay (`wb_mocap_overlay.c`)
+- Renders BVH skeleton on top of any video via ffmpeg
+- Tested: CMU walk + Bandai Namco BVH → green skeleton on Shrek video
+- Configurable: color, scale, offset, flip
+
+### 6. YTP Director (`wb_ytp_director.c`)
+- Text description → structured EDL JSON
+- Parses: title, source, transcript, chaos, plot points, preferred/avoided effects
+- Generates: 4-act structure, intensity curve, encoding settings
+
+## New Lily Pads (Research)
+
+### SentrySearch (github.com/ssrajadh/sentrysearch) — 4.4k stars
+- **Semantic search over video footage** — type "red truck running stop sign", get clip
+- Works on any MP4/MOV, auto-trims matches
+- Local backend (Qwen3-VL) or Gemini API backend
+- **Highlights mode**: auto-finds weirdest/anomalous moments (PERFECT for YTP)
+- Search by image: upload screenshot, find visually similar clips
+- Apache-2.0 license
+- **BLOCKED**: Needs Gemini API key (free at aistudio.google.com/apikey) or GPU for local
+- Future: get Gemini key → index all 1169 videos → semantic YTP clip discovery
+
+### Free Sound Effects
+- Zapsplat: 160k+ sounds, free MP3 with account
+- Freesound.org: community-driven, various licenses
+- Useful for YTP: vine boom, airhorn, bruh, meme sounds
+
+## Completed Milestones
+- ✅ First real YTP rendered (177s, 102 ops, 18MB)
+- ✅ BVH mocap pipeline (download → parse → render → overlay)
+- ✅ 3077 free BVH files from Bandai Namco
+- ✅ Word-level transcription pipeline
+- ✅ Full YTP studio with plot structure
+
 ## Next Steps (Future Sessions)
-1. Download Bandai Namco BVH dataset (3000 free mocaps)
+1. Get Gemini API key → install SentrySearch → semantic clip discovery
 2. Batch transcribe all 1169 source videos
-3. Build first REAL YTP with actual video + transcript
-4. Implement mocap skeleton overlay on video
-5. Add sentence mixing that creates actual new phrases
-6. Build "YTP from text description" — describe the plot, generate the edit
+3. Download free sound effects library
+4. Build more YTPs with different source videos
+5. Combine mocap overlay + YTP effects for 3D poops
+6. Build "YTP from text" → full auto-generation

@@ -1133,3 +1133,92 @@ char *wb_edit_generate_proxy(wb_edit_graph *g, const char *source_path) {
     if (rc != 0) { free(proxy_path); return NULL; }
     return proxy_path;
 }
+
+/* ---- keyframe animation ------------------------------------------------ */
+
+/* Helper: get the Nth FX node from a clip's FX chain.
+ * fx_chain is the last node; we traverse inputs to find earlier ones.
+ * Returns NULL if not found. */
+static wb_node *get_fx_node(wb_node *fx_chain, int fx_idx) {
+    if (!fx_chain) return NULL;
+    /* Collect nodes in order from source to output */
+    wb_node *nodes[32];
+    int count = 0;
+    /* Walk from the output node back to the source */
+    wb_node *cur = fx_chain;
+    while (cur && count < 32) {
+        nodes[count++] = cur;
+        if (cur->n_inputs > 0 && cur->inputs[0] &&
+            (cur->inputs[0]->kind == WB_NODE_EFFECT ||
+             cur->inputs[0]->kind == WB_NODE_SOURCE)) {
+            cur = cur->inputs[0];
+        } else {
+            break;
+        }
+    }
+    /* nodes[0] is the last FX, nodes[count-1] is the first */
+    int idx = count - 1 - fx_idx;
+    if (idx < 0 || idx >= count) return NULL;
+    return nodes[idx];
+}
+
+int wb_edit_set_keyframe(wb_edit_graph *g, int track, int clip_idx, int fx,
+                          const char *param_name, double time, float value) {
+    if (!g || !param_name) return -1;
+    if (track < 0 || (uint32_t)track >= g->track_count) return -1;
+    wb_edit_track *tr = &g->tracks[track];
+    if ((uint32_t)clip_idx >= tr->clip_count) return -1;
+    wb_edit_clip *cl = &tr->clips[clip_idx];
+    if (!cl->fx_chain) return -1;
+
+    wb_node *fx_node = get_fx_node(cl->fx_chain, fx);
+    if (!fx_node) return -1;
+
+    /* Find or create the param track */
+    wb_param_track *pt = NULL;
+    int param_slot = -1;
+    for (int i = 0; i < fx_node->n_params; i++) {
+        if (strcmp(fx_node->param_names[i], param_name) == 0) {
+            pt = fx_node->params[i];
+            param_slot = i;
+            break;
+        }
+    }
+
+    if (!pt) {
+        /* Create a new param track and add it to the node */
+        pt = wb_param_track_create();
+        if (!pt) return -1;
+        param_slot = wb_node_add_param(fx_node, param_name, pt);
+        if (param_slot < 0) { wb_param_track_free(pt); return -1; }
+    }
+
+    /* Add the keyframe */
+    wb_param_track_set(pt, time, value, WB_KF_LINEAR);
+    return 0;
+}
+
+float wb_edit_get_keyframed_value(wb_edit_graph *g, int track, int clip_idx,
+                                   int fx, const char *param_name, double time) {
+    if (!g || !param_name) return 0.0f;
+    if (track < 0 || (uint32_t)track >= g->track_count) return 0.0f;
+    wb_edit_track *tr = &g->tracks[track];
+    if ((uint32_t)clip_idx >= tr->clip_count) return 0.0f;
+    wb_edit_clip *cl = &tr->clips[clip_idx];
+    if (!cl->fx_chain) return 0.0f;
+
+    wb_node *fx_node = get_fx_node(cl->fx_chain, fx);
+    if (!fx_node) return 0.0f;
+
+    /* Find the param track */
+    for (int i = 0; i < fx_node->n_params; i++) {
+        if (strcmp(fx_node->param_names[i], param_name) == 0) {
+            wb_param_track *pt = fx_node->params[i];
+            if (pt) {
+                return wb_param_track_value_at(pt, time);
+            }
+        }
+    }
+
+    return 0.0f;
+}

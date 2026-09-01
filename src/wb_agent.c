@@ -885,6 +885,36 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         return rc;
     }
 
+    /* Keyframe commands */
+    if (strcmp(cmd, "edit-kf") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int clip = atoi(tok(&p));
+        int fx = atoi(tok(&p));
+        char *param = tok(&p);
+        double time = atof(tok(&p));
+        float value = (float)atof(tok(&p));
+        if (!param) { fprintf(stderr, "ERR:usage:edit-kf <track> <clip> <fx> <param> <time> <value>\n"); return -1; }
+        int rc = wb_edit_set_keyframe(g_agent_edit, track, clip, fx, param, time, value);
+        if (rc != 0) { fprintf(stderr, "ERR:edit-kf:failed\n"); return -1; }
+        printf("edit-kf: track %d clip %d fx %d %s @ %.2fs = %.3f\n",
+               track, clip, fx, param, time, value);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-kf-get") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int clip = atoi(tok(&p));
+        int fx = atoi(tok(&p));
+        char *param = tok(&p);
+        double time = atof(tok(&p));
+        if (!param) { fprintf(stderr, "ERR:usage:edit-kf-get <track> <clip> <fx> <param> <time>\n"); return -1; }
+        float v = wb_edit_get_keyframed_value(g_agent_edit, track, clip, fx, param, time);
+        printf("edit-kf-get: track %d clip %d fx %d %s @ %.2fs = %.3f\n",
+               track, clip, fx, param, time, v);
+        return 0;
+    }
+
     /* R077: scene-detection auto-cut */
     if (strcmp(cmd, "edit-auto-cut") == 0) {
         if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }

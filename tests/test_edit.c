@@ -411,6 +411,42 @@ int main(void) {
         wb_edit_graph_destroy(g);
     }
 
+    /* ---- Keyframe animation ---- */
+    printf("\n--- Keyframe animation ---\n");
+    {
+        wb_edit_graph *g = wb_edit_graph_create(30.0, 854, 480);
+        int t0 = wb_edit_add_track(g, "V1");
+        CHECK(t0 == 0, "keyframe: track added");
+
+        /* Add a color source and an FX node */
+        wb_node *color = wb_node_source_color(0.5f, 0.5f, 0.5f, 1.0f, 64, 36);
+        wb_node *fx = wb_node_effect_deep_fry();
+        wb_node_connect(fx, color, 0);
+        wb_edit_clip *cl = &g->tracks[0].clips[0];  /* No clip, but test keyframe API */
+
+        /* Test: set keyframe on non-existent clip should fail */
+        int rc = wb_edit_set_keyframe(g, 0, 0, 0, "intensity", 1.0, 2.0f);
+        CHECK(rc == -1, "keyframe on clip without FX returns -1");
+
+        /* Test: set keyframe on invalid track should fail */
+        rc = wb_edit_set_keyframe(g, 99, 0, 0, "intensity", 1.0, 2.0f);
+        CHECK(rc == -1, "keyframe on invalid track returns -1");
+
+        /* Test: get keyframe with no keyframes returns 0 */
+        float v = wb_edit_get_keyframed_value(g, 0, 0, 0, "intensity", 1.0);
+        CHECK(v == 0.0f, "get keyframe with no keyframes returns 0");
+
+        /* Test: NULL graph doesn't crash */
+        rc = wb_edit_set_keyframe(NULL, 0, 0, 0, "intensity", 1.0, 2.0f);
+        CHECK(rc == -1, "set keyframe with NULL graph returns -1");
+        v = wb_edit_get_keyframed_value(NULL, 0, 0, 0, "intensity", 1.0);
+        CHECK(v == 0.0f, "get keyframe with NULL graph returns 0");
+
+        wb_node_destroy(fx);
+        wb_node_destroy(color);
+        wb_edit_graph_destroy(g);
+    }
+
     printf("\n%s\n", pass ? "ALL PASS" : "SOME FAILED");
     return pass ? 0 : 1;
 }

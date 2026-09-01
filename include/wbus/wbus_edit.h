@@ -245,6 +245,22 @@ double wb_audio_get_duration(const wb_edit_graph *g);
 int wb_audio_mux_to_mp4(wb_edit_graph *g, const char *mp4_path,
                           volatile int *cancel);
 
+/* ---- keyframe animation ------------------------------------------------ */
+
+/* Add a keyframe to an FX node's parameter.
+ * track: track index, clip: clip index, fx: index in FX chain (0=first)
+ * param_name: name of the parameter (e.g. "intensity", "levels")
+ * time: time in seconds within the clip
+ * value: parameter value at this keyframe
+ * Returns 0 on success, -1 on error. */
+int wb_edit_set_keyframe(wb_edit_graph *g, int track, int clip, int fx,
+                          const char *param_name, double time, float value);
+
+/* Get the animated value of an FX param at a given time.
+ * Returns the value, or fallback if no keyframes are set. */
+float wb_edit_get_keyframed_value(wb_edit_graph *g, int track, int clip,
+                                   int fx, const char *param_name, double time);
+
 /* ---- transitions ------------------------------------------------------- */
 
 /* Add a transition between two adjacent clips. Returns index or -1. */

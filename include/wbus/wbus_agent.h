@@ -27,6 +27,9 @@
  *   edit-eval <time_s>          evaluate graph at time (debug)
  *   edit-render <out.mp4>       render edit graph to mp4 via node pipeline
  *   edit-state                  print edit graph state
+ *   edit-new-seq <fps> <w> <h>  create a nested sequence (edit graph as clip)
+ *   edit-add-seq-clip <track> <start> <dur> <tl>
+ *                               add the nested sequence as a clip on a track
  * Returns 0 if all commands succeeded, -1 on any error.
  */
 

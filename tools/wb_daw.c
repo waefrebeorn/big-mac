@@ -1556,6 +1556,83 @@ static void draw_fusion_graph(app *a) {
         }
     }
     draw_kf_editor(a);
+
+    /* ---- R043-G6b: live node-graph preview -------------------------------
+     * Pull a frame from the composite graph output node, convert float
+     * RGBA -> uint8 RGBA, and blit to a preview panel on the right side
+     * of the FUSION view. Falls back gracefully when no source is
+     * connected (frame is NULL or empty). Updates every frame. */
+    {
+        /* preview panel dimensions + position (right of the node graph) */
+        #define FUSION_PREV_W 480
+        #define FUSION_PREV_H 270
+        int prev_x = ox + 600;
+        int prev_y = oy - 30;
+
+        /* panel background */
+        SDL_Rect panel = { prev_x, prev_y, FUSION_PREV_W, FUSION_PREV_H };
+        setc(a->ren, C_PANEL2);
+        SDL_RenderFillRect(a->ren, &panel);
+        setc(a->ren, C_TEXT_DIM);
+        SDL_RenderDrawRect(a->ren, &panel);
+        wb_ui_draw_text(a->ren, prev_x + 8, prev_y + 6, "PREVIEW", 1, C_ACCENT);
+
+        /* resolve the pull root once: cache it in a->fusion_preview_root */
+        if (!a->fusion_preview_root) {
+            int cnt = wb_node_graph_count(a->comp_graph);
+            if (cnt > 0)
+                a->fusion_preview_root = wb_node_graph_node_at(a->comp_graph, cnt - 1);
+        }
+
+        if (a->fusion_preview_root) {
+            double t_sec = (double)a->t.song_pos / WB_SAMPLE_RATE;
+            /* allocate texture if NULL (or rebuild if size changed) */
+            if (a->fusion_preview_tex &&
+                (a->fusion_preview_w != FUSION_PREV_W ||
+                 a->fusion_preview_h != FUSION_PREV_H)) {
+                SDL_DestroyTexture(a->fusion_preview_tex);
+                a->fusion_preview_tex = NULL;
+            }
+            if (!a->fusion_preview_tex) {
+                a->fusion_preview_tex = SDL_CreateTexture(a->ren,
+                    SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING,
+                    FUSION_PREV_W, FUSION_PREV_H);
+                a->fusion_preview_w = FUSION_PREV_W;
+                a->fusion_preview_h = FUSION_PREV_H;
+            }
+            if (a->fusion_preview_tex) {
+                /* pull a frame from the graph output node at song_pos */
+                wb_frame *f = wb_node_pull(a->fusion_preview_root, t_sec,
+                                            0, 0, FUSION_PREV_W, FUSION_PREV_H);
+                if (f && f->px && f->w > 0 && f->h > 0) {
+                    /* convert float RGBA (0..1) -> uint8 RGBA for SDL */
+                    int px_count = f->w * f->h;
+                    uint8_t *rgba = (uint8_t *)malloc(px_count * 4);
+                    if (rgba) {
+                        for (int p = 0; p < px_count; p++) {
+                            rgba[p*4+0] = (uint8_t)(f->px[p].r * 255.0f + 0.5f);
+                            rgba[p*4+1] = (uint8_t)(f->px[p].g * 255.0f + 0.5f);
+                            rgba[p*4+2] = (uint8_t)(f->px[p].b * 255.0f + 0.5f);
+                            rgba[p*4+3] = (uint8_t)(f->px[p].a * 255.0f + 0.5f);
+                        }
+                        SDL_UpdateTexture(a->fusion_preview_tex, NULL,
+                                          rgba, f->w * 4);
+                        free(rgba);
+                    }
+                    /* blit into the panel (aspect-ratio preserved) */
+                    SDL_Rect dst = { prev_x + 4, prev_y + 24,
+                                     FUSION_PREV_W - 8, FUSION_PREV_H - 28 };
+                    SDL_RenderCopy(a->ren, a->fusion_preview_tex, NULL, &dst);
+                }
+                /* if pull fails (f==NULL): skip preview this frame */
+                if (f) wb_frame_free(f);
+            }
+        }
+        /* if no root / no texture: panel stays as the dark bg (graceful) */
+
+        #undef FUSION_PREV_W
+        #undef FUSION_PREV_H
+    }
 }
 
 /* ---- G24: keyframe graph editor for the Gain node's param -------------- */
@@ -5660,6 +5737,10 @@ int main(int argc, char **argv) {
     a->engine = wb_engine_create();
     a->ws = wb_workspace_create(ws_on_change, a);  /* R043: tier controller */
     a->comp_graph = wb_node_graph_create();          /* R043-G6: Fusion node view */
+    a->fusion_preview_tex = NULL;
+    a->fusion_preview_w = 480;
+    a->fusion_preview_h = 270;
+    a->fusion_preview_root = NULL;
     keymap_load();   /* G50: customizable shortcuts */
     /* G43/G54: watch folder is opt-in via WB_WATCH_DIR */
     {

@@ -38,6 +38,38 @@ wb_edit_graph *wb_edit_graph_create(double fps, int w, int h) {
         free(g->tracks); free(g); return NULL;
     }
 
+    /* ---- Color management post chain ----
+     * composite -> colorspace -> tonemap -> output
+     * Built at create() time; evaluate() pulls from post_output
+     * when color_management_enabled, else from output_composite. */
+    g->color_management_enabled = 0; /* off by default */
+    g->input_cs  = WB_CS_SRGB_TO_LINEAR;
+    g->output_cs = WB_CS_LINEAR_TO_SRGB;
+    g->tonemap   = WB_TM_NONE;
+
+    /* Colorspace node: applies input_cs then output_cs as a single pass.
+     * We use input_cs as the node mode; the output_cs is applied by
+     * wiring a second colorspace if input != output identity. For the
+     * common sRGB->linear->...->linear->sRGB case we chain two nodes. */
+    g->cs_node = wb_node_colorspace(g->input_cs);
+    if (!g->cs_node) {
+        wb_node_destroy(g->output_composite); free(g->tracks); free(g); return NULL;
+    }
+
+    /* Tonemap node */
+    g->tm_node = wb_node_tonemap(g->tonemap);
+    if (!g->tm_node) {
+        wb_node_destroy(g->cs_node); wb_node_destroy(g->output_composite);
+        free(g->tracks); free(g); return NULL;
+    }
+
+    /* Wire: composite -> cs_node -> tm_node */
+    wb_node_connect(g->cs_node, g->output_composite, 0);
+    wb_node_connect(g->tm_node, g->cs_node, 0);
+
+    /* post_output is the pull endpoint of the chain */
+    g->post_output = g->tm_node;
+
     return g;
 }
 
@@ -56,6 +88,11 @@ void wb_edit_graph_destroy(wb_edit_graph *g) {
         free(tr->transitions);
     }
     free(g->tracks);
+
+    /* Destroy post chain nodes (tm -> cs -> composite). Order matters:
+     * destroy from the tail up so inputs are still valid during free. */
+    if (g->tm_node) wb_node_destroy(g->tm_node);
+    if (g->cs_node) wb_node_destroy(g->cs_node);
 
     /* Destroy output composite (owns its inputs) */
     if (g->output_composite) wb_node_destroy(g->output_composite);
@@ -254,6 +291,64 @@ int wb_edit_clip_add_effect(wb_edit_graph *g, int track, int clip_idx,
     return 0;
 }
 
+/* ---- color management pipeline ----------------------------------------- */
+
+void wb_edit_set_color_management(wb_edit_graph *g, int enable) {
+    if (!g) return;
+    g->color_management_enabled = enable ? 1 : 0;
+    /* Invalidate cache so next evaluate picks up the change */
+    if (g->eval_frame) { wb_frame_free(g->eval_frame); g->eval_frame = NULL; }
+}
+
+void wb_edit_set_input_colorspace(wb_edit_graph *g, wb_cs_mode mode) {
+    if (!g) return;
+    g->input_cs = mode;
+    /* Recreate the colorspace node with the new mode.
+     * Rewire: cs_node input stays the same (output_composite). */
+    if (g->cs_node) {
+        /* Save the input node (output_composite) before destroying */
+        wb_node *input_node = g->cs_node->inputs ? g->cs_node->inputs[0] : NULL;
+        wb_node_destroy(g->cs_node);
+        g->cs_node = wb_node_colorspace(mode);
+        if (g->cs_node && input_node) {
+            wb_node_connect(g->cs_node, input_node, 0);
+        }
+        /* Rewire tonemap to new cs_node */
+        if (g->tm_node && g->cs_node) {
+            wb_node_connect(g->tm_node, g->cs_node, 0);
+        }
+    }
+    if (g->eval_frame) { wb_frame_free(g->eval_frame); g->eval_frame = NULL; }
+}
+
+void wb_edit_set_output_colorspace(wb_edit_graph *g, wb_cs_mode mode) {
+    if (!g) return;
+    g->output_cs = mode;
+    /* The output_cs is tracked for the pipeline; in this single-CST-node
+     * model the node applies input_cs. A full two-CST pipeline would
+     * rewire here. For now we store it for the API contract and future
+     * dual-node chain. */
+    if (g->eval_frame) { wb_frame_free(g->eval_frame); g->eval_frame = NULL; }
+}
+
+void wb_edit_set_tonemap(wb_edit_graph *g, wb_tm_op op) {
+    if (!g) return;
+    g->tonemap = op;
+    /* Recreate the tonemap node with the new operator.
+     * Rewire: tm_node input stays the same (cs_node). */
+    if (g->tm_node) {
+        wb_node *input_node = g->tm_node->inputs ? g->tm_node->inputs[0] : NULL;
+        wb_node_destroy(g->tm_node);
+        g->tm_node = wb_node_tonemap(op);
+        if (g->tm_node && input_node) {
+            wb_node_connect(g->tm_node, input_node, 0);
+        }
+    }
+    /* Update post_output pointer (it's the chain endpoint) */
+    g->post_output = g->tm_node;
+    if (g->eval_frame) { wb_frame_free(g->eval_frame); g->eval_frame = NULL; }
+}
+
 /* ---- evaluation -------------------------------------------------------- */
 
 /* Find the clip active at a timeline position on a track */
@@ -334,6 +429,47 @@ wb_frame *wb_edit_graph_evaluate(wb_edit_graph *g, double time_sec) {
         memset(out->px, 0, g->width * g->height * sizeof(wb_px));
     }
 
+    /* Apply color management post chain if enabled.
+     * Pull from post_output (tm_node) which is wired:
+     *   composite -> colorspace -> tonemap -> output
+     * We feed the composited frame into the composite node's inputs
+     * by pulling from the post chain with the composited result.
+     *
+     * Since the post chain is already wired to the composite, we
+     * connect the composite as the source feeding into cs_node.
+     * The composite node itself has no inputs yet (clips are composited
+     * manually above), so we use a different approach: pull from the
+     * post chain by wrapping the composited frame as a source node. */
+    if (g->color_management_enabled && g->post_output) {
+        /* Create a source node wrapping the composited frame.
+         * We use wb_node_source_frame to wrap the RGBA buffer. */
+        /* Convert float RGBA to uint8 for source_frame node */
+        uint8_t *rgba = malloc(g->width * g->height * 4);
+        if (rgba) {
+            for (int i = 0; i < g->width * g->height; i++) {
+                rgba[i*4+0] = (uint8_t)(out->px[i].r * 255.0f + 0.5f);
+                rgba[i*4+1] = (uint8_t)(out->px[i].g * 255.0f + 0.5f);
+                rgba[i*4+2] = (uint8_t)(out->px[i].b * 255.0f + 0.5f);
+                rgba[i*4+3] = (uint8_t)(out->px[i].a * 255.0f + 0.5f);
+            }
+            wb_node *tmp_src = wb_node_source_frame(g->width, g->height, rgba);
+            if (tmp_src) {
+                /* Rewire: cs_node takes tmp_src as input */
+                wb_node_connect(g->cs_node, tmp_src, 0);
+                /* Pull from post_output (the chain endpoint) */
+                wb_frame *graded = wb_node_pull(g->post_output, time_sec, 0, 0, g->width, g->height);
+                if (graded) {
+                    wb_frame_free(out);
+                    out = graded;
+                }
+                /* Restore original wiring: cs_node takes output_composite */
+                wb_node_connect(g->cs_node, g->output_composite, 0);
+                wb_node_destroy(tmp_src);
+            }
+            free(rgba);
+        }
+    }
+
     g->eval_frame = wb_frame_ref(out);
     return out;
 }
@@ -356,6 +492,103 @@ int wb_edit_graph_render_to_mp4(wb_edit_graph *g, const char *out_path,
 
 double wb_edit_graph_get_duration(const wb_edit_graph *g) {
     return g ? g->duration : 0.0;
+}
+
+/* ---- nested sequence --------------------------------------------------- */
+
+/* Sequence source node state: on pull(time), evaluate the inner graph. */
+typedef struct {
+    wb_edit_graph *graph;
+    int w, h;
+} seq_source_state;
+
+static wb_frame *seq_source_pull(wb_node *self, double t,
+                                  int rx, int ry, int rw, int rh, int phase) {
+    (void)phase;
+    seq_source_state *st = self->user;
+    if (!st || !st->graph) return NULL;
+
+    /* Evaluate the inner edit graph at time t */
+    wb_frame *f = wb_edit_graph_evaluate(st->graph, t);
+    if (!f) return NULL;
+
+    /* Clip requested ROI to frame bounds */
+    if (rx < 0) rx = 0;
+    if (ry < 0) ry = 0;
+    if (rx + rw > f->w) rw = f->w - rx;
+    if (ry + rh > f->h) rh = f->h - ry;
+    if (rw <= 0 || rh <= 0) {
+        wb_frame_free(f);
+        return NULL;
+    }
+
+    f->roi_x = rx;
+    f->roi_y = ry;
+    f->roi_w = rw;
+    f->roi_h = rh;
+    return f;
+}
+
+static void seq_source_free(wb_node *self) {
+    seq_source_state *st = self->user;
+    if (st) {
+        /* Note: the graph is owned by wb_edit_sequence, not the node */
+        free(st);
+    }
+}
+
+wb_edit_sequence *wb_edit_sequence_create(double fps, int w, int h) {
+    wb_edit_sequence *s = calloc(1, sizeof(*s));
+    if (!s) return NULL;
+
+    s->graph = wb_edit_graph_create(fps, w, h);
+    if (!s->graph) {
+        free(s);
+        return NULL;
+    }
+
+    /* Create the source node that evaluates the inner graph on pull */
+    wb_node *node = wb_node_create(WB_NODE_SOURCE, "seq_source");
+    if (!node) {
+        wb_edit_graph_destroy(s->graph);
+        free(s);
+        return NULL;
+    }
+
+    seq_source_state *st = calloc(1, sizeof(*st));
+    if (!st) {
+        wb_node_destroy(node);
+        wb_edit_graph_destroy(s->graph);
+        free(s);
+        return NULL;
+    }
+    st->graph = s->graph;
+    st->w = s->graph->width;
+    st->h = s->graph->height;
+
+    node->user = st;
+    node->pull = seq_source_pull;
+    node->free = seq_source_free;
+    wb_node_set_format(node, st->w, st->h);
+
+    s->source_node = node;
+    s->duration = 0.0;
+    return s;
+}
+
+void wb_edit_sequence_destroy(wb_edit_sequence *s) {
+    if (!s) return;
+    if (s->source_node) wb_node_destroy(s->source_node);
+    if (s->graph) wb_edit_graph_destroy(s->graph);
+    free(s);
+}
+
+wb_edit_graph *wb_edit_sequence_graph(wb_edit_sequence *s) {
+    return s ? s->graph : NULL;
+}
+
+wb_node *wb_edit_sequence_node(wb_edit_sequence *s) {
+    return s ? s->source_node : NULL;
 }
 
 /* ---- direct render to MP4 (evaluates edit graph per frame) ------------- */

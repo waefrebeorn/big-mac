@@ -201,6 +201,16 @@ void wb_audio_reactive_node_set_params(float zoom, float flash, float shake,
                                         float color_shift, float brightness);
 void wb_audio_reactive_node_get_params(float *zoom, float *flash, float *shake,
                                         float *color_shift, float *brightness);
+
+/* R085: professional video FX nodes */
+wb_node *wb_node_effect_stabilize(void);
+void wb_node_effect_stabilize_set_enabled(wb_node *n, int enabled);
+wb_node *wb_node_effect_chromakey(float r, float g, float b, float threshold);
+void wb_node_effect_chromakey_set_color(wb_node *n, float r, float g, float b);
+wb_node *wb_node_effect_transform_pro(void);
+void wb_node_effect_transform_pro_set_pos(wb_node *n, float x, float y);
+void wb_node_effect_transform_pro_set_scale(wb_node *n, float s);
+void wb_node_effect_transform_pro_set_rotation(wb_node *n, float radians);
 /* #78: resolve a node's output dimensions without pulling. */
 int wb_node_output_dims(wb_node *n, int *w, int *h);
 /* G-SF080 v3: wire src into dst's input slot k (grows input count). */

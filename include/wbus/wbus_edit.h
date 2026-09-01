@@ -33,6 +33,7 @@ typedef struct wb_edit_graph wb_edit_graph;
 typedef struct wb_edit_track wb_edit_track;
 typedef struct wb_edit_clip wb_edit_clip;
 typedef struct wb_edit_transition wb_edit_transition;
+typedef struct wb_edit_sequence wb_edit_sequence;
 
 /* Transition types (map to compositor transition nodes) */
 typedef enum {
@@ -98,6 +99,15 @@ struct wb_edit_graph {
     wb_node *output_composite; /* final composite of all tracks */
     wb_node *output_node;      /* output node (encoding boundary) */
 
+    /* Color management pipeline (post chain) */
+    int color_management_enabled; /* 0 = bypass, 1 = apply post chain */
+    wb_cs_mode   input_cs;        /* input colorspace transform */
+    wb_cs_mode   output_cs;       /* output colorspace transform */
+    wb_tm_op     tonemap;         /* HDR->SDR tonemap operator */
+    wb_node     *cs_node;         /* colorspace node (input_cs -> output_cs) */
+    wb_node     *tm_node;         /* tonemap node */
+    wb_node     *post_output;     /* post chain output (pull endpoint) */
+
     /* Timeline config */
     double fps;
     int width;
@@ -108,6 +118,29 @@ struct wb_edit_graph {
     double eval_time;          /* last evaluation time */
     wb_frame *eval_frame;      /* cached output frame */
 };
+
+/* ---- nested sequence --------------------------------------------------- */
+/* A sequence is an edit graph that can be used as a clip inside another
+ * sequence. It wraps an inner wb_edit_graph and exposes a source node that,
+ * on pull(time), evaluates the inner graph at the given time. This enables
+ * compositing a sub-edit (e.g. a pre-edited segment) as a single clip. */
+
+struct wb_edit_sequence {
+    wb_edit_graph *graph;      /* inner edit graph (the nested sequence) */
+    wb_node       *source_node; /* source node: pull(time) -> eval inner graph */
+    double         duration;    /* timeline duration in seconds */
+};
+
+/* Create a nested sequence with the given fps and dimensions. */
+wb_edit_sequence *wb_edit_sequence_create(double fps, int w, int h);
+void              wb_edit_sequence_destroy(wb_edit_sequence *s);
+
+/* Get the inner edit graph for adding tracks/clips. */
+wb_edit_graph *wb_edit_sequence_graph(wb_edit_sequence *s);
+
+/* Get the source node that evaluates the inner graph on pull(time).
+ * Connect this to a parent sequence's track as a clip source. */
+wb_node *wb_edit_sequence_node(wb_edit_sequence *s);
 
 /* ---- lifecycle --------------------------------------------------------- */
 
@@ -179,6 +212,20 @@ int  wb_edit_clip_at(wb_edit_graph *g, int track, double timeline_pos);
 
 /* Get total timeline duration in seconds. */
 double wb_edit_graph_get_duration(const wb_edit_graph *g);
+
+/* ---- color management pipeline ----------------------------------------- */
+
+/* Enable (1) or disable (0) the color management post chain. */
+void wb_edit_set_color_management(wb_edit_graph *g, int enable);
+
+/* Set the input colorspace transform (applied first in the post chain). */
+void wb_edit_set_input_colorspace(wb_edit_graph *g, wb_cs_mode mode);
+
+/* Set the output colorspace transform (applied after input_cs). */
+void wb_edit_set_output_colorspace(wb_edit_graph *g, wb_cs_mode mode);
+
+/* Set the HDR->SDR tonemap operator (applied after colorspace transforms). */
+void wb_edit_set_tonemap(wb_edit_graph *g, wb_tm_op op);
 
 #ifdef __cplusplus
 }

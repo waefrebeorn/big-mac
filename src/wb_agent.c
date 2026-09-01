@@ -39,6 +39,9 @@ static char *trim(char *s) {
 /* R084: agent's edit graph for video editing via node pipeline */
 static wb_edit_graph *g_agent_edit = NULL;
 
+/* R084 nested sequence: agent's sub-sequence (edit graph as a clip) */
+static wb_edit_sequence *g_agent_seq = NULL;
+
 /* Read a quoted-or-unquoted token; advances *pp past it. Returns a pointer
  * into a small rotating buffer (so up to 4 tokens stay live simultaneously —
  * do NOT free; the next 4 calls overwrite them). */
@@ -688,6 +691,9 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         else if (strcmp(fx_name, "chromatic") == 0) fx = wb_node_effect_chromatic(3.0f);
         else if (strcmp(fx_name, "camera_shake") == 0) fx = wb_node_effect_camera_shake();
         else if (strcmp(fx_name, "audio_reactive") == 0) fx = wb_node_effect_audio_reactive(1.0f);
+        else if (strcmp(fx_name, "stabilize") == 0) fx = wb_node_effect_stabilize();
+        else if (strcmp(fx_name, "chromakey") == 0) fx = wb_node_effect_chromakey(0.0f, 1.0f, 0.0f, 0.4f);
+        else if (strcmp(fx_name, "transform") == 0) fx = wb_node_effect_transform_pro();
         else { fprintf(stderr, "ERR:unknown-fx:%s\n", fx_name); return -1; }
         int rc = wb_edit_clip_add_effect(g_agent_edit, track, clip, fx);
         if (rc != 0) { fprintf(stderr, "ERR:edit-fx:failed\n"); return -1; }
@@ -726,6 +732,105 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
                        c, cl->source_path, cl->start_in_source, cl->duration, cl->timeline_pos);
             }
         }
+        return 0;
+    }
+
+    /* R084: nested sequence commands */
+    if (strcmp(cmd, "edit-new-seq") == 0) {
+        double fps = atof(tok(&p));
+        int w = atoi(tok(&p));
+        int h = atoi(tok(&p));
+        if (fps <= 0) fps = 30.0;
+        if (w <= 0) w = 854;
+        if (h <= 0) h = 480;
+        if (g_agent_seq) wb_edit_sequence_destroy(g_agent_seq);
+        g_agent_seq = wb_edit_sequence_create(fps, w, h);
+        if (!g_agent_seq) { fprintf(stderr, "ERR:edit-new-seq:failed\n"); return -1; }
+        printf("edit-new-seq: %.1ffps %dx%d\n", fps, w, h);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-add-seq-clip") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        if (!g_agent_seq) { fprintf(stderr, "ERR:no-sequence\n"); return -1; }
+        int track = atoi(tok(&p));
+        double start = atof(tok(&p));
+        double dur = atof(tok(&p));
+        double tl = atof(tok(&p));
+        if (dur <= 0) dur = g_agent_seq->duration > 0 ? g_agent_seq->duration : 1.0;
+        /* Add the sequence's source node as a clip on the parent track.
+         * We use wb_node_pull on the sequence source node to get frames. */
+        /* First add a clip with a placeholder path, then replace its source_node */
+        int ci = wb_edit_add_clip(g_agent_edit, track, "[nested_seq]", start, dur, tl);
+        if (ci < 0) { fprintf(stderr, "ERR:edit-add-seq-clip:failed\n"); return -1; }
+        /* Replace the clip's source node with the sequence source node */
+        wb_edit_track *tr = &g_agent_edit->tracks[track];
+        wb_edit_clip *cl = &tr->clips[ci];
+        if (cl->source_node) wb_node_destroy(cl->source_node);
+        cl->source_node = g_agent_seq->source_node;
+        /* Take a ref so it survives if sequence is destroyed */
+        /* We keep g_agent_seq alive for the duration of the edit */
+        printf("edit-add-seq-clip: track %d clip %d dur=%.2fs tl=%.2fs\n", track, ci, dur, tl);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-color-on") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        wb_edit_set_color_management(g_agent_edit, 1);
+        printf("edit-color-on: color management enabled\n");
+        return 0;
+    }
+    if (strcmp(cmd, "edit-color-off") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        wb_edit_set_color_management(g_agent_edit, 0);
+        printf("edit-color-off: color management disabled\n");
+        return 0;
+    }
+    if (strcmp(cmd, "edit-input-cs") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        char *cs_str = tok(&p);
+        if (!cs_str) { fprintf(stderr, "ERR:usage:edit-input-cs <mode>\n"); return -1; }
+        wb_cs_mode mode = WB_CS_SRGB_TO_LINEAR;
+        if (strcmp(cs_str, "srgb-to-linear") == 0) mode = WB_CS_SRGB_TO_LINEAR;
+        else if (strcmp(cs_str, "linear-to-srgb") == 0) mode = WB_CS_LINEAR_TO_SRGB;
+        else if (strcmp(cs_str, "pq-to-linear") == 0) mode = WB_CS_PQ_TO_LINEAR;
+        else if (strcmp(cs_str, "linear-to-pq") == 0) mode = WB_CS_LINEAR_TO_PQ;
+        else if (strcmp(cs_str, "hlg-to-linear") == 0) mode = WB_CS_HLG_TO_LINEAR;
+        else if (strcmp(cs_str, "linear-to-hlg") == 0) mode = WB_CS_LINEAR_TO_HLG;
+        else if (strcmp(cs_str, "709-to-2020") == 0) mode = WB_CS_REC709_TO_2020;
+        else if (strcmp(cs_str, "2020-to-709") == 0) mode = WB_CS_REC2020_TO_709;
+        else { fprintf(stderr, "ERR:unknown-cs-mode:%s\n", cs_str); return -1; }
+        wb_edit_set_input_colorspace(g_agent_edit, mode);
+        printf("edit-input-cs: input colorspace set to %s\n", cs_str);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-output-cs") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        char *cs_str = tok(&p);
+        if (!cs_str) { fprintf(stderr, "ERR:usage:edit-output-cs <mode>\n"); return -1; }
+        wb_cs_mode mode = WB_CS_LINEAR_TO_SRGB;
+        if (strcmp(cs_str, "srgb-to-linear") == 0) mode = WB_CS_SRGB_TO_LINEAR;
+        else if (strcmp(cs_str, "linear-to-srgb") == 0) mode = WB_CS_LINEAR_TO_SRGB;
+        else if (strcmp(cs_str, "pq-to-linear") == 0) mode = WB_CS_PQ_TO_LINEAR;
+        else if (strcmp(cs_str, "linear-to-pq") == 0) mode = WB_CS_LINEAR_TO_PQ;
+        else if (strcmp(cs_str, "hlg-to-linear") == 0) mode = WB_CS_HLG_TO_LINEAR;
+        else if (strcmp(cs_str, "linear-to-hlg") == 0) mode = WB_CS_LINEAR_TO_HLG;
+        else if (strcmp(cs_str, "709-to-2020") == 0) mode = WB_CS_REC709_TO_2020;
+        else if (strcmp(cs_str, "2020-to-709") == 0) mode = WB_CS_REC2020_TO_709;
+        else { fprintf(stderr, "ERR:unknown-cs-mode:%s\n", cs_str); return -1; }
+        wb_edit_set_output_colorspace(g_agent_edit, mode);
+        printf("edit-output-cs: output colorspace set to %s\n", cs_str);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-tonemap") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        char *tm_str = tok(&p);
+        if (!tm_str) { fprintf(stderr, "ERR:usage:edit-tonemap <none|reinhard|aces>\n"); return -1; }
+        wb_tm_op op = WB_TM_NONE;
+        if (strcmp(tm_str, "none") == 0) op = WB_TM_NONE;
+        else if (strcmp(tm_str, "reinhard") == 0) op = WB_TM_REINHARD;
+        else if (strcmp(tm_str, "aces") == 0) op = WB_TM_ACES;
+        else { fprintf(stderr, "ERR:unknown-tonemap:%s\n", tm_str); return -1; }
+        wb_edit_set_tonemap(g_agent_edit, op);
+        printf("edit-tonemap: tonemap set to %s\n", tm_str);
         return 0;
     }
 

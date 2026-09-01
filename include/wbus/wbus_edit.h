@@ -237,6 +237,14 @@ int wb_audio_mix(wb_edit_graph *g, float *buf, double start_time, int n_frames);
 /* Get total audio duration in seconds. */
 double wb_audio_get_duration(const wb_edit_graph *g);
 
+/* ---- audio muxing ------------------------------------------------------- */
+
+/* Add an AAC audio track to an existing MP4 file from the edit graph's
+ * audio clips. Call AFTER wb_edit_render_to_mp4() to add sound.
+ * Returns 0 on success, -1 on error. */
+int wb_audio_mux_to_mp4(wb_edit_graph *g, const char *mp4_path,
+                          volatile int *cancel);
+
 /* ---- transitions ------------------------------------------------------- */
 
 /* Add a transition between two adjacent clips. Returns index or -1. */

@@ -871,6 +871,19 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         printf("edit-audio-vol: track %d clip %d vol=%.2f\n", track, clip, vol);
         return 0;
     }
+    if (strcmp(cmd, "edit-render-audio") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        char *out = tok(&p);
+        if (!out || !out[0]) { fprintf(stderr, "ERR:usage:edit-render-audio <out.mp4>\n"); return -1; }
+        printf("edit-render-audio: rendering video to %s ...\n", out);
+        int rc = wb_edit_graph_render_to_mp4(g_agent_edit, out, NULL, NULL, NULL);
+        if (rc == 0) {
+            printf("edit-render-audio: adding audio track...\n");
+            rc = wb_audio_mux_to_mp4(g_agent_edit, out, NULL);
+        }
+        printf("edit-render-audio: done (rc=%d)\n", rc);
+        return rc;
+    }
 
     /* R077: scene-detection auto-cut */
     if (strcmp(cmd, "edit-auto-cut") == 0) {

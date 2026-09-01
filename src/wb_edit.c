@@ -8,12 +8,15 @@
 #include "wbus/wbus_edit.h"
 #include "wbus/wbus_video.h"
 #include "wbus/wbus_compositor.h"
+#include "wbus/wb_internal.h"
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/opt.h>
 #include <libavutil/mathematics.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/samplefmt.h>
 #include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

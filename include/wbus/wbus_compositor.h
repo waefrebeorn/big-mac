@@ -212,6 +212,17 @@ void wb_node_effect_transform_pro_set_pos(wb_node *n, float x, float y);
 void wb_node_effect_transform_pro_set_scale(wb_node *n, float s);
 void wb_node_effect_transform_pro_set_rotation(wb_node *n, float radians);
 
+/* R086: mesh warp / puppet tool — deformable grid for character animation.
+ * Divides input into grid_w x grid_h cells; vertices can be pinned to
+ * arbitrary positions. Surrounding mesh follows pins based on stiffness
+ * (0.0 = rigid, 1.0 = full propagation). Bilinear interpolation within
+ * each cell gives smooth deformation (AE Puppet Tool parity). */
+wb_node *wb_node_effect_mesh_warp(int grid_w, int grid_h);
+void wb_node_effect_mesh_warp_set_pin(wb_node *n, int grid_x, int grid_y,
+                                       float pin_x, float pin_y);
+void wb_node_effect_mesh_warp_set_stiffness(wb_node *n, float stiffness);
+void wb_node_effect_mesh_warp_clear_pins(wb_node *n);
+
 /* R085: 3D LUT color grading node */
 wb_node *wb_node_effect_lut(const char *path);
 void wb_node_effect_lut_set_intensity(wb_node *n, float intensity);
@@ -231,6 +242,14 @@ wb_node *wb_node_effect_mode7(float horizon_frac, float strength,
 wb_node *wb_node_effect_motion_track(void);
 int wb_node_effect_motion_get_points(const wb_node *n, float *xs, float *ys,
                                       int max_points);
+
+/* R086: directional motion blur — AE-style shutter model.
+ * samples: sub-samples per frame (default 8). More = smoother but slower.
+ * Transform-driven: tracks pos_x/pos_y/scale/rotation params across frames
+ * and accumulates sub-samples along the motion vector. */
+wb_node *wb_node_effect_motion_blur(int samples);
+void wb_node_effect_motion_blur_set_shutter_angle(wb_node *n, float angle);
+void wb_node_effect_motion_blur_set_shutter_phase(wb_node *n, float phase);
 
 /* R074 hop 111: scene source — smoothstep gradient (vertical or radial)
  * with a moving light sweep. Colors are top/bottom endpoints. */
@@ -413,7 +432,23 @@ int wb_compositor_metal_process_deep_fry(wb_frame *f,
                                           float brightness,
                                           float noise);
 
+/* GPU-accelerated white balance (mirrors CPU op 9). */
+int wb_compositor_metal_process_white_balance(wb_frame *f,
+                                               float temp,
+                                               float tint);
+
 #ifdef __cplusplus
 }
 #endif
+
+/* ---- After Effects parity: advanced compositing ---- */
+wb_node *wb_node_trackmatte_create(void);
+void wb_node_trackmatte_set_mode(wb_node *node, int mode);
+
+wb_node *wb_node_frameblend_create(void);
+void wb_node_frameblend_set_factor(wb_node *node, float factor);
+
+wb_node *wb_node_adjustment_create(void);
+int wb_node_adjustment_add_effect(wb_node *node, wb_node *effect);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

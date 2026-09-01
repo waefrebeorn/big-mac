@@ -208,6 +208,45 @@ int main(void) {
         }
         wb_frame_free(df_gpu);
 
+        /* ---- Test 6: GPU white balance matches CPU ---- */
+        printf("\n-- GPU vs CPU white balance comparison --\n");
+        wb_frame *wb_cpu = wb_frame_alloc(W, H);
+        wb_frame *wb_gpu = wb_frame_alloc(W, H);
+        for (int i = 0; i < W * H; i++) {
+            wb_px px = { 0.6f, 0.4f, 0.8f, 1.0f };
+            wb_cpu->px[i] = px;
+            wb_gpu->px[i] = px;
+        }
+        float temp_val = 0.2f, tint_val = -0.1f;
+        /* CPU white balance */
+        for (int i = 0; i < W * H; i++) {
+            wb_cpu->px[i].r *= 1.0f + temp_val;
+            wb_cpu->px[i].b *= 1.0f - temp_val;
+            wb_cpu->px[i].g *= 1.0f + tint_val;
+            if (wb_cpu->px[i].r > 1.0f) wb_cpu->px[i].r = 1.0f;
+            if (wb_cpu->px[i].g > 1.0f) wb_cpu->px[i].g = 1.0f;
+            if (wb_cpu->px[i].b > 1.0f) wb_cpu->px[i].b = 1.0f;
+            if (wb_cpu->px[i].r < 0.0f) wb_cpu->px[i].r = 0.0f;
+            if (wb_cpu->px[i].g < 0.0f) wb_cpu->px[i].g = 0.0f;
+            if (wb_cpu->px[i].b < 0.0f) wb_cpu->px[i].b = 0.0f;
+        }
+        int wb_result = wb_compositor_metal_process_white_balance(wb_gpu, temp_val, tint_val);
+        CHECK(wb_result == 0, "GPU white balance call succeeded");
+        if (wb_result == 0) {
+            float max_err = 0.0f;
+            for (int i = 0; i < W * H; i++) {
+                float er = fabsf(wb_cpu->px[i].r - wb_gpu->px[i].r);
+                float eg = fabsf(wb_cpu->px[i].g - wb_gpu->px[i].g);
+                float eb = fabsf(wb_cpu->px[i].b - wb_gpu->px[i].b);
+                float m = fmaxf(er, fmaxf(eg, eb));
+                if (m > max_err) max_err = m;
+            }
+            printf("  [INFO] white balance max error: %.6f\n", max_err);
+            CHECK(max_err < 1e-5f, "GPU white balance matches CPU exactly");
+        }
+        wb_frame_free(wb_cpu);
+        wb_frame_free(wb_gpu);
+
         wb_compositor_metal_shutdown();
     } else {
         printf("\n-- GPU tests skipped (Metal unavailable) --\n");

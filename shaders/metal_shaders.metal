@@ -1,8 +1,8 @@
 /* metal_shaders.metal — Metal compute shaders for Big Mac compositor GPU acceleration.
  *
  * These shaders mirror the CPU effect ops in wb_compositor.c. Each kernel
- * corresponds to one effect node. The first one implemented is the primary
- * color grade (op 8): lift/gamma/gain/saturation in linear light.
+ * corresponds to one effect node. Uses buffer-based compute (float4 arrays)
+ * for compatibility with older Intel GPUs that don't support texture shader-write.
  *
  * More shaders (deep_fry, vhs, rgb_glitch, etc.) can be added here following
  * the same pattern. */
@@ -21,20 +21,20 @@ inline float srgb_encode(float v) {
 }
 
 /* ---- Primary color grade (mirrors CPU op 8 in wb_compositor.c) ----
- * lift/gamma/gain/saturation applied in linear light, matching the CPU path
- * exactly so GPU output is bit-identical (within float precision). */
+ * Buffer-based: reads/writes float4 RGBA from device buffers.
+ * lift/gamma/gain/saturation applied in linear light. */
 kernel void grade_primary(
-    texture2d<float, access::read>  in_tex  [[texture(0)]],
-    texture2d<float, access::write> out_tex [[texture(1)]],
-    constant float &lift      [[buffer(0)]],
-    constant float &gamma     [[buffer(1)]],
-    constant float &gain      [[buffer(2)]],
-    constant float &sat       [[buffer(3)]],
-    uint2 gid [[thread_position_in_grid]])
+    device const float4 *in_buf   [[buffer(0)]],
+    device float4       *out_buf  [[buffer(1)]],
+    constant float4     &params   [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
 {
-    if (gid.x >= in_tex.get_width() || gid.y >= in_tex.get_height()) return;
+    float lift = params.x;
+    float gamma = params.y;
+    float gain = params.z;
+    float sat = params.w;
 
-    float4 p = in_tex.read(gid);
+    float4 p = in_buf[gid];
 
     /* ASC order: lift, then gamma+gain in linear, then encode */
     float3 c = p.rgb + float3(lift);
@@ -49,7 +49,6 @@ kernel void grade_primary(
     /* gamma + gain */
     float g = gamma > 0.001f ? gamma : 1.0f;
     float gnv = gain > 0.001f ? gain : 1.0f;
-    /* Clamp to avoid pow(0,neg)=inf or pow(neg,frac)=NaN */
     lin = max(lin, 0.0f);
     lin = pow(lin, 1.0f / g) * gnv;
 
@@ -64,66 +63,63 @@ kernel void grade_primary(
     enc = lum + (enc - lum) * sat;
     enc = clamp(enc, 0.0f, 1.0f);
 
-    out_tex.write(float4(enc, p.a), gid);
+    out_buf[gid] = float4(enc, p.a);
 }
 
 /* ---- Brightness gain (mirrors CPU op 1) ---- */
 kernel void effect_gain(
-    texture2d<float, access::read>  in_tex  [[texture(0)]],
-    texture2d<float, access::write> out_tex [[texture(1)]],
-    constant float &gain      [[buffer(0)]],
-    uint2 gid [[thread_position_in_grid]])
+    device const float4 *in_buf   [[buffer(0)]],
+    device float4       *out_buf  [[buffer(1)]],
+    constant float      &gain     [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
 {
-    if (gid.x >= in_tex.get_width() || gid.y >= in_tex.get_height()) return;
-    float4 p = in_tex.read(gid);
+    float4 p = in_buf[gid];
     p.rgb *= gain;
     p.rgb = clamp(p.rgb, 0.0f, 1.0f);
-    out_tex.write(p, gid);
+    out_buf[gid] = p;
 }
 
 /* ---- Invert alpha (mirrors CPU op 2) ---- */
 kernel void effect_invert_alpha(
-    texture2d<float, access::read>  in_tex  [[texture(0)]],
-    texture2d<float, access::write> out_tex [[texture(1)]],
-    uint2 gid [[thread_position_in_grid]])
+    device const float4 *in_buf   [[buffer(0)]],
+    device float4       *out_buf  [[buffer(1)]],
+    uint gid [[thread_position_in_grid]])
 {
-    if (gid.x >= in_tex.get_width() || gid.y >= in_tex.get_height()) return;
-    float4 p = in_tex.read(gid);
+    float4 p = in_buf[gid];
     p.a = 1.0f - p.a;
-    out_tex.write(p, gid);
+    out_buf[gid] = p;
 }
 
 /* ---- White balance (mirrors CPU op 9) ---- */
 kernel void effect_white_balance(
-    texture2d<float, access::read>  in_tex  [[texture(0)]],
-    texture2d<float, access::write> out_tex [[texture(1)]],
-    constant float &temp      [[buffer(0)]],
-    constant float &tint      [[buffer(1)]],
-    uint2 gid [[thread_position_in_grid]])
+    device const float4 *in_buf   [[buffer(0)]],
+    device float4       *out_buf  [[buffer(1)]],
+    constant float2     &params   [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
 {
-    if (gid.x >= in_tex.get_width() || gid.y >= in_tex.get_height()) return;
-    float4 p = in_tex.read(gid);
+    float temp = params.x;
+    float tint = params.y;
+    float4 p = in_buf[gid];
     p.r *= 1.0f + temp;
     p.b *= 1.0f - temp;
     p.g *= 1.0f + tint;
     p.rgb = clamp(p.rgb, 0.0f, 1.0f);
-    out_tex.write(p, gid);
+    out_buf[gid] = p;
 }
 
-/* ---- Deep fry effect (simplified GPU version of wb_deep_fry.c) ----
- * Applies saturation boost, contrast stretch, and brightness in one pass.
- * The full multi-pass CPU version with noise/sharpen can be added later. */
+/* ---- Deep fry effect (GPU version of wb_deep_fry.c) ---- */
 kernel void effect_deep_fry(
-    texture2d<float, access::read>  in_tex  [[texture(0)]],
-    texture2d<float, access::write> out_tex [[texture(1)]],
-    constant float &saturation  [[buffer(0)]],
-    constant float &contrast    [[buffer(1)]],
-    constant float &brightness  [[buffer(2)]],
-    constant float &noise_amt   [[buffer(3)]],
-    uint2 gid [[thread_position_in_grid]])
+    device const float4 *in_buf    [[buffer(0)]],
+    device float4       *out_buf   [[buffer(1)]],
+    constant float4     &params    [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
 {
-    if (gid.x >= in_tex.get_width() || gid.y >= in_tex.get_height()) return;
-    float4 p = in_tex.read(gid);
+    float saturation = params.x;
+    float contrast = params.y;
+    float brightness = params.z;
+    float noise_amt = params.w;
+
+    float4 p = in_buf[gid];
 
     /* Brightness */
     p.rgb *= brightness;
@@ -137,12 +133,12 @@ kernel void effect_deep_fry(
 
     /* Simple hash noise (deterministic per-pixel) */
     if (noise_amt > 0.0f) {
-        uint h = gid.x * 73856093u ^ gid.y * 19349663u;
+        uint h = gid * 73856093u ^ 19349663u;
         h = h * 1103515245u + 12345u;
         float n = float(h & 0xFFFF) / 65535.0f - 0.5f;
         p.rgb += n * noise_amt;
     }
 
     p.rgb = clamp(p.rgb, 0.0f, 1.0f);
-    out_tex.write(p, gid);
+    out_buf[gid] = p;
 }

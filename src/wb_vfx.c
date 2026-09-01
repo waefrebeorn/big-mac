@@ -54,6 +54,42 @@ static inline float blend_difference(float b, float s) {
 static inline float blend_exclusion(float b, float s) {
     return b + s - 2.0f * b * s;
 }
+static inline float blend_divide(float b, float s) {
+    return s < 1e-6f ? 1.0f : fminf(1.0f, b / (s + 1e-6f));
+}
+static inline float blend_linear_dodge(float b, float s) {
+    return fminf(1.0f, b + s);
+}
+static inline float blend_linear_burn(float b, float s) {
+    return fmaxf(0.0f, b + s - 1.0f);
+}
+static inline float blend_vivid_light(float b, float s) {
+    if (s < 0.5f) return s <= 0.0f ? 0.0f : fmaxf(0.0f, 1.0f - (1.0f - b) / (2.0f * s + 1e-6f));
+    return s >= 1.0f ? 1.0f : fminf(1.0f, b / (2.0f * (1.0f - s) + 1e-6f));
+}
+static inline float blend_pin_light(float b, float s) {
+    if (s < 0.5f) return fminf(b, 2.0f * s);
+    return fmaxf(b, 2.0f * (s - 0.5f));
+}
+static inline float blend_hard_mix(float b, float s) {
+    return (b + s) >= 1.0f ? 1.0f : 0.0f;
+}
+
+/* HSL conversion helpers for Hue/Saturation/Color/Luminosity blends */
+static float rgb_to_h(float r, float g, float b, float *h_out) {
+    float max = fmaxf(r, fmaxf(g, b));
+    float min = fminf(r, fminf(g, b));
+    float h = 0;
+    float d = max - min;
+    if (d > 1e-6f) {
+        if (max == r) h = 60.0f * fmodf(((g - b) / d), 6.0f);
+        else if (max == g) h = 60.0f * (((b - r) / d) + 2.0f);
+        else h = 60.0f * (((r - g) / d) + 4.0f);
+    }
+    if (h < 0) h += 360.0f;
+    *h_out = h;
+    return max - min; /* return chroma */
+}
 
 /* wb_blend_mode enum is now defined in wbus/wbus_vfx.h for cross-module use */
 
@@ -88,6 +124,57 @@ void wb_blend_pixels(uint8_t *dst, const uint8_t *src, int count, wb_blend_mode 
         case WB_BLEND_EXCLUSION:   or_r=blend_exclusion(db,sb); or_g=blend_exclusion(dg,sg); or_b=blend_exclusion(dbl,sbl); break;
         case WB_BLEND_ADD:         or_r=fminf(1,db+sb); or_g=fminf(1,dg+sg); or_b=fminf(1,dbl+sbl); break;
         case WB_BLEND_SUBTRACT:    or_r=fmaxf(0,db-sb); or_g=fmaxf(0,dg-sg); or_b=fmaxf(0,dbl-sbl); break;
+        case WB_BLEND_DIVIDE:      or_r=blend_divide(db,sb); or_g=blend_divide(dg,sg); or_b=blend_divide(dbl,sbl); break;
+        case WB_BLEND_LINEAR_DODGE:or_r=blend_linear_dodge(db,sb); or_g=blend_linear_dodge(dg,sg); or_b=blend_linear_dodge(dbl,sbl); break;
+        case WB_BLEND_LINEAR_BURN: or_r=blend_linear_burn(db,sb); or_g=blend_linear_burn(dg,sg); or_b=blend_linear_burn(dbl,sbl); break;
+        case WB_BLEND_VIVID_LIGHT: or_r=blend_vivid_light(db,sb); or_g=blend_vivid_light(dg,sg); or_b=blend_vivid_light(dbl,sbl); break;
+        case WB_BLEND_PIN_LIGHT:   or_r=blend_pin_light(db,sb); or_g=blend_pin_light(dg,sg); or_b=blend_pin_light(dbl,sbl); break;
+        case WB_BLEND_HARD_MIX:    or_r=blend_hard_mix(db,sb); or_g=blend_hard_mix(dg,sg); or_b=blend_hard_mix(dbl,sbl); break;
+        case WB_BLEND_HUE:
+        case WB_BLEND_SATURATION:
+        case WB_BLEND_COLOR:
+        case WB_BLEND_LUMINOSITY:
+            { /* HSL-based blends */
+                float sb_h, db_h;
+                float sb_max = rgb_to_h(sb, sg, sbl, &sb_h);
+                float db_max = rgb_to_h(db, dg, dbl, &db_h);
+                float sb_l = (sb + sg + sbl) / 3.0f;
+                float db_l = (db + dg + dbl) / 3.0f;
+                float sr, sg2, sb2;
+                if (mode == WB_BLEND_HUE) {
+                    /* Use src hue, dst saturation+luminosity */
+                    sr = sb * 0.5f + 0.5f; sg2 = sg * 0.5f + 0.5f; sb2 = sbl * 0.5f + 0.5f;
+                    (void)sb_h; (void)db_h; (void)sb_max; (void)db_max;
+                    sr = db; sg2 = dg; sb2 = dbl;
+                    /* Approximate: keep dst luma, use src hue */
+                    float src_chroma = sb_max;
+                    float dst_luma = db_l;
+                    sr = dst_luma + src_chroma * (sb - sb_l);
+                    sg2 = dst_luma + src_chroma * (sg - sb_l);
+                    sb2 = dst_luma + src_chroma * (sbl - sb_l);
+                } else if (mode == WB_BLEND_SATURATION) {
+                    sr = db; sg2 = dg; sb2 = dbl;
+                    float dst_chroma = db_max;
+                    sr = sb_l + dst_chroma * (sb - sb_l);
+                    sg2 = sb_l + dst_chroma * (sg - sb_l);
+                    sb2 = sb_l + dst_chroma * (sbl - sb_l);
+                } else if (mode == WB_BLEND_COLOR) {
+                    sr = db; sg2 = dg; sb2 = dbl;
+                    float src_chroma = sb_max;
+                    sr = db_l + src_chroma * (sb - sb_l);
+                    sg2 = db_l + src_chroma * (sg - sb_l);
+                    sb2 = db_l + src_chroma * (sbl - sb_l);
+                } else { /* LUMINOSITY */
+                    float dst_chroma = db_max;
+                    sr = sb_l + dst_chroma * (db - db_l);
+                    sg2 = sb_l + dst_chroma * (dg - db_l);
+                    sb2 = sb_l + dst_chroma * (dbl - db_l);
+                }
+                or_r = fminf(1, fmaxf(0, sr));
+                or_g = fminf(1, fmaxf(0, sg2));
+                or_b = fminf(1, fmaxf(0, sb2));
+            }
+            break;
         default:                   or_r=sb; or_g=sg; or_b=sbl; break;
         }
 

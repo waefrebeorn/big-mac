@@ -3,10 +3,8 @@
  * Objective-C++ layer that wraps Metal for GPU-accelerated effect processing.
  * Falls back to CPU path when Metal is unavailable or fails.
  *
- * Usage:
- *   wb_compositor_metal_init();            // call once at startup
- *   wb_compositor_metal_process_grade(f, lift, gamma, gain, sat);
- *   wb_compositor_metal_shutdown();        // call at exit
+ * Uses buffer-based compute (not textures) for maximum compatibility with
+ * older Intel GPUs that may not support shader-write on float textures.
  */
 
 #include <Foundation/Foundation.h>
@@ -20,8 +18,8 @@ extern "C" {
 #include <string.h>
 #include <stdlib.h>
 
-/* Maximum texture dimensions supported */
-#define METAL_MAX_DIM 8192
+/* Maximum buffer size */
+#define METAL_MAX_PIXELS (8192 * 8192)
 
 /* Metal device lifecycle state */
 static id<MTLDevice>              g_device = nil;
@@ -36,14 +34,6 @@ static int g_metal_available = 0;
 
 /* ---- helpers ---- */
 
-static const char *kernel_name_grade         = "grade_primary";
-static const char *kernel_name_gain          = "effect_gain";
-static const char *kernel_name_invert_alpha  = "effect_invert_alpha";
-static const char *kernel_name_white_balance = "effect_white_balance";
-static const char *kernel_name_deep_fry      = "effect_deep_fry";
-
-/* Try to load a pre-compiled Metal library from the build directory.
- * Falls back to runtime source compilation if the .metallib isn't found. */
 static int load_metal_library(void) {
     NSError *error = nil;
 
@@ -53,8 +43,8 @@ static int load_metal_library(void) {
         @"metal_shaders.metlib",
     ];
     for (NSString *path in metallib_paths) {
-        NSURL *url = [NSURL fileURLWithPath:path];
         if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+            NSURL *url = [NSURL fileURLWithPath:path];
             id<MTLLibrary> lib = [g_device newLibraryWithURL:url error:&error];
             if (lib) {
                 g_lib = lib;
@@ -75,8 +65,7 @@ static int load_metal_library(void) {
                                               encoding:NSUTF8StringEncoding
                                                  error:&error];
     if (!src) {
-        fprintf(stderr, "[Metal] failed to read shader source: %s\n",
-                [[error localizedDescription] UTF8String]);
+        fprintf(stderr, "[Metal] failed to read shader source\n");
         return -1;
     }
 
@@ -115,7 +104,6 @@ static id<MTLComputePipelineState> make_pipeline(const char *name) {
 
 extern "C" {
 
-/* Initialize Metal. Returns 0 on success, -1 if Metal is unavailable. */
 int wb_compositor_metal_init(void) {
     if (g_metal_available) return 0;
 
@@ -137,12 +125,11 @@ int wb_compositor_metal_init(void) {
             return -1;
         }
 
-        /* Create all pipeline states */
-        g_pipe_grade         = make_pipeline(kernel_name_grade);
-        g_pipe_gain          = make_pipeline(kernel_name_gain);
-        g_pipe_invert_alpha  = make_pipeline(kernel_name_invert_alpha);
-        g_pipe_white_balance = make_pipeline(kernel_name_white_balance);
-        g_pipe_deep_fry      = make_pipeline(kernel_name_deep_fry);
+        g_pipe_grade         = make_pipeline("grade_primary");
+        g_pipe_gain          = make_pipeline("effect_gain");
+        g_pipe_invert_alpha  = make_pipeline("effect_invert_alpha");
+        g_pipe_white_balance = make_pipeline("effect_white_balance");
+        g_pipe_deep_fry      = make_pipeline("effect_deep_fry");
 
         if (!g_pipe_grade) {
             fprintf(stderr, "[Metal] critical kernel 'grade_primary' missing\n");
@@ -156,12 +143,10 @@ int wb_compositor_metal_init(void) {
     }
 }
 
-/* Check if Metal is available for GPU processing */
 int wb_compositor_metal_is_available(void) {
     return g_metal_available;
 }
 
-/* Shutdown Metal and release resources */
 void wb_compositor_metal_shutdown(void) {
     @autoreleasepool {
         g_pipe_deep_fry      = nil;
@@ -176,58 +161,28 @@ void wb_compositor_metal_shutdown(void) {
     }
 }
 
-/* Core GPU processing: apply primary color grade to a wb_frame.
- * Runs the Metal compute shader and writes results back to f->px.
- * Returns 0 on success, -1 on failure (caller should fall back to CPU). */
-int wb_compositor_metal_process_grade(wb_frame *f,
-                                      float lift, float gamma,
-                                      float gain, float saturation) {
-    if (!g_metal_available || !f || !f->px) return -1;
-    if (f->w <= 0 || f->h <= 0) return -1;
-    if (f->w > METAL_MAX_DIM || f->h > METAL_MAX_DIM) return -1;
-    if (saturation <= 0.0f) saturation = 1.0f;
-
+/* Helper: run a compute shader on a shared buffer of float4 pixels. */
+static int run_compute_buffer(id<MTLComputePipelineState> pipe,
+                               id<MTLBuffer> buf_in,
+                               id<MTLBuffer> buf_out,
+                               int n_pixels,
+                               const void *params, size_t params_size) {
     @autoreleasepool {
-        /* Create input/output textures from the frame's pixel data */
-        MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA32Float
-                                                                                    width:(NSUInteger)f->w
-                                                                                   height:(NSUInteger)f->h
-                                                                                mipmapped:NO];
-        [td setStorageMode:MTLStorageModeShared];  /* CPU-visible */
-        [td setUsage:MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite];
-
-        /* Input texture: copy frame data in */
-        id<MTLTexture> tex_in = [g_device newTextureWithDescriptor:td];
-        MTLRegion region = MTLRegionMake2D(0, 0, (NSUInteger)f->w, (NSUInteger)f->h);
-        [tex_in replaceRegion:region
-                  mipmapLevel:0
-                    withBytes:f->px
-                  bytesPerRow:(NSUInteger)(f->w * sizeof(float) * 4)];
-
-        /* Output texture */
-        id<MTLTexture> tex_out = [g_device newTextureWithDescriptor:td];
-
-        /* Encode compute command */
         id<MTLCommandBuffer> cmd = [g_cmdq commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cmd computeCommandEncoder];
 
-        [enc setComputePipelineState:g_pipe_grade];
-        [enc setTexture:tex_in  atIndex:0];
-        [enc setTexture:tex_out atIndex:1];
+        [enc setComputePipelineState:pipe];
+        [enc setBuffer:buf_in  offset:0 atIndex:0];
+        [enc setBuffer:buf_out offset:0 atIndex:1];
+        if (params && params_size > 0) {
+            [enc setBytes:params length:params_size atIndex:2];
+        }
 
-        /* Set grade parameters */
-        float params[4] = {lift, gamma, gain, saturation};
-        [enc setBytes:params length:sizeof(params) atIndex:0];
-
-        /* Dispatch thread groups */
-        MTLSize threadgroup = {16, 16, 1};
-        if (threadgroup.width > (NSUInteger)f->w)  threadgroup.width  = (NSUInteger)f->w;
-        if (threadgroup.height > (NSUInteger)f->h) threadgroup.height = (NSUInteger)f->h;
-        MTLSize grid = {
-            ((NSUInteger)f->w + threadgroup.width - 1)  / threadgroup.width,
-            ((NSUInteger)f->h + threadgroup.height - 1) / threadgroup.height,
-            1
-        };
+        /* Thread group size 256 for 1D compute */
+        NSUInteger tg = 256;
+        if (tg > (NSUInteger)n_pixels) tg = (NSUInteger)n_pixels;
+        MTLSize threadgroup = {tg, 1, 1};
+        MTLSize grid = {((NSUInteger)n_pixels + tg - 1) / tg, 1, 1};
 
         [enc dispatchThreadgroups:grid threadsPerThreadgroup:threadgroup];
         [enc endEncoding];
@@ -236,118 +191,130 @@ int wb_compositor_metal_process_grade(wb_frame *f,
         [cmd waitUntilCompleted];
 
         if ([cmd error]) {
-            fprintf(stderr, "[Metal] grade command failed: %s\n",
+            fprintf(stderr, "[Metal] compute failed: %s\n",
                     [[[cmd error] localizedDescription] UTF8String]);
             return -1;
         }
-
-        /* Read back results */
-        [tex_out getBytes:f->px
-              bytesPerRow:(NSUInteger)(f->w * sizeof(float) * 4)
-               fromRegion:region
-              mipmapLevel:0];
-
         return 0;
     }
 }
 
-/* Apply brightness gain effect on GPU */
-int wb_compositor_metal_process_gain(wb_frame *f, float gain) {
+int wb_compositor_metal_process_grade(wb_frame *f,
+                                      float lift, float gamma,
+                                      float gain, float saturation) {
     if (!g_metal_available || !f || !f->px) return -1;
-    if (f->w <= 0 || f->h <= 0 || f->w > METAL_MAX_DIM || f->h > METAL_MAX_DIM) return -1;
+    if (f->w <= 0 || f->h <= 0) return -1;
+    int n = f->w * f->h;
+    if (n > METAL_MAX_PIXELS) return -1;
+    if (saturation <= 0.0f) saturation = 1.0f;
 
     @autoreleasepool {
-        MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA32Float
-                                                                                    width:(NSUInteger)f->w
-                                                                                   height:(NSUInteger)f->h
-                                                                                mipmapped:NO];
-        [td setStorageMode:MTLStorageModeShared];
-        [td setUsage:MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite];
+        size_t buf_size = (size_t)n * sizeof(float) * 4;
 
-        id<MTLTexture> tex_in = [g_device newTextureWithDescriptor:td];
-        MTLRegion region = MTLRegionMake2D(0, 0, (NSUInteger)f->w, (NSUInteger)f->h);
-        [tex_in replaceRegion:region mipmapLevel:0
-                    withBytes:f->px
-                  bytesPerRow:(NSUInteger)(f->w * sizeof(float) * 4)];
+        /* Create shared buffers (CPU-visible) */
+        id<MTLBuffer> buf_in = [g_device newBufferWithBytes:f->px
+                                                    length:buf_size
+                                                   options:MTLResourceStorageModeShared];
+        id<MTLBuffer> buf_out = [g_device newBufferWithLength:buf_size
+                                                     options:MTLResourceStorageModeShared];
+        if (!buf_in || !buf_out) return -1;
 
-        id<MTLTexture> tex_out = [g_device newTextureWithDescriptor:td];
+        float params[4] = {lift, gamma, gain, saturation};
+        int result = run_compute_buffer(g_pipe_grade, buf_in, buf_out, n,
+                                        params, sizeof(params));
 
-        id<MTLCommandBuffer> cmd = [g_cmdq commandBuffer];
-        id<MTLComputeCommandEncoder> enc = [cmd computeCommandEncoder];
-
-        [enc setComputePipelineState:g_pipe_gain];
-        [enc setTexture:tex_in  atIndex:0];
-        [enc setTexture:tex_out atIndex:1];
-        [enc setBytes:&gain length:sizeof(gain) atIndex:0];
-
-        MTLSize threadgroup = {16, 16, 1};
-        MTLSize grid = {((NSUInteger)f->w + 15) / 16, ((NSUInteger)f->h + 15) / 16, 1};
-        [enc dispatchThreadgroups:grid threadsPerThreadgroup:threadgroup];
-        [enc endEncoding];
-
-        [cmd commit];
-        [cmd waitUntilCompleted];
-
-        if ([cmd error]) return -1;
-
-        [tex_out getBytes:f->px
-              bytesPerRow:(NSUInteger)(f->w * sizeof(float) * 4)
-               fromRegion:region
-              mipmapLevel:0];
-        return 0;
+        if (result == 0) {
+            /* Copy results back */
+            memcpy(f->px, [buf_out contents], buf_size);
+        }
+        return result;
     }
 }
 
-/* Apply deep fry effect on GPU */
+int wb_compositor_metal_process_gain(wb_frame *f, float gain) {
+    if (!g_metal_available || !f || !f->px) return -1;
+    if (f->w <= 0 || f->h <= 0) return -1;
+    int n = f->w * f->h;
+    if (n > METAL_MAX_PIXELS) return -1;
+
+    @autoreleasepool {
+        size_t buf_size = (size_t)n * sizeof(float) * 4;
+
+        id<MTLBuffer> buf_in = [g_device newBufferWithBytes:f->px
+                                                    length:buf_size
+                                                   options:MTLResourceStorageModeShared];
+        id<MTLBuffer> buf_out = [g_device newBufferWithLength:buf_size
+                                                     options:MTLResourceStorageModeShared];
+        if (!buf_in || !buf_out) return -1;
+
+        int result = run_compute_buffer(g_pipe_gain, buf_in, buf_out, n,
+                                        &gain, sizeof(gain));
+
+        if (result == 0) {
+            memcpy(f->px, [buf_out contents], buf_size);
+        }
+        return result;
+    }
+}
+
 int wb_compositor_metal_process_deep_fry(wb_frame *f,
                                          float saturation,
                                          float contrast,
                                          float brightness,
                                          float noise) {
     if (!g_metal_available || !f || !f->px) return -1;
-    if (f->w <= 0 || f->h <= 0 || f->w > METAL_MAX_DIM || f->h > METAL_MAX_DIM) return -1;
+    if (f->w <= 0 || f->h <= 0) return -1;
+    int n = f->w * f->h;
+    if (n > METAL_MAX_PIXELS) return -1;
 
     @autoreleasepool {
-        MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA32Float
-                                                                                    width:(NSUInteger)f->w
-                                                                                   height:(NSUInteger)f->h
-                                                                                mipmapped:NO];
-        [td setStorageMode:MTLStorageModeShared];
-        [td setUsage:MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite];
+        size_t buf_size = (size_t)n * sizeof(float) * 4;
 
-        id<MTLTexture> tex_in = [g_device newTextureWithDescriptor:td];
-        MTLRegion region = MTLRegionMake2D(0, 0, (NSUInteger)f->w, (NSUInteger)f->h);
-        [tex_in replaceRegion:region mipmapLevel:0
-                    withBytes:f->px
-                  bytesPerRow:(NSUInteger)(f->w * sizeof(float) * 4)];
-
-        id<MTLTexture> tex_out = [g_device newTextureWithDescriptor:td];
-
-        id<MTLCommandBuffer> cmd = [g_cmdq commandBuffer];
-        id<MTLComputeCommandEncoder> enc = [cmd computeCommandEncoder];
-
-        [enc setComputePipelineState:g_pipe_deep_fry];
-        [enc setTexture:tex_in  atIndex:0];
-        [enc setTexture:tex_out atIndex:1];
+        id<MTLBuffer> buf_in = [g_device newBufferWithBytes:f->px
+                                                    length:buf_size
+                                                   options:MTLResourceStorageModeShared];
+        id<MTLBuffer> buf_out = [g_device newBufferWithLength:buf_size
+                                                     options:MTLResourceStorageModeShared];
+        if (!buf_in || !buf_out) return -1;
 
         float params[4] = {saturation, contrast, brightness, noise};
-        [enc setBytes:params length:sizeof(params) atIndex:0];
+        int result = run_compute_buffer(g_pipe_deep_fry, buf_in, buf_out, n,
+                                        params, sizeof(params));
 
-        MTLSize threadgroup = {16, 16, 1};
-        MTLSize grid = {((NSUInteger)f->w + 15) / 16, ((NSUInteger)f->h + 15) / 16, 1};
-        [enc dispatchThreadgroups:grid threadsPerThreadgroup:threadgroup];
-        [enc endEncoding];
+        if (result == 0) {
+            memcpy(f->px, [buf_out contents], buf_size);
+        }
+        return result;
+    }
+}
 
-        [cmd commit];
-        [cmd waitUntilCompleted];
+int wb_compositor_metal_process_white_balance(wb_frame *f,
+                                               float temp,
+                                               float tint) {
+    if (!g_metal_available || !f || !f->px) return -1;
+    if (f->w <= 0 || f->h <= 0) return -1;
+    int n = f->w * f->h;
+    if (n > METAL_MAX_PIXELS) return -1;
 
-        if ([cmd error]) return -1;
+    @autoreleasepool {
+        size_t buf_size = (size_t)n * sizeof(float) * 4;
 
-        [tex_out getBytes:f->px
-              bytesPerRow:(NSUInteger)(f->w * sizeof(float) * 4)
-               fromRegion:region
-              mipmapLevel:0];
-        return 0;
+        id<MTLBuffer> buf_in = [g_device newBufferWithBytes:f->px
+                                                    length:buf_size
+                                                   options:MTLResourceStorageModeShared];
+        id<MTLBuffer> buf_out = [g_device newBufferWithLength:buf_size
+                                                     options:MTLResourceStorageModeShared];
+        if (!buf_in || !buf_out) return -1;
+
+        /* Pack temp/tint into float4 (match shader constant float2 at index 2) */
+        float params[2] = {temp, tint};
+        int result = run_compute_buffer(g_pipe_white_balance, buf_in, buf_out, n,
+                                        params, sizeof(params));
+
+        if (result == 0) {
+            memcpy(f->px, [buf_out contents], buf_size);
+        }
+        return result;
     }
 }
 

@@ -63,9 +63,19 @@ int wb_compositor_tile_size(void) {
 
 /* ---- G12: GPU-offload boundary -------------------------------------- */
 void wb_compositor_set_backend(wb_render_backend b) {
-    /* CPU path is authoritative; flipping to GPU only marks the boundary
-     * where a Metal interop layer would wrap wb_px buffers. */
-    g_backend = (b == WB_RENDER_GPU) ? WB_RENDER_GPU : WB_RENDER_CPU;
+    if (b == WB_RENDER_GPU) {
+        /* Try to initialize Metal; fall back to CPU if unavailable */
+        if (wb_compositor_metal_init() != 0) {
+            fprintf(stderr, "wb_compositor_set_backend: Metal init failed,"
+                            " staying on CPU\n");
+            g_backend = WB_RENDER_CPU;
+            return;
+        }
+        g_backend = WB_RENDER_GPU;
+        fprintf(stderr, "wb_compositor_set_backend: GPU (Metal) active\n");
+    } else {
+        g_backend = WB_RENDER_CPU;
+    }
 }
 wb_render_backend wb_compositor_get_backend(void) { return (wb_render_backend)g_backend; }
 /* R074 hop 142 (#49/#69): the gpu bit is now honest — it marks a frame
@@ -470,6 +480,32 @@ static wb_frame *eff_pull(wb_node *self, double t,
     float p_cur_wht = wb_node_param_value(self, "cur_wht", t);
     float p_hue_c   = wb_node_param_value(self, "hue_c", t);
     if (p_gam <= 0.0f) p_gam = 1.0f;
+
+    /* G12: GPU offload — if backend is GPU and this is a grade op (8),
+     * brightness gain (1), or white balance (9), run the whole frame on
+     * Metal and skip the CPU per-pixel loop. Falls back to CPU on any
+     * GPU error. */
+    if (g_backend == WB_RENDER_GPU && wb_compositor_metal_is_available() &&
+        (e->op == 8 || e->op == 1 || e->op == 9)) {
+        int gpu_ok = 0;
+        if (e->op == 8) {
+            float lift = p_lift, gam = p_gam, gnv = p_gnv, sat = p_sat;
+            if (sat <= 0.0f) sat = e->gain > 0 ? e->gain : 1.0f;
+            /* Process the full frame (not just ROI) since buffer is linear */
+            if (wb_compositor_metal_process_grade(in, lift, gam, gnv, sat) == 0)
+                gpu_ok = 1;
+        } else if (e->op == 1) {
+            if (wb_compositor_metal_process_gain(in, gain) == 0)
+                gpu_ok = 1;
+        } else if (e->op == 9) {
+            if (wb_compositor_metal_process_white_balance(in, p_temp, p_tint) == 0)
+                gpu_ok = 1;
+        }
+        if (gpu_ok) return in;
+        /* GPU failed — fall through to CPU path */
+        fprintf(stderr, "wb_compositor: GPU op %d failed, using CPU\n", e->op);
+    }
+
 for (int y = ry; y < ry + rh; y++)
         for (int x = rx; x < rx + rw; x++) {
             wb_px *p = &in->px[y*in->w + x];

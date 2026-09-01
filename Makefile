@@ -711,6 +711,13 @@ build/wb_test_motion_blur: tests/test_motion_blur.c $(CORE_OBJS)
 test_motion_blur: build/wb_test_motion_blur
 	./build/wb_test_motion_blur
 
+# ---- per-character text animator test ----
+build/wb_test_text_animator: tests/test_text_animator.c $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ tests/test_text_animator.c $(CORE_OBJS) -lm $(LIBS)
+
+test_text_animator: build/wb_test_text_animator
+	./build/wb_test_text_animator
+
 test_compositor_pro: build/wb_test_compositor_pro
 	./build/wb_test_compositor_pro
 

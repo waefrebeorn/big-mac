@@ -8,6 +8,29 @@
 #include "wbus/wbus_compositor.h"
 #include "wbus/wb_internal.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Audio FX functions (from wb_audio_fx.c) */
+void wb_audio_fx_eq(float *buf, int n_frames, int channels, int sample_rate,
+                    float low_gain, float mid_gain, float high_gain);
+void wb_audio_fx_reverb(float *buf, int n_frames, int channels, int sample_rate,
+                         float decay, float mix);
+void wb_audio_fx_compressor(float *buf, int n_frames, int channels,
+                             float threshold, float ratio, float attack,
+                             float release);
+void wb_audio_fx_delay(float *buf, int n_frames, int channels, int sample_rate,
+                        float delay_time, float feedback, float mix);
+void wb_audio_fx_distortion(float *buf, int n_frames, int channels,
+                             float amount);
+void wb_audio_fx_chorus(float *buf, int n_frames, int channels, int sample_rate,
+                         float rate, float depth, float mix);
+
+#ifdef __cplusplus
+}
+#endif
+
 #define CHECK(cond, msg) do { \
     if (!(cond)) { printf("FAIL: %s\n", msg); pass = 0; } \
     else { printf("ok: %s\n", msg); } \
@@ -541,6 +564,67 @@ int main(void) {
 
         wb_multicam_clear();
         wb_edit_graph_destroy(g);
+    }
+
+    /* ---- Audio FX ---- */
+    printf("\n--- Audio FX ---\n");
+    {
+        /* Test EQ on a sine wave */
+        int sr = 48000;
+        int n = 4800;
+        int ch = 2;
+        float *buf = (float *)malloc(n * ch * sizeof(float));
+        for (int i = 0; i < n; i++) {
+            float s = sinf(2.0f * 3.14159f * 1000.0f * i / sr) * 0.5f;
+            buf[i * 2] = s;
+            buf[i * 2 + 1] = s;
+        }
+
+        /* Apply EQ: boost low, cut high */
+        wb_audio_fx_eq(buf, n, ch, sr, 2.0f, 1.0f, 0.5f);
+        CHECK(fabsf(buf[100]) < 1.0f, "EQ: output not clipped");
+
+        /* Apply reverb */
+        wb_audio_fx_reverb(buf, n, ch, sr, 0.5f, 0.3f);
+        CHECK(fabsf(buf[100]) < 1.0f, "Reverb: output not clipped");
+
+        /* Apply compressor */
+        wb_audio_fx_compressor(buf, n, ch, 0.5f, 4.0f, 0.005f, 0.12f);
+        CHECK(fabsf(buf[100]) < 1.0f, "Compressor: output not clipped");
+
+        /* Apply delay */
+        wb_audio_fx_delay(buf, n, ch, sr, 0.1f, 0.3f, 0.3f);
+        CHECK(fabsf(buf[100]) < 1.0f, "Delay: output not clipped");
+
+        /* Apply distortion */
+        wb_audio_fx_distortion(buf, n, ch, 0.5f);
+        CHECK(fabsf(buf[100]) <= 1.0f, "Distortion: soft clip works");
+
+        /* Apply chorus */
+        wb_audio_fx_chorus(buf, n, ch, sr, 1.5f, 0.005f, 0.3f);
+        CHECK(fabsf(buf[100]) < 1.0f, "Chorus: output not clipped");
+
+        /* Test API: set FX on a clip */
+        wb_edit_graph *g = wb_edit_graph_create(30.0, 854, 480);
+        int t0 = wb_edit_add_track(g, "Audio");
+        /* Can't add real audio clip without file, but test FX slot API */
+        wb_audio_fx fx;
+        memset(&fx, 0, sizeof(fx));
+        fx.type = WB_AUDIO_FX_REVERB;
+        fx.enabled = 1;
+        fx.reverb.room_size = 0.5f;
+        fx.reverb.wet = 0.3f;
+
+        /* This will fail because there are no audio clips, which is expected */
+        int rc = wb_edit_set_audio_fx(g, 0, 0, 0, &fx);
+        CHECK(rc == -1, "audio FX on non-existent clip returns -1");
+
+        /* Test clear FX */
+        rc = wb_edit_clear_audio_fx(g, 0, 0, 0);
+        CHECK(rc == -1, "clear FX on non-existent clip returns -1");
+
+        wb_edit_graph_destroy(g);
+        free(buf);
     }
 
     /* ---- BWF (Broadcast Wave Format) ---- */

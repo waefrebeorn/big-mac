@@ -988,6 +988,59 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         return 0;
     }
 
+    /* Audio FX commands */
+    if (strcmp(cmd, "edit-audio-fx") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int clip = atoi(tok(&p));
+        int slot = atoi(tok(&p));
+        char *fx_name = tok(&p);
+        if (!fx_name) { fprintf(stderr, "ERR:usage:edit-audio-fx <track> <clip> <slot> <fx_type> [params]\n"); return -1; }
+
+        wb_audio_fx fx;
+        memset(&fx, 0, sizeof(fx));
+        fx.enabled = 1;
+        fx.type = WB_AUDIO_FX_NONE;
+
+        if (strcmp(fx_name, "eq") == 0) {
+            fx.type = WB_AUDIO_FX_EQ;
+            fx.eq.low_gain = atof(tok(&p));
+            fx.eq.mid_gain = atof(tok(&p));
+            fx.eq.high_gain = atof(tok(&p));
+        } else if (strcmp(fx_name, "reverb") == 0) {
+            fx.type = WB_AUDIO_FX_REVERB;
+            fx.reverb.room_size = 0.5f;
+            fx.reverb.wet = 0.3f;
+        } else if (strcmp(fx_name, "compressor") == 0) {
+            fx.type = WB_AUDIO_FX_COMPRESSOR;
+            fx.compressor.threshold_db = -12.0f;
+            fx.compressor.ratio = 4.0f;
+            fx.compressor.attack_ms = 5.0f;
+            fx.compressor.release_ms = 120.0f;
+        } else if (strcmp(fx_name, "delay") == 0) {
+            fx.type = WB_AUDIO_FX_DELAY;
+            fx.delay.time_ms = 250.0f;
+            fx.delay.feedback = 0.3f;
+            fx.delay.wet = 0.3f;
+        } else if (strcmp(fx_name, "distortion") == 0) {
+            fx.type = WB_AUDIO_FX_DISTORTION;
+            fx.distortion.drive = 0.5f;
+        } else if (strcmp(fx_name, "chorus") == 0) {
+            fx.type = WB_AUDIO_FX_CHORUS;
+            fx.chorus.rate_hz = 1.5f;
+            fx.chorus.depth_ms = 5.0f;
+            fx.chorus.mix = 0.3f;
+        } else {
+            fprintf(stderr, "ERR:unknown-fx:%s\n", fx_name);
+            return -1;
+        }
+
+        int rc = wb_edit_set_audio_fx(g_agent_edit, track, clip, slot, &fx);
+        if (rc != 0) { fprintf(stderr, "ERR:edit-audio-fx:failed\n"); return -1; }
+        printf("edit-audio-fx: %s on track %d clip %d slot %d\n", fx_name, track, clip, slot);
+        return 0;
+    }
+
     /* Keyframe commands */
     if (strcmp(cmd, "edit-kf") == 0) {
         if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }

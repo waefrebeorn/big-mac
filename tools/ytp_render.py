@@ -30,9 +30,11 @@ def probe_duration(path):
         return 0.0
 
 def extract_segment(src_path, start_sec, dur_sec, output_path, vfilter, afilter, intensity):
-    """Extract a segment with effects applied."""
-    cmd = [FFMPEG, "-y", "-ss", f"{start_sec:.3f}", "-t", f"{dur_sec:.3f}",
-           "-i", src_path]
+    """Extract a segment with effects applied.
+    Uses input seeking (-ss before -i) for speed, with output seeking as fallback.
+    """
+    # Fast path: input seeking (works well for most files)
+    cmd = [FFMPEG, "-y", "-ss", f"{start_sec:.3f}", "-i", src_path, "-t", f"{dur_sec:.3f}"]
     
     vf_parts = []
     if vfilter:
@@ -99,6 +101,33 @@ EFFECT_FILTERS = {
     "MOCAP_OVERLAY": ("", ""),
 }
 
+def _extract_one(args):
+    """Worker function for parallel segment extraction."""
+    i, seg, tmpdir = args
+    src = seg["source"]
+    start = seg["source_start_ms"] / 1000.0
+    dur = seg["source_dur_ms"] / 1000.0
+    effect = seg.get("effect", "NONE")
+    intensity = seg.get("intensity", 5)
+    text = seg.get("text_overlay", "")
+    
+    seg_file = os.path.join(tmpdir, f"seg_{i:04d}.mp4")
+    
+    vf, af = EFFECT_FILTERS.get(effect, ("", ""))
+    
+    if effect == "SUBTITLE" and text:
+        vf = f"drawtext=text='{text}':fontsize=42:fontcolor=yellow:borderw=4:bordercolor=black:x=(w-text_w)/2:y=h-th-30"
+    elif effect == "TO_BE_CONTINUED":
+        fade_st = max(0, dur - 0.7)
+        vf = f"fade=t=out:st={fade_st:.1f}:d=0.5,eq=brightness=-0.1"
+        af = f"fade=t=out:st={fade_st:.1f}:d=0.5"
+    elif effect == "STUTTER":
+        vf = f"loop={intensity}:1:0"
+    
+    ok = extract_segment(src, start, dur, seg_file, vf, af, intensity)
+    return (i, seg_file if ok else None)
+
+
 def render_composition(comp, output_path):
     """Render a composition to video."""
     segments = comp["segments"]
@@ -110,38 +139,24 @@ def render_composition(comp, output_path):
     tmpdir = tempfile.mkdtemp(prefix="ytp_")
     seg_files = []
     
-    # Step 1: Extract each segment
-    for i, seg in enumerate(segments):
-        src = seg["source"]
-        start = seg["source_start_ms"] / 1000.0
-        dur = seg["source_dur_ms"] / 1000.0
-        effect = seg.get("effect", "NONE")
-        intensity = seg.get("intensity", 5)
-        text = seg.get("text_overlay", "")
-        
-        seg_file = os.path.join(tmpdir, f"seg_{i:04d}.mp4")
-        
-        # Get effect filters
-        vf, af = EFFECT_FILTERS.get(effect, ("", ""))
-        
-        # Special cases
-        if effect == "SUBTITLE" and text:
-            vf = f"drawtext=text='{text}':fontsize=42:fontcolor=yellow:borderw=4:bordercolor=black:x=(w-text_w)/2:y=h-th-30"
-        elif effect == "TO_BE_CONTINUED":
-            fade_st = max(0, dur - 0.7)
-            vf = f"fade=t=out:st={fade_st:.1f}:d=0.5,eq=brightness=-0.1"
-            af = f"fade=t=out:st={fade_st:.1f}:d=0.5"
-        elif effect == "STUTTER":
-            # Stutter = loop the segment N times in place
-            vf = f"loop={intensity}:1:0"
-        
-        ok = extract_segment(src, start, dur, seg_file, vf, af, intensity)
-        if ok:
-            seg_files.append(seg_file)
-        
-        if i % 10 == 0:
-            print(f"  Extracted {i+1}/{n}")
+    # Step 1: Extract each segment (in parallel)
+    from concurrent.futures import ProcessPoolExecutor, as_completed
     
+    print(f"  Extracting {n} segments (parallel)...")
+    
+    # Use 4 parallel workers (matching dual-core iMac with hyperthreading)
+    with ProcessPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(_extract_one, (i, seg, tmpdir)): i for i, seg in enumerate(segments)}
+        completed = 0
+        for future in as_completed(futures):
+            i, seg_file = future.result()
+            if seg_file:
+                seg_files.append(seg_file)
+            completed += 1
+            if completed % 20 == 0:
+                print(f"    {completed}/{n}...")
+    
+    seg_files.sort()  # Ensure correct order
     print(f"  Extracted {len(seg_files)}/{n} segments successfully")
     
     if len(seg_files) == 0:
@@ -154,21 +169,80 @@ def render_composition(comp, output_path):
         shutil.copy(seg_files[0], output_path)
         return True
     
-    # Step 2: Build xfade chain
-    print("Building transitions...")
-    
+    # Step 2: Build xfade chain (in batches if needed)
     fade_dur = 0.15  # 150ms crossfade
+    BATCH_SIZE = 50  # ffmpeg can handle ~50 inputs at once
     
-    # Build command
+    if len(seg_files) <= BATCH_SIZE:
+        # Single-pass compositing
+        ok = _xfade_composite(seg_files, segments, fade_dur, output_path)
+    else:
+        # Multi-pass: composite batches, then chain batches
+        print(f"  Using batch compositing ({BATCH_SIZE} per batch)...")
+        batch_files = []
+        n_batches = (len(seg_files) + BATCH_SIZE - 1) // BATCH_SIZE
+        
+        for b in range(n_batches):
+            start_idx = b * BATCH_SIZE
+            end_idx = min(start_idx + BATCH_SIZE, len(seg_files))
+            batch_segs = seg_files[start_idx:end_idx]
+            batch_segments = segments[start_idx:end_idx]
+            
+            batch_out = os.path.join(tmpdir, f"batch_{b:03d}.mp4")
+            print(f"    Batch {b+1}/{n_batches}: segments {start_idx}-{end_idx}")
+            ok = _xfade_composite(batch_segs, batch_segments, fade_dur, batch_out)
+            if ok:
+                batch_files.append(batch_out)
+        
+        if len(batch_files) == 0:
+            print("ERROR: no valid batches")
+            return False
+        elif len(batch_files) == 1:
+            import shutil
+            shutil.copy(batch_files[0], output_path)
+            return True
+        else:
+            # Chain batches with concat demuxer
+            print(f"  Chaining {len(batch_files)} batches...")
+            concat_list = os.path.join(tmpdir, "concat.txt")
+            with open(concat_list, "w") as f:
+                for bf in batch_files:
+                    f.write(f"file '{bf}'\n")
+            cmd = [FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-r", "24",
+                "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart",
+                output_path]
+            print(f"  Final concat of {len(batch_files)} batches...")
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            if r.returncode != 0:
+                print(f"  Batch chain failed: {r.stderr[-300:]}")
+                # Fallback: just use first batch
+                import shutil
+                shutil.copy(batch_files[0], output_path)
+    
+    # Cleanup
+    import shutil
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    
+    if os.path.exists(output_path):
+        size_mb = os.path.getsize(output_path) / 1024 / 1024
+        print(f"✓ Done! {output_path} ({size_mb:.1f} MB)")
+        return True
+    else:
+        print("✗ Render failed: no output file")
+        return False
+
+
+def _xfade_composite(seg_files, segments, fade_dur, output_path):
+    """Composite a list of segments with xfade/acrossfade."""
     cmd = [FFMPEG, "-y"]
     for sf in seg_files:
         cmd.extend(["-i", sf])
     
-    # Build filter_complex
     filter_parts = []
+    cumulative = 0.0
     
     # Video xfade chain
-    cumulative = 0.0
     for i in range(len(seg_files)):
         if i == 0:
             filter_parts.append(f"[{i}:v]copy[vx0]")
@@ -196,20 +270,8 @@ def render_composition(comp, output_path):
         output_path
     ])
     
-    print(f"Compositing {len(seg_files)} segments with crossfades...")
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    
-    # Cleanup
-    import shutil
-    shutil.rmtree(tmpdir, ignore_errors=True)
-    
-    if r.returncode == 0 and os.path.exists(output_path):
-        size_mb = os.path.getsize(output_path) / 1024 / 1024
-        print(f"✓ Done! {output_path} ({size_mb:.1f} MB)")
-        return True
-    else:
-        print(f"✗ Render failed: {r.stderr[-500:]}")
-        return False
+    return r.returncode == 0 and os.path.exists(output_path)
 
 
 if __name__ == "__main__":

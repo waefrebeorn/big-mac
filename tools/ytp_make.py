@@ -13,9 +13,35 @@ import tempfile
 from pathlib import Path
 
 def load_transcript(path):
-    """Load word-level transcript JSON."""
-    with open(path) as f:
-        data = json.load(f)
+    """Load word-level transcript JSON, with error recovery."""
+    with open(path, errors='replace') as f:
+        raw = f.read()
+    # Try to fix common JSON issues from whisper output
+    # Remove any non-printable characters
+    import re
+    clean = re.sub(r'[\x00-\x1f\x7f]', ' ', raw)
+    try:
+        data = json.loads(clean)
+    except json.JSONDecodeError:
+        # Try to find where the valid JSON ends
+        # Find the last complete word entry
+        last_bracket = clean.rfind(']')
+        if last_bracket > 0:
+            # Try to close the array properly
+            truncated = clean[:last_bracket+1]
+            # If we're in the middle of an object, close it
+            if truncated.count('{') > truncated.count('}'):
+                truncated = truncated.rsplit(',', 1)[0]
+                truncated += ']}'
+            try:
+                data = json.loads(truncated)
+            except:
+                # Last resort: extract word entries with regex
+                words = []
+                for m in re.finditer(r'"word"\s*:\s*"([^"]*)"\s*,\s*"start"\s*:\s*(\d+)\s*,\s*"end"\s*:\s*(\d+)', clean):
+                    words.append({"word": m.group(1), "start": int(m.group(2)), "end": int(m.group(3))})
+                return words
+        return []
     return data.get("words", [])
 
 def build_composition(words, source_path, chaos=7):

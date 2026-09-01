@@ -744,6 +744,25 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         printf("edit-trans: track %d clip_a %d type=%s dur=%.2fs\n", track, clip_a, type_str, dur);
         return 0;
     }
+    if (strcmp(cmd, "edit-speed") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int clip = atoi(tok(&p));
+        float speed = (float)atof(tok(&p));
+        if (track < 0 || (uint32_t)track >= g_agent_edit->track_count) {
+            fprintf(stderr, "ERR:edit-speed:no-such-track\n"); return -1;
+        }
+        wb_edit_track *tr = &g_agent_edit->tracks[track];
+        if ((uint32_t)clip >= tr->clip_count) {
+            fprintf(stderr, "ERR:edit-speed:no-such-clip\n"); return -1;
+        }
+        if (speed <= 0.0f) speed = 0.1f;
+        if (speed > 10.0f) speed = 10.0f;
+        tr->clips[clip].speed = speed;
+        g_agent_edit->eval_time = -1.0;
+        printf("edit-speed: track %d clip %d speed=%.2fx\n", track, clip, speed);
+        return 0;
+    }
     if (strcmp(cmd, "edit-fx") == 0) {
         if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
         int track = atoi(tok(&p));
@@ -767,6 +786,7 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
             char *lut_path = tok(&p);
             fx = wb_node_effect_lut(lut_path && lut_path[0] ? lut_path : NULL);
         }
+        else if (strcmp(fx_name, "motion_track") == 0) fx = wb_node_effect_motion_track();
         else { fprintf(stderr, "ERR:unknown-fx:%s\n", fx_name); return -1; }
         int rc = wb_edit_clip_add_effect(g_agent_edit, track, clip, fx);
         if (rc != 0) { fprintf(stderr, "ERR:edit-fx:failed\n"); return -1; }

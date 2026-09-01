@@ -227,6 +227,11 @@ void wb_comp_zmerge(wb_frame *a, const wb_frame *b,
 wb_node *wb_node_effect_mode7(float horizon_frac, float strength,
                               double scroll_speed);
 
+/* R085: motion tracking overlay node */
+wb_node *wb_node_effect_motion_track(void);
+int wb_node_effect_motion_get_points(const wb_node *n, float *xs, float *ys,
+                                      int max_points);
+
 /* R074 hop 111: scene source — smoothstep gradient (vertical or radial)
  * with a moving light sweep. Colors are top/bottom endpoints. */
 wb_node *wb_node_source_scene(float r0, float g0, float b0,

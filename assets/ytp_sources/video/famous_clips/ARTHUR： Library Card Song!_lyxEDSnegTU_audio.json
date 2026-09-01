@@ -1,0 +1,44 @@
+{
+  "source": "ARTHUR\uff1a Library Card Song!_lyxEDSnegTU.mp4",
+  "duration": 183.205442,
+  "mean_volume_db": -25.3,
+  "max_volume_db": -1.5,
+  "speech_segments": [
+    {
+      "start": 0,
+      "end": 74.270476,
+      "duration": 74.270476,
+      "type": "speech"
+    },
+    {
+      "start": 74.822834,
+      "end": 172.481429,
+      "duration": 97.65859499999999,
+      "type": "speech"
+    },
+    {
+      "start": 173.532154,
+      "end": 182.743129,
+      "duration": 9.210975000000019,
+      "type": "speech"
+    }
+  ],
+  "speech_count": 3,
+  "silence_gaps": [
+    {
+      "start": 74.270476,
+      "end": 74.822834,
+      "duration": 0.5523579999999981
+    },
+    {
+      "start": 172.481429,
+      "end": 173.532154,
+      "duration": 1.050725
+    },
+    {
+      "start": 182.743129,
+      "end": 183.205442,
+      "duration": 0.46231299999999464
+    }
+  ]
+}

@@ -16,9 +16,23 @@ third_party/piper/voices/
 test_media/
 
 # === Large asset libraries (not committed — tracked via manifest) ===
-# YTP source videos (~12GB)
-assets/ytp_sources/video/
+# YTP source videos (~12GB) — ignore media but keep manifests
+assets/ytp_sources/video/*.mp4
+assets/ytp_sources/video/**/*.mp4
+assets/ytp_sources/video/*.avi
+assets/ytp_sources/video/**/*.avi
+assets/ytp_sources/video/*.mkv
+assets/ytp_sources/video/**/*.mkv
+assets/ytp_sources/video/*.webm
+assets/ytp_sources/video/**/*.webm
+assets/ytp_sources/video/*.mov
+assets/ytp_sources/video/**/*.mov
 assets/ytp_sources/audio/
+assets/ytp_sources/audio/*
+assets/ytp_sources/audio/**/*.mp3
+assets/ytp_sources/audio/**/*.wav
+assets/ytp_sources/audio/**/*.ogg
+assets/ytp_sources/audio/**/*.flac
 # BVH motion capture library (~1GB)
 assets/mocap/
 # Character sprites/models

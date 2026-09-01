@@ -46,6 +46,74 @@ typedef enum {
     WB_EDIT_TRANS_COUNT
 } wb_edit_trans_type;
 
+/* ---- audio effects ----------------------------------------------------- */
+
+/* Audio effect types (per-clip FX chain) */
+typedef enum {
+    WB_AUDIO_FX_NONE = 0,
+    WB_AUDIO_FX_EQ,         /* 4-band parametric EQ */
+    WB_AUDIO_FX_REVERB,     /* Schroeder FDN reverb */
+    WB_AUDIO_FX_COMPRESSOR, /* VCA compressor/limiter */
+    WB_AUDIO_FX_DELAY,      /* stereo delay/echo */
+    WB_AUDIO_FX_DISTORTION, /* waveshaping distortion */
+    WB_AUDIO_FX_CHORUS,     /* chorus/flanger */
+    WB_AUDIO_FX_COUNT
+} wb_audio_fx_type;
+
+/* Audio effect parameters (union-like, type selects valid fields) */
+typedef struct {
+    wb_audio_fx_type type;
+    int enabled;              /* 0 = bypass, 1 = active */
+    float mix;                /* wet/dry 0..1 */
+
+    /* EQ params */
+    struct {
+        float low_gain;       /* dB, -18..+18 */
+        float mid_gain;       /* dB, -18..+18 */
+        float high_gain;      /* dB, -18..+18 */
+        float presence_gain;  /* dB, -18..+18 */
+    } eq;
+
+    /* Reverb params */
+    struct {
+        float room_size;      /* 0..1 */
+        float damping;        /* 0..1 */
+        float wet;            /* 0..1 */
+    } reverb;
+
+    /* Compressor params */
+    struct {
+        float threshold_db;   /* e.g. -12.0 */
+        float ratio;          /* e.g. 4.0 */
+        float attack_ms;      /* e.g. 5.0 */
+        float release_ms;     /* e.g. 120.0 */
+        float makeup_db;      /* e.g. 3.0 */
+    } compressor;
+
+    /* Delay params */
+    struct {
+        float time_ms;        /* delay time in ms */
+        float feedback;       /* 0..1 */
+        float wet;            /* 0..1 */
+    } delay;
+
+    /* Distortion params */
+    struct {
+        float drive;          /* 0..1 */
+        float tone;           /* 0..1 */
+        float level;          /* output level 0..1 */
+    } distortion;
+
+    /* Chorus params */
+    struct {
+        float rate_hz;        /* LFO speed */
+        float depth_ms;       /* modulation depth in ms */
+        float mix;            /* 0..1 */
+    } chorus;
+} wb_audio_fx;
+
+#define WB_AUDIO_FX_PER_CLIP 8
+
 /* ---- edit audio clip --------------------------------------------------- */
 
 struct wb_edit_audio_clip {
@@ -55,6 +123,10 @@ struct wb_edit_audio_clip {
     double timeline_pos;      /* seconds on timeline where clip starts */
     float volume;             /* volume multiplier (0..1+, 1.0 = unity) */
     float speed;              /* playback speed (1.0 = normal) */
+
+    /* Per-clip audio effects chain */
+    wb_audio_fx fx_chain[WB_AUDIO_FX_PER_CLIP];
+    int fx_count;
 };
 
 /* ---- edit clip --------------------------------------------------------- */
@@ -224,6 +296,18 @@ int  wb_edit_add_audio_clip(wb_edit_graph *g, int track,
 int  wb_edit_set_audio_volume(wb_edit_graph *g, int track, int clip_idx,
                                float vol);
 
+/* Set an audio effect on a clip's FX chain.
+ * track: track index, clip_idx: audio clip index
+ * fx_slot: slot index (0..WB_AUDIO_FX_PER_CLIP-1)
+ * fx: the effect to set (type + params)
+ * Returns 0 on success, -1 on error. */
+int  wb_edit_set_audio_fx(wb_edit_graph *g, int track, int clip_idx,
+                           int fx_slot, const wb_audio_fx *fx);
+
+/* Clear an audio effect slot. Returns 0 on success, -1 on error. */
+int  wb_edit_clear_audio_fx(wb_edit_graph *g, int track, int clip_idx,
+                             int fx_slot);
+
 /* ---- audio mixing ------------------------------------------------------- */
 
 /* Mix audio from all tracks into an interleaved float buffer.
@@ -244,6 +328,18 @@ double wb_audio_get_duration(const wb_edit_graph *g);
  * Returns 0 on success, -1 on error. */
 int wb_audio_mux_to_mp4(wb_edit_graph *g, const char *mp4_path,
                           volatile int *cancel);
+
+/* ---- audio mixer ---------------------------------------------------------- */
+
+void wb_audio_mixer_init(void);
+void wb_audio_mixer_sync(wb_edit_graph *g);
+void wb_audio_mixer_set_volume(int track, float vol);
+void wb_audio_mixer_set_pan(int track, float pan);
+void wb_audio_mixer_set_mute(int track, int mute);
+void wb_audio_mixer_set_solo(int track, int solo);
+void wb_audio_mixer_set_master_volume(float vol);
+float wb_audio_mixer_get_vu(int track);
+int wb_audio_mixer_get_track_count(void);
 
 /* ---- keyframe animation ------------------------------------------------ */
 

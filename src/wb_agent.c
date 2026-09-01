@@ -8,9 +8,9 @@
 #include "wbus/wbus_compositor.h"
 #include "wbus/wbus_vfx.h"
 #include "wbus/wbus_export_queue.h"   /* R085: export queue */
+#include "wbus/wbus_edit.h"   /* R085: video edit graph */
 #include "wbus/wbus_voice_polish.h"
 #include "wbus/wbus_captions.h"
-#include "wbus/wbus_mesh.h"
 #include "wbus/wbus_anim.h"
 #include "wbus/wbus_assets.h"
 #include "wbus/wbus_perf.h"
@@ -941,6 +941,51 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
         }
         printf("edit-render-audio: done (rc=%d)\n", rc);
         return rc;
+    }
+
+    /* Audio mixer commands */
+    if (strcmp(cmd, "edit-mixer-vol") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        float vol = (float)atof(tok(&p));
+        wb_audio_mixer_sync(g_agent_edit);
+        wb_audio_mixer_set_volume(track, vol);
+        printf("edit-mixer-vol: track %d vol=%.2f\n", track, vol);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-mixer-pan") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        float pan = (float)atof(tok(&p));
+        wb_audio_mixer_sync(g_agent_edit);
+        wb_audio_mixer_set_pan(track, pan);
+        printf("edit-mixer-pan: track %d pan=%.2f\n", track, pan);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-mixer-mute") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int mute = atoi(tok(&p));
+        wb_audio_mixer_sync(g_agent_edit);
+        wb_audio_mixer_set_mute(track, mute);
+        printf("edit-mixer-mute: track %d mute=%d\n", track, mute);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-mixer-solo") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int solo = atoi(tok(&p));
+        wb_audio_mixer_sync(g_agent_edit);
+        wb_audio_mixer_set_solo(track, solo);
+        printf("edit-mixer-solo: track %d solo=%d\n", track, solo);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-mixer-master") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        float vol = (float)atof(tok(&p));
+        wb_audio_mixer_set_master_volume(vol);
+        printf("edit-mixer-master: vol=%.2f\n", vol);
+        return 0;
     }
 
     /* Keyframe commands */

@@ -8,6 +8,12 @@
 #include "wbus/wbus_edit.h"
 #include "wbus/wbus_video.h"
 #include "wbus/wbus_compositor.h"
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libavutil/opt.h>
+#include <libavutil/mathematics.h>
+#include <libavutil/imgutils.h>
+#include <libswscale/swscale.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -338,14 +344,154 @@ int wb_edit_graph_render_to_mp4(wb_edit_graph *g, const char *out_path,
                                  volatile int *cancel,
                                  wb_export_prog_fn prog, void *prog_ctx) {
     if (!g || !out_path) return -1;
-    return wb_compositor_render_to_mp4(NULL, out_path, g->fps,
-                                        g->width, g->height,
-                                        g->duration, cancel,
-                                        prog, prog_ctx);
+    if (g->duration <= 0) return -1;
+
+    /* Use the compositor encoder with a per-frame evaluate wrapper.
+     * We create a fake root node that evaluates the edit graph on pull. */
+    /* For now, use the direct render loop here since we need per-frame eval. */
+    return wb_edit_render_to_mp4(g, out_path, cancel, prog, prog_ctx);
 }
 
 /* ---- query ------------------------------------------------------------- */
 
 double wb_edit_graph_get_duration(const wb_edit_graph *g) {
     return g ? g->duration : 0.0;
+}
+
+/* ---- direct render to MP4 (evaluates edit graph per frame) ------------- */
+
+int wb_edit_render_to_mp4(wb_edit_graph *g, const char *out_path,
+                           volatile int *cancel,
+                           wb_export_prog_fn prog, void *prog_ctx) {
+    if (!g || !out_path || g->duration <= 0) return -1;
+
+    int ret = 0;
+    int w = g->width, h = g->height;
+    double fps = g->fps;
+    int64_t total_frames = (int64_t)(g->duration * fps);
+
+    /* Set up libav encoder */
+    AVFormatContext *fmt_ctx = NULL;
+    avformat_alloc_output_context2(&fmt_ctx, NULL, NULL, out_path);
+    if (!fmt_ctx) { fprintf(stderr, "edit_render: alloc output failed\n"); return -1; }
+
+    const AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+    if (!codec) { fprintf(stderr, "edit_render: H.264 not found\n"); ret = -1; goto cleanup; }
+
+    AVStream *stream = avformat_new_stream(fmt_ctx, codec);
+    if (!stream) { fprintf(stderr, "edit_render: new stream failed\n"); ret = -1; goto cleanup; }
+
+    AVCodecContext *enc_ctx = avcodec_alloc_context3(codec);
+    if (!enc_ctx) { fprintf(stderr, "edit_render: alloc enc ctx failed\n"); ret = -1; goto cleanup; }
+
+    enc_ctx->width = w;
+    enc_ctx->height = h;
+    enc_ctx->time_base = (AVRational){1, (int)fps};
+    enc_ctx->framerate = (AVRational){(int)fps, 1};
+    enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    enc_ctx->bit_rate = 2000000;
+    if (fmt_ctx->oformat->flags & AVFMT_GLOBALHEADER)
+        enc_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+
+    AVDictionary *opts = NULL;
+    av_dict_set(&opts, "preset", "veryfast", 0);
+    av_dict_set(&opts, "crf", "23", 0);
+
+    if (avcodec_open2(enc_ctx, codec, &opts) < 0) {
+        fprintf(stderr, "edit_render: codec open failed\n"); ret = -1; goto enc_cleanup;
+    }
+    av_dict_free(&opts);
+
+    avcodec_parameters_from_context(stream->codecpar, enc_ctx);
+    stream->time_base = enc_ctx->time_base;
+
+    if (!(fmt_ctx->oformat->flags & AVFMT_NOFILE)) {
+        if (avio_open(&fmt_ctx->pb, out_path, AVIO_FLAG_WRITE) < 0) {
+            fprintf(stderr, "edit_render: avio_open failed\n"); ret = -1; goto enc_cleanup;
+        }
+    }
+    if (avformat_write_header(fmt_ctx, NULL) < 0) {
+        fprintf(stderr, "edit_render: write header failed\n"); ret = -1; goto enc_cleanup;
+    }
+
+    /* SwsContext: RGBA uint8 → YUV420P */
+    struct SwsContext *sws = sws_getContext(w, h, AV_PIX_FMT_RGBA,
+                                              w, h, AV_PIX_FMT_YUV420P,
+                                              SWS_BILINEAR, NULL, NULL, NULL);
+    if (!sws) { fprintf(stderr, "edit_render: sws failed\n"); ret = -1; goto enc_cleanup; }
+
+    AVFrame *yuv_frame = av_frame_alloc();
+    yuv_frame->format = AV_PIX_FMT_YUV420P;
+    yuv_frame->width = w;
+    yuv_frame->height = h;
+    av_frame_get_buffer(yuv_frame, 0);
+
+    AVPacket *pkt = av_packet_alloc();
+
+    int64_t frame_idx = 0;
+    for (double t = 0.0; t < g->duration; t += 1.0 / fps) {
+        if (cancel && *cancel) { ret = -2; break; }
+
+        /* Evaluate edit graph at time t */
+        wb_frame *f = wb_edit_graph_evaluate(g, t);
+        if (!f) { fprintf(stderr, "edit_render: eval failed at t=%.3f\n", t); ret = -1; break; }
+
+        /* Convert float RGBA → uint8 RGBA temp buffer */
+        uint8_t *rgba = malloc(w * h * 4);
+        for (int i = 0; i < w * h; i++) {
+            rgba[i*4+0] = (uint8_t)(f->px[i].r * 255.0f + 0.5f);
+            rgba[i*4+1] = (uint8_t)(f->px[i].g * 255.0f + 0.5f);
+            rgba[i*4+2] = (uint8_t)(f->px[i].b * 255.0f + 0.5f);
+            rgba[i*4+3] = (uint8_t)(f->px[i].a * 255.0f + 0.5f);
+        }
+        wb_frame_free(f);
+
+        /* Scale to YUV420P */
+        const uint8_t *src_slices[4] = { rgba, NULL, NULL, NULL };
+        int src_strides[4] = { w * 4, 0, 0, 0 };
+        sws_scale(sws, src_slices, src_strides, 0, h,
+                  yuv_frame->data, yuv_frame->linesize);
+        free(rgba);
+
+        yuv_frame->pts = frame_idx;
+
+        /* Encode */
+        int got_packet = 0;
+        if (avcodec_send_frame(enc_ctx, yuv_frame) == 0) {
+            while (avcodec_receive_packet(enc_ctx, pkt) == 0) {
+                av_packet_rescale_ts(pkt, enc_ctx->time_base, stream->time_base);
+                pkt->stream_index = stream->index;
+                av_interleaved_write_frame(fmt_ctx, pkt);
+                av_packet_unref(pkt);
+                got_packet = 1;
+            }
+        }
+
+        frame_idx++;
+        if (prog) prog(prog_ctx, t / g->duration);
+    }
+
+    /* Flush encoder */
+    avcodec_send_frame(enc_ctx, NULL);
+    while (avcodec_receive_packet(enc_ctx, pkt) == 0) {
+        av_packet_rescale_ts(pkt, enc_ctx->time_base, stream->time_base);
+        pkt->stream_index = stream->index;
+        av_interleaved_write_frame(fmt_ctx, pkt);
+        av_packet_unref(pkt);
+    }
+
+    av_write_trailer(fmt_ctx);
+    if (prog) prog(prog_ctx, 1.0);
+
+    av_packet_free(&pkt);
+    av_frame_free(&yuv_frame);
+    sws_freeContext(sws);
+
+enc_cleanup:
+    avcodec_free_context(&enc_ctx);
+cleanup:
+    if (fmt_ctx && !(fmt_ctx->oformat->flags & AVFMT_NOFILE))
+        avio_closep(&fmt_ctx->pb);
+    avformat_free_context(fmt_ctx);
+    return ret;
 }

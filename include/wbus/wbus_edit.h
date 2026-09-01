@@ -167,6 +167,11 @@ int wb_edit_graph_render_to_mp4(wb_edit_graph *g, const char *out_path,
                                  volatile int *cancel,
                                  wb_export_prog_fn prog, void *prog_ctx);
 
+/* Internal: direct render loop (evaluates graph per frame). */
+int wb_edit_render_to_mp4(wb_edit_graph *g, const char *out_path,
+                           volatile int *cancel,
+                           wb_export_prog_fn prog, void *prog_ctx);
+
 /* ---- query ------------------------------------------------------------- */
 
 /* Get the clip active at a timeline position on a track. Returns index or -1. */

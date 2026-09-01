@@ -151,3 +151,101 @@ int wb_wav_read_pcm16(const char *path, float **out_data, uint32_t *out_frames,
     *out_sr = sr;
     return 0;
 }
+
+/* Write a Broadcast Wave Format (BWF) file (Vegas 10 feature).
+ * BWF is a WAV extension with metadata chunks (bext, levl).
+ * Returns 0 on success, -1 on failure. */
+int wb_wav_write_bwf(const char *path, const wb_sample *data, uint32_t frames,
+                      uint8_t channels, uint32_t sample_rate,
+                      const char *description, const char *originator,
+                      const char *originator_ref, time_t orig_time) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return -1;
+
+    uint32_t data_bytes = frames * channels * 2;
+
+    /* bext chunk (Broadcast Extension) */
+    uint32_t bext_size = 602;  /* minimum bext size */
+    uint32_t bext_data_size = 602;
+    char bext[602];
+    memset(bext, 0, sizeof(bext));
+    if (description) {
+        int len = strlen(description);
+        if (len > 256) len = 256;
+        memcpy(bext, description, len);
+    }
+    if (originator) {
+        int len = strlen(originator);
+        if (len > 32) len = 32;
+        memcpy(bext + 256, originator, len);
+    }
+    if (originator_ref) {
+        int len = strlen(originator_ref);
+        if (len > 32) len = 32;
+        memcpy(bext + 288, originator_ref, len);
+    }
+    /* origination time (8 bytes, HH:MM:SS) */
+    struct tm *tm = gmtime(&orig_time);
+    if (tm) {
+        snprintf(bext + 320, 9, "%02d:%02d:%02d", tm->tm_hour, tm->tm_min, tm->tm_sec);
+    }
+    /* origination date (10 bytes, YYYY:MM:DD) */
+    if (tm) {
+        snprintf(bext + 328, 11, "%04d:%02d:%02d", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
+    }
+    /* time reference (8 bytes, sample count since midnight) */
+    uint64_t time_ref = 0;
+    memcpy(bext + 338, &time_ref, 8);
+    /* version (2 bytes) */
+    uint16_t version = 1;
+    memcpy(bext + 346, &version, 2);
+    /* UMID (64 bytes) — left zeros */
+    /* loudness values (16 bytes) — left zeros */
+    /* reserved (180 bytes) — left zeros */
+    /* coding history (variable) — left empty */
+
+    uint32_t riff_size = 36 + bext_data_size + 8 + data_bytes;
+
+    /* RIFF header */
+    fwrite("RIFF", 1, 4, f);
+    fwrite(&riff_size, 4, 1, f);
+    fwrite("WAVE", 1, 4, f);
+
+    /* bext chunk */
+    fwrite("bext", 1, 4, f);
+    fwrite(&bext_size, 4, 1, f);
+    fwrite(bext, 1, bext_data_size, f);
+
+    /* fmt chunk */
+    uint16_t audio_format = 1;
+    uint16_t num_channels = channels;
+    uint32_t byte_rate = sample_rate * channels * 2;
+    uint16_t block_align = (uint16_t)(channels * 2);
+    uint16_t bits = 16;
+
+    fwrite("fmt ", 1, 4, f);
+    uint32_t fmt_size = 16;
+    fwrite(&fmt_size, 4, 1, f);
+    fwrite(&audio_format, 2, 1, f);
+    fwrite(&num_channels, 2, 1, f);
+    fwrite(&sample_rate, 4, 1, f);
+    fwrite(&byte_rate, 4, 1, f);
+    fwrite(&block_align, 2, 1, f);
+    fwrite(&bits, 2, 1, f);
+
+    /* data chunk */
+    fwrite("data", 1, 4, f);
+    fwrite(&data_bytes, 4, 1, f);
+
+    /* samples */
+    for (uint32_t i = 0; i < frames * channels; i++) {
+        float v = data[i];
+        if (v > 1.0f) v = 1.0f;
+        else if (v < -1.0f) v = -1.0f;
+        int16_t s = (int16_t)(v * 32767.0f);
+        fwrite(&s, 2, 1, f);
+    }
+
+    fclose(f);
+    return 0;
+}

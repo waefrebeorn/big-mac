@@ -3,8 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 #include "wbus/wbus_edit.h"
 #include "wbus/wbus_compositor.h"
+#include "wbus/wb_internal.h"
 
 #define CHECK(cond, msg) do { \
     if (!(cond)) { printf("FAIL: %s\n", msg); pass = 0; } \
@@ -539,6 +541,44 @@ int main(void) {
 
         wb_multicam_clear();
         wb_edit_graph_destroy(g);
+    }
+
+    /* ---- BWF (Broadcast Wave Format) ---- */
+    printf("\n--- BWF ---\n");
+    {
+        /* Generate a simple sine wave */
+        int sr = 48000;
+        int n_frames = 4800;  /* 0.1 seconds */
+        int ch = 2;
+        float *data = (float *)malloc(n_frames * ch * sizeof(float));
+        for (int i = 0; i < n_frames; i++) {
+            float s = sinf(2.0f * 3.14159f * 440.0f * i / sr) * 0.5f;
+            data[i * 2] = s;
+            data[i * 2 + 1] = s;
+        }
+
+        const char *bwf_path = "/tmp/test_bwf.wav";
+        int rc = wb_wav_write_bwf(bwf_path, data, n_frames, ch, sr,
+                                   "Big Mac Test", "BigMac", "REF001",
+                                   time(NULL));
+        CHECK(rc == 0, "BWF: file written");
+
+        /* Verify it can be read back as a regular WAV */
+        float *read_data = NULL;
+        uint32_t read_frames = 0;
+        int read_ch = 0, read_sr = 0;
+        rc = wb_wav_read_pcm16(bwf_path, &read_data, &read_frames, &read_ch, &read_sr);
+        CHECK(rc == 0, "BWF: readable as WAV");
+        CHECK(read_frames == (uint32_t)n_frames, "BWF: frame count preserved");
+        CHECK(read_ch == ch, "BWF: channel count preserved");
+        CHECK(read_sr == sr, "BWF: sample rate preserved");
+        if (read_data) {
+            /* Check first sample is close to 0 (sine starts at 0) */
+            CHECK(fabsf(read_data[0]) < 0.01f, "BWF: first sample near zero");
+            free(read_data);
+        }
+
+        free(data);
     }
 
     printf("\n%s\n", pass ? "ALL PASS" : "SOME FAILED");

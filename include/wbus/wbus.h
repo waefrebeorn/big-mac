@@ -1703,6 +1703,34 @@ int   wb_cloud_collab_apply_op(void *inst, const char *user_id, const char *op_j
 int   wb_cloud_collab_get_state(void *inst, char *json_out, int cap);
 int   wb_cloud_collab_user_count(const void *inst);
 
+/* ---- R078: export queue (batch export wired to node pipeline) ---- */
+
+/* Forward decl — full type in wbus/wbus_edit.h */
+typedef struct wb_edit_graph wb_edit_graph;
+
+/* Job status values (returned by wb_export_queue_job_status). */
+#define WB_EXPORT_PENDING    0
+#define WB_EXPORT_RUNNING    1
+#define WB_EXPORT_DONE       2
+#define WB_EXPORT_ERROR      3
+#define WB_EXPORT_CANCELLED  4
+
+void *wb_export_queue_create(void);
+void  wb_export_queue_destroy(void *inst);
+int wb_export_queue_add(void *inst, const char *name, const char *output_path,
+                        int format, int width, int height, int fps);
+int wb_export_queue_add_edit_job(void *inst, const char *name,
+                                 wb_edit_graph *g, const char *output_path);
+void wb_export_queue_start(void *inst);
+void wb_export_queue_cancel(void *inst);
+int  wb_export_queue_process(void *inst);
+int  wb_export_queue_get_progress(void *inst);
+int  wb_export_queue_count(void *inst);
+const char* wb_export_queue_job_name(void *inst, int idx);
+const char* wb_export_queue_job_output(void *inst, int idx);
+int         wb_export_queue_job_status(void *inst, int idx);
+float       wb_export_queue_job_progress(void *inst, int idx);
+
 #ifdef __cplusplus
 }
 #endif

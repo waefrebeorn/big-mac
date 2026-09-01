@@ -32,6 +32,7 @@ extern "C" {
 typedef struct wb_edit_graph wb_edit_graph;
 typedef struct wb_edit_track wb_edit_track;
 typedef struct wb_edit_clip wb_edit_clip;
+typedef struct wb_edit_audio_clip wb_edit_audio_clip;
 typedef struct wb_edit_transition wb_edit_transition;
 typedef struct wb_edit_sequence wb_edit_sequence;
 
@@ -44,6 +45,17 @@ typedef enum {
     WB_EDIT_TRANS_FLASH,
     WB_EDIT_TRANS_COUNT
 } wb_edit_trans_type;
+
+/* ---- edit audio clip --------------------------------------------------- */
+
+struct wb_edit_audio_clip {
+    char source_path[512];    /* audio file path (wav/mp3/aac/etc) */
+    double start_in_source;   /* seconds into source to start */
+    double duration;          /* seconds to play from source */
+    double timeline_pos;      /* seconds on timeline where clip starts */
+    float volume;             /* volume multiplier (0..1+, 1.0 = unity) */
+    float speed;              /* playback speed (1.0 = normal) */
+};
 
 /* ---- edit clip --------------------------------------------------------- */
 
@@ -83,6 +95,10 @@ struct wb_edit_track {
     wb_edit_transition *transitions;
     uint32_t trans_count;
     uint32_t trans_cap;
+    /* Audio clips on this track (synchronized with video) */
+    wb_edit_audio_clip *audio_clips;
+    uint32_t audio_clip_count;
+    uint32_t audio_clip_cap;
     int muted;
     int soloed;
     float volume;
@@ -124,6 +140,11 @@ struct wb_edit_graph {
     float subtitle_pos_y;      /* normalized 0..1 vertical position */
     float subtitle_size;       /* font scale (1.0 = base) */
     uint32_t subtitle_color;   /* RGBA color */
+
+    /* Proxy editing (R085) */
+    int proxy_enabled;         /* 1 = use proxies for preview */
+    int proxy_w, proxy_h;      /* proxy dimensions */
+    char proxy_dir[256];       /* directory for proxy files */
 };
 
 /* ---- nested sequence --------------------------------------------------- */
@@ -188,6 +209,21 @@ int  wb_edit_split_clip(wb_edit_graph *g, int track, int clip_idx,
 int  wb_edit_auto_cut_scenes(wb_edit_graph *g, int track, int clip_idx,
                               float threshold);
 
+/* ---- audio clip management --------------------------------------------- */
+
+/* Add an audio clip to a track. Returns clip index or -1.
+ * source: path to audio file (wav/mp3/aac/etc)
+ * start: seconds into the source audio to begin playback
+ * dur: duration in seconds to play
+ * tl_pos: timeline position in seconds where the clip starts */
+int  wb_edit_add_audio_clip(wb_edit_graph *g, int track,
+                             const char *source,
+                             double start, double dur, double tl_pos);
+
+/* Set the volume of an audio clip. vol is a multiplier (0..1+, 1.0 = unity). */
+int  wb_edit_set_audio_volume(wb_edit_graph *g, int track, int clip_idx,
+                               float vol);
+
 /* ---- transitions ------------------------------------------------------- */
 
 /* Add a transition between two adjacent clips. Returns index or -1. */
@@ -228,6 +264,12 @@ int wb_edit_graph_save(const wb_edit_graph *g, const char *path);
 
 /* Load edit graph from a .bedit file. Caller must wb_edit_graph_destroy(). */
 wb_edit_graph *wb_edit_graph_load(const char *path);
+
+/* ---- proxy editing ------------------------------------------------------ */
+
+void wb_edit_set_proxy_enabled(wb_edit_graph *g, int enable);
+void wb_edit_set_proxy_size(wb_edit_graph *g, int w, int h);
+char *wb_edit_generate_proxy(wb_edit_graph *g, const char *source_path);
 
 /* ---- query ------------------------------------------------------------- */
 

@@ -401,6 +401,15 @@ build/wb_test_export_mv: build/tools/test_export_mv.o $(CORE_OBJS)
 test_export_mv: build/wb_test_export_mv
 	./build/wb_test_export_mv
 
+# ---- export queue test (R078: wired to real node pipeline) ----
+
+build/wb_test_export_queue: tests/test_export_queue.c $(CORE_OBJS)
+	$(CC) $(CFLAGS) $(INC) -c tests/test_export_queue.c -o build/test_export_queue.o
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ build/test_export_queue.o $(CORE_OBJS) -lm $(LIBS)
+
+test_export_queue: build/wb_test_export_queue
+	./build/wb_test_export_queue
+
 build/wb_test_perf_freeze: build/tools/test_perf_freeze.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 

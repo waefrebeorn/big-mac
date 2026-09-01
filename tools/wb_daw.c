@@ -31,6 +31,7 @@
 #include "wbus/wbus_agent.h"
 #include "wbus/wbus_wavcache.h"
 #include "wbus/wbus_capture.h"      /* G93/G94 */
+#include "wbus/wbus_edit.h"          /* R084: edit graph (VIDEO/FUSION tiers) */
 #include "wbus_precision.h"   /* Wave2 lane B: G15/G16/G65/G66 */
 #include "wbus/wbus_export_job.h"   /* G38 background render queue */
 #include "wbus_perfclip.h"
@@ -265,6 +266,8 @@ typedef struct app {
     int cgi_dragging;
     int cgi_last_x, cgi_last_y;
     SDL_Texture *vid_preview_tex; /* cached preview frame */
+    /* R084: edit graph pointer (VIDEO/FUSION tiers) — NULL until first use */
+    wb_edit_graph *edit_graph;
     /* R043-G6b: FUSION tab live preview texture + source node */
     SDL_Texture *fusion_preview_tex;
     int          fusion_preview_w, fusion_preview_h;
@@ -1557,6 +1560,29 @@ static void draw_fusion_graph(app *a) {
     }
     draw_kf_editor(a);
 
+    /* ---- R084: edit graph compositing info (FUSION tier) --------------------
+     * When the edit graph exists, show its compositing pipeline state:
+     * track/clip count, output composite node, color-management chain. */
+    if (a->edit_graph) {
+        int cx = ox + 600;
+        int cy = oy + 280;
+        wb_ui_draw_text(a->ren, cx, cy, "EDIT COMPOSITE", 1, C_ACCENT); cy += 16;
+        char cb[128];
+        snprintf(cb, sizeof(cb), "tracks: %u  clip0: %u",
+                 a->edit_graph->track_count,
+                 a->edit_graph->track_count > 0 ?
+                 a->edit_graph->tracks[0].clip_count : 0);
+        wb_ui_draw_text(a->ren, cx, cy, cb, 1, C_TEXT); cy += 14;
+        snprintf(cb, sizeof(cb), "out: %s  cm: %s",
+                 a->edit_graph->output_composite ? "composite" : "none",
+                 a->edit_graph->color_management_enabled ? "on" : "off");
+        wb_ui_draw_text(a->ren, cx, cy, cb, 1, C_TEXT_DIM); cy += 14;
+        snprintf(cb, sizeof(cb), "cs: %s  tm: %s",
+                 a->edit_graph->cs_node ? "wired" : "none",
+                 a->edit_graph->tm_node ? "wired" : "none");
+        wb_ui_draw_text(a->ren, cx, cy, cb, 1, C_TEXT_DIM); cy += 14;
+    }
+
     /* ---- R043-G6b: live node-graph preview -------------------------------
      * Pull a frame from the composite graph output node, convert float
      * RGBA -> uint8 RGBA, and blit to a preview panel on the right side
@@ -1939,6 +1965,7 @@ static void draw_param_editor(app *a) {
 
 /* forward declarations for video editor tab functions (defined after render) */
 static void draw_video_preview(app *a);
+static void draw_edit_graph_frame(app *a);
 static void draw_video_timeline(app *a);
 static void draw_video_tab_panel(app *a);
 static void draw_fx_panel(app *a);
@@ -2008,6 +2035,9 @@ static void render(app *a) {
         draw_video_tab_panel(a);
         break;
     }
+    /* R084: when VIDEO tier is active, evaluate + display the edit graph frame */
+    if (wb_workspace_video_active(a->ws))
+        draw_edit_graph_frame(a);
     draw_action_bar(a);
     draw_status(a);
     draw_workspace_ribbon(a);   /* R043: bottom Fusion-style tier ribbon */
@@ -2412,6 +2442,73 @@ static void draw_video_preview(app *a) {
     }
 }
 
+/* ---- R084: edit graph frame display (VIDEO tier → MEDIA tab) ------------ */
+/* Evaluate the edit graph at song_pos and blit the resulting frame into the
+ * preview area. Lazily creates the edit graph on first VIDEO-tier activation.
+ * Mirrors the vid_preview_tex pattern: cache the texture, rebuild on resize. */
+
+static SDL_Texture *g_edit_tex = NULL;
+static int g_edit_tex_w = 0, g_edit_tex_h = 0;
+
+static void draw_edit_graph_frame(app *a) {
+    if (!wb_workspace_video_active(a->ws)) return;
+    SDL_Rect prev = video_preview_rect(a);
+
+    /* Lazily create the edit graph on first VIDEO-tier use */
+    if (!a->edit_graph) {
+        a->edit_graph = wb_edit_graph_create(30.0, PROXY_SCALE_W, PROXY_SCALE_H);
+        if (!a->edit_graph) return;
+        printf("edit graph: created (30 fps, %dx%d)\n", PROXY_SCALE_W, PROXY_SCALE_H);
+    }
+
+    /* Evaluate the edit graph at the current song position */
+    double song_pos_sec = (double)a->t.song_pos / WB_SAMPLE_RATE;
+    wb_frame *f = wb_edit_graph_evaluate(a->edit_graph, song_pos_sec);
+    if (!f || !f->px || f->w <= 0 || f->h <= 0) {
+        if (f) wb_frame_free(f);
+        /* No frame: fall back to timecode */
+        double sec = song_pos_sec;
+        int m = (int)(sec/60), s = (int)(fmod(sec, 60.0));
+        int cs = (int)((sec-(int)sec)*100);
+        char tc[32]; snprintf(tc, sizeof(tc), "%02d:%02d.%02d", m, s, cs);
+        wb_ui_draw_text(a->ren, prev.x + 20, prev.y + prev.h/2 - 8, tc, 2, C_TEXT);
+        return;
+    }
+
+    /* Convert float RGBA (0..1) -> uint8 RGBA for SDL */
+    int px_count = f->w * f->h;
+    uint8_t *rgba = (uint8_t *)malloc(px_count * 4);
+    if (!rgba) { wb_frame_free(f); return; }
+    for (int p = 0; p < px_count; p++) {
+        rgba[p*4+0] = (uint8_t)(f->px[p].r * 255.0f + 0.5f);
+        rgba[p*4+1] = (uint8_t)(f->px[p].g * 255.0f + 0.5f);
+        rgba[p*4+2] = (uint8_t)(f->px[p].b * 255.0f + 0.5f);
+        rgba[p*4+3] = (uint8_t)(f->px[p].a * 255.0f + 0.5f);
+    }
+
+    /* (Re)build streaming texture if needed */
+    if (g_edit_tex && (g_edit_tex_w != f->w || g_edit_tex_h != f->h)) {
+        SDL_DestroyTexture(g_edit_tex);
+        g_edit_tex = NULL;
+    }
+    if (!g_edit_tex) {
+        g_edit_tex = SDL_CreateTexture(a->ren, SDL_PIXELFORMAT_RGBA8888,
+                                       SDL_TEXTUREACCESS_STREAMING,
+                                       f->w, f->h);
+        g_edit_tex_w = f->w;
+        g_edit_tex_h = f->h;
+    }
+    if (g_edit_tex) {
+        SDL_UpdateTexture(g_edit_tex, NULL, rgba, f->w * 4);
+        SDL_Rect dst = { prev.x + 10, prev.y + 10,
+                         (int)(prev.w - 20), (int)(prev.h - 20) };
+        SDL_RenderCopy(a->ren, g_edit_tex, NULL, &dst);
+    }
+
+    free(rgba);
+    wb_frame_free(f);
+}
+
 static void draw_video_timeline(app *a) {
     SDL_Rect tl = video_timeline_rect(a);
     setc(a->ren, C_PANEL);
@@ -2617,6 +2714,20 @@ static void draw_video_tab_panel(app *a) {
         wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 20;
         wb_ui_draw_text(a->ren, px + 6, yy, "Press ^I to import a video file.", 1, C_TEXT_DIM); yy += 18;
         wb_ui_draw_text(a->ren, px + 6, yy, "Video decoded to 480p proxy for preview.", 1, C_TEXT_DIM); yy += 20;
+        /* R084: edit graph status in MEDIA tab */
+        if (a->edit_graph) {
+            setc(a->ren, C_FADE);
+            snprintf(buf, sizeof(buf), "Edit graph: %u track(s), %u clip(s) on track 0",
+                     a->edit_graph->track_count,
+                     a->edit_graph->track_count > 0 ?
+                     a->edit_graph->tracks[0].clip_count : 0);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_FADE); yy += 16;
+            snprintf(buf, sizeof(buf), "Timeline: %.1fs @ %.0ffps (%dx%d)",
+                     wb_edit_graph_get_duration(a->edit_graph),
+                     a->edit_graph->fps,
+                     a->edit_graph->width, a->edit_graph->height);
+            wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_FADE); yy += 18;
+        }
         if (a->vid_has_clip) {
             setc(a->ren, C_ACCENT);
             SDL_Rect box = { px + 6, yy, pw - 12, 14 };
@@ -2633,7 +2744,8 @@ static void draw_video_tab_panel(app *a) {
             wb_ui_draw_text(a->ren, px + 6, yy, buf, 1, C_TEXT); yy += 20;
         }
         wb_ui_draw_text(a->ren, px + 6, yy, "Shortcuts:", 1, C_TEXT); yy += 16;
-        wb_ui_draw_text(a->ren, px + 6, yy, "^I  import  ^G  captions  ^R  export", 1, C_TEXT_DIM);
+        wb_ui_draw_text(a->ren, px + 6, yy, "^I import  ^G captions  ^R export", 1, C_TEXT_DIM); yy += 14;
+        wb_ui_draw_text(a->ren, px + 6, yy, "N new edit  I add clip  S split  E export MP4", 1, C_FADE);
         break;
     case 5: /* EDIT */
         /* R043-G6/G7: upper tiers host their own view on this tab. */
@@ -5249,6 +5361,14 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_n:
+        /* R084: on VIDEO/FUSION tier, N = new edit graph */
+        if (wb_workspace_video_active(a->ws) || wb_workspace_fusion_active(a->ws)) {
+            if (a->edit_graph) { wb_edit_graph_destroy(a->edit_graph); a->edit_graph = NULL; }
+            a->edit_graph = wb_edit_graph_create(30.0, PROXY_SCALE_W, PROXY_SCALE_H);
+            snprintf(a->last_status, sizeof(a->last_status), "EDIT GRAPH: new");
+            printf("edit graph: new (30 fps, %dx%d)\n", PROXY_SCALE_W, PROXY_SCALE_H);
+            break;
+        }
         /* R043-G7: on the AGI tier, plain N submits a task to the bridge. */
         if (!ctrl && a->agi && wb_workspace_agi_active(a->ws)) {
             static const char *tasks[] = {
@@ -5288,6 +5408,20 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_s:
+        /* R084: on VIDEO tier, S = split clip at playhead in edit graph */
+        if (wb_workspace_video_active(a->ws) && a->edit_graph &&
+            a->edit_graph->track_count > 0 &&
+            a->edit_graph->tracks[0].clip_count > 0) {
+            double ph = (double)a->t.song_pos / WB_SAMPLE_RATE;
+            int ci = wb_edit_clip_at(a->edit_graph, 0, ph);
+            if (ci >= 0) {
+                int new_ci = wb_edit_split_clip(a->edit_graph, 0, ci, ph);
+                snprintf(a->last_status, sizeof(a->last_status),
+                         new_ci >= 0 ? "EDIT GRAPH: split at %.2fs" : "EDIT GRAPH: split failed", ph);
+                printf("edit graph: split clip %d -> %d at %.2fs\n", ci, new_ci, ph);
+            }
+            break;
+        }
         if (!key_matches(g_key_save, k)) break;   /* G50: remappable */
         if (ctrl && (SDL_GetModState() & KMOD_SHIFT))
             save_template(a);          /* G11: Shift+Ctrl+S = save as template */
@@ -5398,6 +5532,22 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_i:
+        /* R084: on VIDEO tier, I = import clip into edit graph */
+        if (wb_workspace_video_active(a->ws) && a->vid_source[0]) {
+            if (!a->edit_graph)
+                a->edit_graph = wb_edit_graph_create(30.0, PROXY_SCALE_W, PROXY_SCALE_H);
+            if (a->edit_graph) {
+                if (a->edit_graph->track_count == 0)
+                    wb_edit_add_track(a->edit_graph, "Video 1");
+                double dur = a->vid_dur > 0 ? a->vid_dur : 1.0;
+                int ci = wb_edit_add_clip(a->edit_graph, 0, a->vid_source,
+                                          0.0, dur, 0.0);
+                snprintf(a->last_status, sizeof(a->last_status),
+                         ci >= 0 ? "EDIT GRAPH: imported clip (%.1fs)" : "EDIT GRAPH: import failed", dur);
+                printf("edit graph: import '%s' idx=%d dur=%.1fs\n", a->vid_source, ci, dur);
+            }
+            break;
+        }
         if (a->tab == 0 || a->tab == 1) {
             a->io_in = a->t.song_pos;   /* R067: IN on arrange tabs too */
             printf("mark IN: %.2fs\n", a->io_in / WB_SAMPLE_RATE);
@@ -5521,6 +5671,19 @@ static void handle_key(app *a, SDL_Keycode k) {
         }
         break;
     case SDLK_e:  /* trim end to playhead (EDIT tab) */
+        /* R084: on VIDEO/FUSION tier, E = export edit graph to MP4 */
+        if ((wb_workspace_video_active(a->ws) || wb_workspace_fusion_active(a->ws)) &&
+            a->edit_graph) {
+            char out[512];
+            snprintf(out, sizeof(out), "/tmp/bigmac_edit_export_%d.mp4", (int)getpid());
+            printf("edit graph: exporting to %s ...\n", out);
+            snprintf(a->last_status, sizeof(a->last_status), "EDIT GRAPH: exporting ...");
+            int rc = wb_edit_graph_render_to_mp4(a->edit_graph, out, NULL, NULL, NULL);
+            snprintf(a->last_status, sizeof(a->last_status),
+                     rc == 0 ? "EDIT GRAPH: exported to %s" : "EDIT GRAPH: export failed", out);
+            printf("export: rc=%d -> %s\n", rc, out);
+            break;
+        }
         if (a->tab == 5 && a->vid_has_clip) {
             double ph = a->t.song_pos / WB_SAMPLE_RATE;
             if (ph > a->vid_tl_start && ph < a->vid_tl_end) {
@@ -5741,6 +5904,7 @@ int main(int argc, char **argv) {
     a->fusion_preview_w = 480;
     a->fusion_preview_h = 270;
     a->fusion_preview_root = NULL;
+    a->edit_graph = NULL;  /* R084: lazily created on VIDEO tier */
     keymap_load();   /* G50: customizable shortcuts */
     /* G43/G54: watch folder is opt-in via WB_WATCH_DIR */
     {
@@ -6062,6 +6226,8 @@ cleanup:
     for (int i = 0; i < WB_MAX_TRACKS; i++)   /* R043 (G4): free fader recorders */
         if (a->fader_rec[i]) wb_automation_recorder_destroy(a->fader_rec[i]);
     if (a->comp_graph) wb_node_graph_destroy(a->comp_graph);  /* R043-G6 */
+    if (a->edit_graph) wb_edit_graph_destroy(a->edit_graph);   /* R084 */
+    if (g_edit_tex) { SDL_DestroyTexture(g_edit_tex); g_edit_tex = NULL; }
     if (a->fusion_preview_tex) { SDL_DestroyTexture(a->fusion_preview_tex); a->fusion_preview_tex = NULL; }
     wb_cgi_scene_destroy(a->cgi);
     wb_agi_destroy(a->agi);

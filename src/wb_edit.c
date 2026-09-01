@@ -39,6 +39,12 @@ wb_edit_graph *wb_edit_graph_create(double fps, int w, int h) {
     g->subtitle_size = 2.0f;
     g->subtitle_color = 0xFFFFFFFF;
 
+    /* Proxy defaults */
+    g->proxy_enabled = 0;
+    g->proxy_w = 960;
+    g->proxy_h = 540;
+    strncpy(g->proxy_dir, "/tmp", sizeof(g->proxy_dir) - 1);
+
     /* Create the output composite node */
     g->output_composite = wb_node_composite();
     if (!g->output_composite) {
@@ -1037,4 +1043,36 @@ cleanup:
         avio_closep(&fmt_ctx->pb);
     avformat_free_context(fmt_ctx);
     return ret;
+}
+
+/* ---- proxy editing ------------------------------------------------------ */
+
+void wb_edit_set_proxy_enabled(wb_edit_graph *g, int enable) {
+    if (!g) return;
+    g->proxy_enabled = enable;
+    g->eval_time = -1.0;
+}
+
+void wb_edit_set_proxy_size(wb_edit_graph *g, int w, int h) {
+    if (!g) return;
+    g->proxy_w = w > 0 ? w : 960;
+    g->proxy_h = h > 0 ? h : 540;
+}
+
+char *wb_edit_generate_proxy(wb_edit_graph *g, const char *source_path) {
+    if (!g || !source_path) return NULL;
+    char *proxy_path = malloc(512);
+    const char *filename = strrchr(source_path, '/');
+    filename = filename ? filename + 1 : source_path;
+    snprintf(proxy_path, 512, "%s/proxy_%s_%dx%d.mp4",
+             g->proxy_dir[0] ? g->proxy_dir : "/tmp",
+             filename, g->proxy_w, g->proxy_h);
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd),
+             "ffmpeg -y -i \"%s\" -vf \"scale=%d:%d\" -c:v libx264 "
+             "-preset ultrafast -crf 28 -an \"%s\" >/dev/null 2>&1",
+             source_path, g->proxy_w, g->proxy_h, proxy_path);
+    int rc = system(cmd);
+    if (rc != 0) { free(proxy_path); return NULL; }
+    return proxy_path;
 }

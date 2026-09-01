@@ -7,6 +7,7 @@
 #include "wbus/wbus_video.h"
 #include "wbus/wbus_compositor.h"
 #include "wbus/wbus_vfx.h"
+#include "wbus/wbus_export_queue.h"   /* R085: export queue */
 #include "wbus/wbus_voice_polish.h"
 #include "wbus/wbus_captions.h"
 #include "wbus/wbus_mesh.h"
@@ -19,6 +20,8 @@
 #include "wbus/wbus_cgiexport.h"
 #include "wbus/wbus_shadowbin.h"
 #include "wbus/wbus_edit.h"   /* R084: video edit graph */
+#include "wbus/wbus_export_queue.h" /* R078: export queue */
+#include "wbus/wbus.h"     /* wb_export_prog_fn */
 #include "wb_internal.h"   /* wb_wav_read/write_pcm16 (internal) */
 #include <unistd.h>
 #define WB_AGENT_FFMPEG "/Users/waefrebeorn/.local/bin/ffmpeg"
@@ -41,6 +44,9 @@ static wb_edit_graph *g_agent_edit = NULL;
 
 /* R084 nested sequence: agent's sub-sequence (edit graph as a clip) */
 static wb_edit_sequence *g_agent_seq = NULL;
+
+/* R078: agent's export queue — wired to the real node pipeline */
+static void *g_agent_export_queue = NULL;
 
 /* Read a quoted-or-unquoted token; advances *pp past it. Returns a pointer
  * into a small rotating buffer (so up to 4 tokens stay live simultaneously —
@@ -605,6 +611,69 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
     }
     if (strcmp(cmd, "quit") == 0) return 0;
 
+    /* R078: export-queue commands — batch export wired to node pipeline */
+    if (strcmp(cmd, "export-queue-add") == 0) {
+        /* export-queue-add <name> <out.mp4> — add current edit graph to queue */
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        if (!g_agent_export_queue) g_agent_export_queue = wb_export_queue_create();
+        char *name = tok(&p);
+        char *out = tok(&p);
+        if (!name || !name[0]) name = "export";
+        if (!out || !out[0]) { fprintf(stderr, "ERR:usage:export-queue-add <name> <out.mp4>\n"); return -1; }
+        int idx = wb_export_queue_add_edit_job(g_agent_export_queue, name, g_agent_edit, out);
+        if (idx < 0) { fprintf(stderr, "ERR:export-queue-add:failed\n"); return -1; }
+        printf("export-queue-add: job %d '%s' -> %s\n", idx, name, out);
+        return 0;
+    }
+    if (strcmp(cmd, "export-queue-start") == 0) {
+        /* export-queue-start — begin processing the queue */
+        if (!g_agent_export_queue) { fprintf(stderr, "ERR:export-queue:empty\n"); return -1; }
+        wb_export_queue_start(g_agent_export_queue);
+        printf("export-queue-start: processing\n");
+        /* Process all jobs in one shot (synchronous) */
+        int guard = 0;
+        while (wb_export_queue_process(g_agent_export_queue)) {
+            if (++guard > 1000000) {
+                fprintf(stderr, "ERR:export-queue:runaway-guard\n");
+                break;
+            }
+        }
+        int pct = wb_export_queue_get_progress(g_agent_export_queue);
+        printf("export-queue-start: complete (%d%%)\n", pct);
+        return 0;
+    }
+    if (strcmp(cmd, "export-queue-status") == 0) {
+        /* export-queue-status — show all jobs */
+        if (!g_agent_export_queue) { printf("export-queue-status: no queue\n"); return 0; }
+        int pct = wb_export_queue_get_progress(g_agent_export_queue);
+        int n = wb_export_queue_count(g_agent_export_queue);
+        printf("export-queue-status: %d%% complete (%d jobs)\n", pct, n);
+        for (int i = 0; i < n; i++) {
+            const char *name = wb_export_queue_job_name(g_agent_export_queue, i);
+            const char *out = wb_export_queue_job_output(g_agent_export_queue, i);
+            int status = wb_export_queue_job_status(g_agent_export_queue, i);
+            float prog = wb_export_queue_job_progress(g_agent_export_queue, i);
+            const char *st = "?";
+            switch (status) {
+                case EXPORT_PENDING:   st = "pending"; break;
+                case EXPORT_RUNNING:   st = "running"; break;
+                case EXPORT_DONE:      st = "done"; break;
+                case EXPORT_ERROR:     st = "error"; break;
+                case EXPORT_CANCELLED: st = "cancelled"; break;
+            }
+            printf("  [%d] %s %s %.0f%% %s\n", i, name ? name : "?",
+                   st, prog * 100.0f, out ? out : "?");
+        }
+        return 0;
+    }
+    if (strcmp(cmd, "export-queue-cancel") == 0) {
+        /* export-queue-cancel — cancel current job and stop queue */
+        if (!g_agent_export_queue) { fprintf(stderr, "ERR:export-queue:empty\n"); return -1; }
+        wb_export_queue_cancel(g_agent_export_queue);
+        printf("export-queue-cancel: cancelled\n");
+        return 0;
+    }
+
     /* R084: video edit graph commands */
     if (strcmp(cmd, "edit-new") == 0) {
         double fps = atof(tok(&p));
@@ -729,7 +798,8 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
                g_agent_edit->duration, g_agent_edit->track_count);
         for (uint32_t t = 0; t < g_agent_edit->track_count; t++) {
             wb_edit_track *tr = &g_agent_edit->tracks[t];
-            printf(" track[%u] '%s' clips=%u trans=%u\n", t, tr->name, tr->clip_count, tr->trans_count);
+            printf(" track[%u] '%s' clips=%u trans=%u vol=%.2f\n",
+                   t, tr->name, tr->clip_count, tr->trans_count, tr->volume);
             for (uint32_t c = 0; c < tr->clip_count; c++) {
                 wb_edit_clip *cl = &tr->clips[c];
                 printf("  clip[%u] src=%s start=%.2f dur=%.2f tl=%.2f\n",
@@ -757,6 +827,26 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
                path, loaded->fps, loaded->width, loaded->height, loaded->track_count);
         return 0;
     }
+    if (strcmp(cmd, "edit-proxy-on") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        wb_edit_set_proxy_enabled(g_agent_edit, 1);
+        printf("edit-proxy: enabled (%dx%d)\n", g_agent_edit->proxy_w, g_agent_edit->proxy_h);
+        return 0;
+    }
+    if (strcmp(cmd, "edit-proxy-off") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        wb_edit_set_proxy_enabled(g_agent_edit, 0);
+        printf("edit-proxy: disabled\n");
+        return 0;
+    }
+    if (strcmp(cmd, "edit-proxy-size") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int w = atoi(tok(&p));
+        int h = atoi(tok(&p));
+        wb_edit_set_proxy_size(g_agent_edit, w, h);
+        printf("edit-proxy-size: %dx%d\n", g_agent_edit->proxy_w, g_agent_edit->proxy_h);
+        return 0;
+    }
     /* R077: scene-detection auto-cut */
     if (strcmp(cmd, "edit-auto-cut") == 0) {
         if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
@@ -770,6 +860,8 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
                track, clip, threshold, cuts);
         return 0;
     }
+
+    /* Audio clip commands — TODO: implement wb_edit_add_audio_clip */
 
     /* R084: nested sequence commands */
     if (strcmp(cmd, "edit-new-seq") == 0) {

@@ -1272,6 +1272,80 @@ int wb_agent_command(wb_session *s, wb_engine *e, const char *line) {
     }
 
     /* R077: new module commands */
+    if (strcmp(cmd, "edit-auto-caption") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        int track = atoi(tok(&p));
+        int clip = atoi(tok(&p));
+        const char *lang = tok(&p);
+        wb_stt_set_language(lang && lang[0] ? lang : "en");
+        printf("edit-auto-caption: transcribing track %d clip %d (lang=%s)...\n",
+               track, clip, lang && lang[0] ? lang : "en");
+        int rc = wb_stt_process_audio(g_agent_edit, track, clip);
+        if (rc != 0) { fprintf(stderr, "ERR:edit-auto-caption:transcription-failed\n"); return -1; }
+        char srt_buf[65536];
+        int srt_len = wb_stt_get_transcription_result(srt_buf, sizeof(srt_buf));
+        if (srt_len > 0) {
+            rc = wb_stt_burn_subtitles(g_agent_edit, track, clip, srt_buf);
+            if (rc != 0) { fprintf(stderr, "ERR:edit-auto-caption:burn-failed\n"); return -1; }
+            printf("edit-auto-caption: %d SRT entries, subtitles burned\n",
+                   wb_stt_get_entry_count());
+        } else {
+            fprintf(stderr, "ERR:edit-auto-caption:no-transcription-result\n");
+            return -1;
+        }
+        return 0;
+    }
+    /* R086: text-based editing commands */
+    if (strcmp(cmd, "edit-text-based") == 0) {
+        if (!g_agent_edit) { fprintf(stderr, "ERR:no-edit-graph\n"); return -1; }
+        char *subcmd = tok(&p);
+        if (!subcmd) { fprintf(stderr, "ERR:usage:edit-text-based <transcript|search|silence|undo> [args]\n"); return -1; }
+
+        if (strcmp(subcmd, "transcript") == 0) {
+            /* Read transcript JSON from remaining args or file */
+            char *transcript = tok(&p);
+            char *rules = tok(&p);
+            if (!transcript) { fprintf(stderr, "ERR:usage:edit-text-based transcript <json_or_file> [rules]\n"); return -1; }
+            /* Check if transcript is a file path */
+            FILE *f = fopen(transcript, "r");
+            char json_buf[65536];
+            if (f) {
+                size_t n = fread(json_buf, 1, sizeof(json_buf) - 1, f);
+                json_buf[n] = '\0';
+                fclose(f);
+                transcript = json_buf;
+            }
+            int rc = wb_edit_transcript_to_edits(g_agent_edit, transcript, rules);
+            if (rc < 0) { fprintf(stderr, "ERR:edit-text-based:transcript failed\n"); return -1; }
+            printf("edit-text-based: transcript -> %d edits\n", rc);
+            return 0;
+        } else if (strcmp(subcmd, "search") == 0) {
+            char *query = tok(&p);
+            if (!query) { fprintf(stderr, "ERR:usage:edit-text-based search <query>\n"); return -1; }
+            int matches = wb_edit_search_transcript(g_agent_edit, query);
+            if (matches < 0) { fprintf(stderr, "ERR:edit-text-based:search failed\n"); return -1; }
+            printf("edit-text-based: search found %d matches\n", matches);
+            return 0;
+        } else if (strcmp(subcmd, "silence") == 0) {
+            float threshold = (float)atof(tok(&p));
+            float min_dur = (float)atof(tok(&p));
+            if (threshold >= 0) threshold = -40.0f;
+            if (min_dur <= 0) min_dur = 0.5f;
+            int removed = wb_edit_delete_silence(g_agent_edit, threshold, min_dur);
+            if (removed < 0) { fprintf(stderr, "ERR:edit-text-based:silence failed\n"); return -1; }
+            printf("edit-text-based: silence removal -> %d segments removed\n", removed);
+            return 0;
+        } else if (strcmp(subcmd, "undo") == 0) {
+            int rc = wb_edit_text_undo(g_agent_edit);
+            if (rc != 0) { fprintf(stderr, "ERR:edit-text-based:undo failed\n"); return -1; }
+            printf("edit-text-based: undo performed\n");
+            return 0;
+        } else {
+            fprintf(stderr, "ERR:unknown-subcommand:%s\n", subcmd);
+            return -1;
+        }
+    }
+
     if (strcmp(cmd, "fx") == 0) {
         char *name = tok(&p);
         if (!name) { fprintf(stderr, "ERR:usage:fx <effect_name>\n"); return -1; }

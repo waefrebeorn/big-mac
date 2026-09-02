@@ -505,4 +505,68 @@ float wb_node_get_opacity(wb_node *node);
 void wb_node_get_world_transform(wb_node *node, float *out_x, float *out_y,
                                    float *out_sx, float *out_sy, float *out_rot);
 
+/* ---- Per-layer mask node (R090) ---- */
+wb_node *wb_node_effect_mask(int w, int h);
+void wb_node_effect_mask_set_feather(wb_node *n, float feather_px);
+void wb_node_effect_mask_set_expand(wb_node *n, float expand_px);
+void wb_node_effect_mask_set_invert(wb_node *n, int invert);
+void wb_node_effect_mask_set_path(wb_node *n, const char *path_str);
+
+/* ---- 3D camera + lights (R089: AE Advanced 3D parity) ---- */
+struct wb_3d_camera;
+struct wb_light_registry;
+
+struct wb_3d_camera *wb_3d_camera_create(void);
+void wb_3d_camera_set_position(struct wb_3d_camera *cam, float x, float y, float z);
+void wb_3d_camera_set_target(struct wb_3d_camera *cam, float x, float y, float z);
+void wb_3d_camera_set_fov(struct wb_3d_camera *cam, float fov_deg);
+void wb_3d_camera_set_dof(struct wb_3d_camera *cam, float focus_distance, float aperture);
+void wb_3d_camera_set_near_far(struct wb_3d_camera *cam, float near, float far);
+void wb_3d_camera_update_matrices(struct wb_3d_camera *cam, float aspect);
+void wb_3d_camera_get_view_matrix(struct wb_3d_camera *cam, float *out_16);
+void wb_3d_camera_get_proj_matrix(struct wb_3d_camera *cam, float *out_16);
+void wb_3d_camera_destroy(struct wb_3d_camera *cam);
+
+struct wb_light_registry *wb_light_registry_create(void);
+int wb_light_add_point(struct wb_light_registry *r, float x, float y, float z,
+                        float r_col, float g, float b, float intensity, float range);
+int wb_light_add_spot(struct wb_light_registry *r, float px, float py, float pz,
+                       float dx, float dy, float dz,
+                       float r_col, float g, float b, float intensity,
+                       float angle_deg, float softness);
+int wb_light_add_directional(struct wb_light_registry *r, float dx, float dy, float dz,
+                              float r_col, float g, float b, float intensity);
+int wb_light_add_ambient(struct wb_light_registry *r, float r_col, float g, float b);
+void wb_light_set_shadows(struct wb_light_registry *r, int light_idx, int enable);
+void wb_light_remove(struct wb_light_registry *r, int light_idx);
+void wb_light_clear(struct wb_light_registry *r);
+int wb_light_count(struct wb_light_registry *r);
+void wb_light_registry_destroy(struct wb_light_registry *r);
+
+struct wb_node *wb_node_source_3d_camera(int w, int h);
+
+/* ---- AI auto-caption / speech-to-text subtitle burn-in (wb_stt_caption.c) ---- */
+/* Set the language for STT transcription (ISO-639-1: "en", "es", "auto"). */
+int  wb_stt_set_language(const char *lang);
+/* Transcribe audio from a video clip in the edit graph via whisper.cpp.
+ * Returns 0 on success, -1 on error. */
+int  wb_stt_process_audio(wb_edit_graph *g, int track, int clip_idx);
+/* Get the last transcription result as SRT text. Returns bytes written or -1. */
+int  wb_stt_get_transcription_result(char *buf, int bufsize);
+/* Burn SRT subtitles into a video clip. Parses SRT, caches it, sets overlay.
+ * Returns 0 on success, -1 on error. */
+int  wb_stt_burn_subtitles(wb_edit_graph *g, int track, int clip_idx, const char *srt);
+/* Burn subtitles directly onto a frame at time time_ms (uses wb_ui_text_to_rgba). */
+void wb_stt_burn_on_frame(wb_frame *f, int time_ms);
+/* Get the active caption text at time_ms ("" if none). */
+const char *wb_stt_get_caption_at(int time_ms);
+/* Configure subtitle style: scale, position (normalized 0..1), RGBA color. */
+void wb_stt_set_style(float scale, float x, float y, uint32_t color);
+/* Enable/disable subtitle overlay. */
+void wb_stt_set_enabled(int enabled);
+/* Get parsed SRT entry count. */
+int  wb_stt_get_entry_count(void);
+/* Get the SRT file path for ffmpeg export burn. */
+const char *wb_stt_get_srt_path(void);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

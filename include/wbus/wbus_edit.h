@@ -505,6 +505,36 @@ void wb_edit_set_subtitle_size(wb_edit_graph *g, float size);
 /* Set subtitle color as 0xRRGGBB (alpha defaults to 0xFF). */
 void wb_edit_set_subtitle_color(wb_edit_graph *g, uint32_t rgba);
 
+/* ---- text-based editing ----------------------------------------------- */
+
+/* Parse a transcript JSON and generate edit cuts.
+ * transcript_json: JSON array of [{"start":0.0,"end":1.5,"text":"hello"}, ...]
+ * edit_rules: comma-separated rules (e.g. "remove=um,uh,like" or "keep-all")
+ * For each transcript entry, finds overlapping clips on all tracks and splits
+ * them at word boundaries. Applies edit_rules to mark segments for removal.
+ * Returns the number of edit operations performed, or -1 on error. */
+int wb_edit_transcript_to_edits(wb_edit_graph *g, const char *transcript_json,
+                                 const char *edit_rules);
+
+/* Search transcript entries for clips containing specific words.
+ * query: space-separated words to search for (case-insensitive).
+ * Prints matching clip info to stdout. Returns number of matches, or -1 on error. */
+int wb_edit_search_transcript(wb_edit_graph *g, const char *query);
+
+/* Auto-detect and remove silent segments from audio clips.
+ * threshold_db: RMS threshold in dB (e.g. -40.0). Segments below this are silent.
+ * min_duration: minimum duration in seconds for a segment to be considered silence.
+ * Analyzes audio buffer RMS for each audio clip, marks silent segments for removal
+ * by splitting and removing them from the timeline.
+ * Returns the number of silent segments removed, or -1 on error. */
+int wb_edit_delete_silence(wb_edit_graph *g, float threshold_db,
+                            float min_duration);
+
+/* Undo the last text-based edit operation (transcript cuts, silence removal).
+ * Uses the same undo stack as wb_edit_undo_undo() but only pops text-edit ops.
+ * Returns 0 on success, -1 if nothing to undo or error. */
+int wb_edit_text_undo(wb_edit_graph *g);
+
 #ifdef __cplusplus
 }
 #endif

@@ -483,4 +483,26 @@ wb_node *wb_node_source_shape_star(int w, int h, int points, float inner_radius,
 void wb_node_shape_set_fill(wb_node *node, float r, float g, float b, float a);
 void wb_node_shape_set_stroke(wb_node *node, float r, float g, float b, float a, float width);
 
+/* ---- Screen recording (R089: Camtasia parity) ---- */
+wb_node *wb_node_source_screen_record(int display_index, int fps);
+int wb_screen_display_count(void);
+int wb_screen_display_bounds(int index, int *w, int *h);
+
+/* ---- Null objects + parenting (R089: AE parity) ---- */
+wb_node *wb_node_create_null(const char *name);
+void wb_node_set_parent(wb_node *child, wb_node *parent);
+wb_node *wb_node_get_parent(wb_node *child);
+int wb_node_get_child_count(wb_node *parent);
+wb_node *wb_node_get_child(wb_node *parent, int index);
+void wb_node_set_position(wb_node *node, float x, float y);
+void wb_node_set_scale(wb_node *node, float sx, float sy);
+void wb_node_set_rotation(wb_node *node, float degrees);
+void wb_node_set_opacity(wb_node *node, float opacity);
+void wb_node_get_position(wb_node *node, float *x, float *y);
+void wb_node_get_scale(wb_node *node, float *sx, float *sy);
+float wb_node_get_rotation(wb_node *node);
+float wb_node_get_opacity(wb_node *node);
+void wb_node_get_world_transform(wb_node *node, float *out_x, float *out_y,
+                                   float *out_sx, float *out_sy, float *out_rot);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

@@ -570,22 +570,22 @@ int  wb_stt_get_entry_count(void);
 const char *wb_stt_get_srt_path(void);
 
 /* ---- Real-time preview (R090: GPU playback) ---- */
-typedef struct wb_preview wb_preview;
+struct wb_preview;
 typedef enum { WB_PREVIEW_STOPPED, WB_PREVIEW_PLAYING, WB_PREVIEW_PAUSED, WB_PREVIEW_SCRUBBING } wb_preview_state;
 
-wb_preview *wb_preview_create(wb_node *root_node, int w, int h, double fps);
-void wb_preview_set_duration(wb_preview *p, double duration_sec);
-void wb_preview_set_loop(wb_preview *p, int loop);
-void wb_preview_set_speed(wb_preview *p, double speed);
-void wb_preview_play(wb_preview *p);
-void wb_preview_pause(wb_preview *p);
-void wb_preview_stop(wb_preview *p);
-void wb_preview_seek(wb_preview *p, double time_sec);
-double wb_preview_get_time(wb_preview *p);
-wb_preview_state wb_preview_get_state(wb_preview *p);
-double wb_preview_get_fps(wb_preview *p);
-int wb_preview_get_frame(wb_preview *p, uint8_t *out_rgba);
-void wb_preview_destroy(wb_preview *p);
+struct wb_preview *wb_preview_create(wb_node *root_node, int w, int h, double fps);
+void wb_preview_set_duration(struct wb_preview *p, double duration_sec);
+void wb_preview_set_loop(struct wb_preview *p, int loop);
+void wb_preview_set_speed(struct wb_preview *p, double speed);
+void wb_preview_play(struct wb_preview *p);
+void wb_preview_pause(struct wb_preview *p);
+void wb_preview_stop(struct wb_preview *p);
+void wb_preview_seek(struct wb_preview *p, double time_sec);
+double wb_preview_get_time(struct wb_preview *p);
+wb_preview_state wb_preview_get_state(struct wb_preview *p);
+double wb_preview_get_fps(struct wb_preview *p);
+int wb_preview_get_frame(struct wb_preview *p, uint8_t *out_rgba);
+void wb_preview_destroy(struct wb_preview *p);
 
 /* ---- DVD/Blu-ray authoring (R090) ---- */
 struct wb_dvd_project;

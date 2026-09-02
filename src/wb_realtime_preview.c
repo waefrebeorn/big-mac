@@ -17,7 +17,7 @@
 
 /* ---- Preview state ---- */
 
-typedef struct wb_preview {
+struct wb_preview {
     wb_node *root_node;       /* compositor root (output node) */
     int width, height;        /* preview dimensions */
     double fps;               /* target playback fps */
@@ -48,14 +48,14 @@ typedef struct wb_preview {
 
 /* ---- Forward declarations ---- */
 static void *preview_thread_func(void *arg);
-static void preview_render_frame(wb_preview *p);
+static void preview_render_frame(struct wb_preview *p);
 
 /* ---- Transport controls ---- */
 
-wb_preview *wb_preview_create(wb_node *root_node, int w, int h, double fps) {
+struct wb_preview *wb_preview_create(wb_node *root_node, int w, int h, double fps) {
     if (!root_node || w <= 0 || h <= 0) return NULL;
 
-    wb_preview *p = (wb_preview *)calloc(1, sizeof(wb_preview));
+    struct wb_preview *p = (struct wb_preview *)calloc(1, sizeof(struct wb_preview));
     if (!p) return NULL;
 
     p->root_node = root_node;
@@ -75,21 +75,21 @@ wb_preview *wb_preview_create(wb_node *root_node, int w, int h, double fps) {
     return p;
 }
 
-void wb_preview_set_duration(wb_preview *p, double duration_sec) {
+void wb_preview_set_duration(struct wb_preview *p, double duration_sec) {
     if (!p) return;
     p->duration_sec = duration_sec > 0 ? duration_sec : 1.0;
 }
 
-void wb_preview_set_loop(wb_preview *p, int loop) {
+void wb_preview_set_loop(struct wb_preview *p, int loop) {
     if (p) p->loop = loop;
 }
 
-void wb_preview_set_speed(wb_preview *p, double speed) {
+void wb_preview_set_speed(struct wb_preview *p, double speed) {
     if (!p) return;
     p->playback_speed = speed < 0.1 ? 0.1 : (speed > 4.0 ? 4.0 : speed);
 }
 
-void wb_preview_play(wb_preview *p) {
+void wb_preview_play(struct wb_preview *p) {
     if (!p) return;
     pthread_mutex_lock(&p->lock);
     if (p->state == WB_PREVIEW_STOPPED) {
@@ -104,7 +104,7 @@ void wb_preview_play(wb_preview *p) {
     pthread_mutex_unlock(&p->lock);
 }
 
-void wb_preview_pause(wb_preview *p) {
+void wb_preview_pause(struct wb_preview *p) {
     if (!p) return;
     pthread_mutex_lock(&p->lock);
     if (p->state == WB_PREVIEW_PLAYING)
@@ -112,7 +112,7 @@ void wb_preview_pause(wb_preview *p) {
     pthread_mutex_unlock(&p->lock);
 }
 
-void wb_preview_stop(wb_preview *p) {
+void wb_preview_stop(struct wb_preview *p) {
     if (!p) return;
     pthread_mutex_lock(&p->lock);
     p->state = WB_PREVIEW_STOPPED;
@@ -125,7 +125,7 @@ void wb_preview_stop(wb_preview *p) {
     }
 }
 
-void wb_preview_seek(wb_preview *p, double time_sec) {
+void wb_preview_seek(struct wb_preview *p, double time_sec) {
     if (!p) return;
     pthread_mutex_lock(&p->lock);
     p->current_time = time_sec < 0 ? 0 : (time_sec > p->duration_sec ? p->duration_sec : time_sec);
@@ -133,7 +133,7 @@ void wb_preview_seek(wb_preview *p, double time_sec) {
     pthread_mutex_unlock(&p->lock);
 }
 
-double wb_preview_get_time(wb_preview *p) {
+double wb_preview_get_time(struct wb_preview *p) {
     if (!p) return 0.0;
     double t;
     pthread_mutex_lock(&p->lock);
@@ -142,7 +142,7 @@ double wb_preview_get_time(wb_preview *p) {
     return t;
 }
 
-wb_preview_state wb_preview_get_state(wb_preview *p) {
+wb_preview_state wb_preview_get_state(struct wb_preview *p) {
     if (!p) return WB_PREVIEW_STOPPED;
     wb_preview_state s;
     pthread_mutex_lock(&p->lock);
@@ -151,7 +151,7 @@ wb_preview_state wb_preview_get_state(wb_preview *p) {
     return s;
 }
 
-double wb_preview_get_fps(wb_preview *p) {
+double wb_preview_get_fps(struct wb_preview *p) {
     if (!p) return 0.0;
     double fps;
     pthread_mutex_lock(&p->lock);
@@ -162,7 +162,7 @@ double wb_preview_get_fps(wb_preview *p) {
 
 /* ---- Frame rendering ---- */
 
-static void preview_render_frame(wb_preview *p) {
+static void preview_render_frame(struct wb_preview *p) {
     if (!p || !p->root_node) return;
 
     wb_frame *f = p->root_node->pull(p->root_node, p->current_time,
@@ -185,7 +185,7 @@ static void preview_render_frame(wb_preview *p) {
 /* ---- Playback thread ---- */
 
 static void *preview_thread_func(void *arg) {
-    wb_preview *p = (wb_preview *)arg;
+    struct wb_preview *p = (struct wb_preview *)arg;
     double frame_duration = 1.0 / p->fps;
 
     while (p->running) {
@@ -230,7 +230,7 @@ static void *preview_thread_func(void *arg) {
 
 /* ---- Frame access ---- */
 
-int wb_preview_get_frame(wb_preview *p, uint8_t *out_rgba) {
+int wb_preview_get_frame(struct wb_preview *p, uint8_t *out_rgba) {
     if (!p || !out_rgba) return -1;
     pthread_mutex_lock(&p->lock);
     if (!p->frame_ready) {
@@ -242,7 +242,7 @@ int wb_preview_get_frame(wb_preview *p, uint8_t *out_rgba) {
     return 1;
 }
 
-void wb_preview_destroy(wb_preview *p) {
+void wb_preview_destroy(struct wb_preview *p) {
     if (!p) return;
     wb_preview_stop(p);
     pthread_mutex_destroy(&p->lock);

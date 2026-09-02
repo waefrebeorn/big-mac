@@ -245,8 +245,50 @@ int wb_dvd_author_export(struct wb_dvd_project *p, const char *output_dir, int f
         generate_video_ts_ifo(p, ifo_path);
     }
 
-    /* Generate per-title VTS IFOs */
+    /* Encode each title to MPEG-2 and generate VTS IFOs */
     for (int i = 0; i < p->title_count; i++) {
+        char mpeg_path[1024];
+        if (format >= WB_DVD_FORMAT_BD25) {
+            snprintf(mpeg_path, sizeof(mpeg_path), "%s/BDMV/STREAM/%05d.m2ts",
+                     output_dir, i);
+        } else {
+            snprintf(mpeg_path, sizeof(mpeg_path), "%s/VIDEO_TS/VTS_%02d_0.VOB",
+                     output_dir, i + 1);
+        }
+
+        /* Encode to MPEG-2 using ffmpeg */
+        char cmd[4096];
+        if (p->titles[i].audio_path[0]) {
+            snprintf(cmd, sizeof(cmd),
+                "ffmpeg -y -loglevel error "
+                "-i '%s' -i '%s' "
+                "-map 0:v:0 -map 1:a:0 "
+                "-c:v mpeg2video -b:v 8000k -maxrate 9000k -minrate 0 "
+                "-bufsize 1835k -packetsize 204 -muxrate 10080000 "
+                "-c:a ac3 -b:a 448k "
+                "-f vob -target pal-dvd "
+                "'%s' 2>&1",
+                p->titles[i].video_path, p->titles[i].audio_path, mpeg_path);
+        } else {
+            snprintf(cmd, sizeof(cmd),
+                "ffmpeg -y -loglevel error "
+                "-i '%s' "
+                "-c:v mpeg2video -b:v 8000k -maxrate 9000k "
+                "-bufsize 1835k "
+                "-c:a ac3 -b:a 448k "
+                "-f vob -target pal-dvd "
+                "'%s' 2>&1",
+                p->titles[i].video_path, mpeg_path);
+        }
+        int rc = system(cmd);
+        if (rc != 0) {
+            p->error = 1;
+            snprintf(p->error_msg, sizeof(p->error_msg),
+                "ffmpeg encode failed for title %d (exit %d)", i, rc);
+            return -1;
+        }
+
+        /* Generate VTS IFO */
         if (format >= WB_DVD_FORMAT_BD25) {
             snprintf(ifo_path, sizeof(ifo_path), "%s/BDMV/PLAYLIST/%05d.mpls",
                      output_dir, i);
@@ -256,7 +298,6 @@ int wb_dvd_author_export(struct wb_dvd_project *p, const char *output_dir, int f
                      output_dir, i + 1);
             generate_vts_ifo(p, i, ifo_path);
 
-            /* BUP backup */
             snprintf(ifo_path, sizeof(ifo_path), "%s/VIDEO_TS/VTS_%02d_0.BUP",
                      output_dir, i + 1);
             generate_vts_ifo(p, i, ifo_path);

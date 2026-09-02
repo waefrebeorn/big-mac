@@ -44,15 +44,25 @@ int main(void) {
     CHECK(1, "all shape nodes freed");
 
     /* Path parsing */
-    float vx[64], vy[64];
+    float vx[256], vy[256];
     int vcount = 0;
-    wb_svg_parse_path("M 0 0 L 100 0 L 50 100 Z", vx, vy, &vcount, 64);
+    wb_svg_parse_path("M 0 0 L 100 0 L 50 100 Z", vx, vy, &vcount, 256);
     CHECK(vcount == 3, "path parsed 3 vertices");
 
     /* Relative path */
     vcount = 0;
-    wb_svg_parse_path("M 10 10 l 50 0 l 0 50 z", vx, vy, &vcount, 64);
+    wb_svg_parse_path("M 10 10 l 50 0 l 0 50 z", vx, vy, &vcount, 256);
     CHECK(vcount >= 3, "relative path parsed");
+
+    /* Cubic bezier */
+    vcount = 0;
+    wb_svg_parse_path("M 0 0 C 50 0 100 50 50 100", vx, vy, &vcount, 256);
+    CHECK(vcount >= 8, "cubic bezier subdivided into segments");
+
+    /* Quadratic bezier */
+    vcount = 0;
+    wb_svg_parse_path("M 0 0 Q 50 0 50 100", vx, vy, &vcount, 256);
+    CHECK(vcount >= 6, "quadratic bezier subdivided into segments");
 
     /* NULL safety */
     wb_svg_parse_path(NULL, vx, vy, &vcount, 64);

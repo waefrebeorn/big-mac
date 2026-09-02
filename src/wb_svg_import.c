@@ -153,23 +153,79 @@ int wb_svg_parse_path(const char *path_d, float *verts_x, float *verts_y, int *v
 
             case 'C': /* cubic bezier absolute */
             case 'c': /* cubic bezier relative */
-                /* Skip 6 values (control points + endpoint) */
-                while (*p && (isspace(*p) || *p == ',')) p++;
-                for (int i = 0; i < 6 && *p && !isalpha(*p); i++) {
+            case 'S': /* smooth cubic absolute */
+            case 's': /* smooth cubic relative */
+            {
+                /* Parse 6 values: x1 y1 x2 y2 x y */
+                float vals[6] = {0};
+                int nvals = 0;
+                while (*p && nvals < 6) {
                     while (*p && (isspace(*p) || *p == ',')) p++;
                     if (!*p || isalpha(*p)) break;
                     char *end;
-                    strtof(p, &end);
+                    vals[nvals] = strtof(p, &end);
                     if (end == p) break;
                     p = end;
+                    nvals++;
                 }
-                /* Add endpoint as vertex (simplified) */
-                if (*vert_count < max_verts) {
-                    verts_x[*vert_count] = cur_x;
-                    verts_y[*vert_count] = cur_y;
-                    (*vert_count)++;
+                if (nvals == 6) {
+                    float x1 = (cmd == 'c' || cmd == 's') ? cur_x + vals[0] : vals[0];
+                    float y1 = (cmd == 'c' || cmd == 's') ? cur_y + vals[1] : vals[1];
+                    float x2 = (cmd == 'c' || cmd == 's') ? cur_x + vals[2] : vals[2];
+                    float y2 = (cmd == 'c' || cmd == 's') ? cur_y + vals[3] : vals[3];
+                    float ex = (cmd == 'c' || cmd == 's') ? cur_x + vals[4] : vals[4];
+                    float ey = (cmd == 'c' || cmd == 's') ? cur_y + vals[5] : vals[5];
+                    /* Subdivide cubic bezier into line segments */
+                    int steps = 8;
+                    for (int s = 1; s <= steps && *vert_count < max_verts; s++) {
+                        float t = (float)s / (float)steps;
+                        float mt = 1.0f - t;
+                        float bx = mt*mt*mt*cur_x + 3*mt*mt*t*x1 + 3*mt*t*t*x2 + t*t*t*ex;
+                        float by = mt*mt*mt*cur_y + 3*mt*mt*t*y1 + 3*mt*t*t*y2 + t*t*t*ey;
+                        verts_x[*vert_count] = bx;
+                        verts_y[*vert_count] = by;
+                        (*vert_count)++;
+                    }
+                    cur_x = ex;
+                    cur_y = ey;
                 }
                 break;
+            }
+
+            case 'Q': /* quadratic bezier absolute */
+            case 'q': /* quadratic bezier relative */
+            {
+                float vals[4] = {0};
+                int nvals = 0;
+                while (*p && nvals < 4) {
+                    while (*p && (isspace(*p) || *p == ',')) p++;
+                    if (!*p || isalpha(*p)) break;
+                    char *end;
+                    vals[nvals] = strtof(p, &end);
+                    if (end == p) break;
+                    p = end;
+                    nvals++;
+                }
+                if (nvals == 4) {
+                    float cx = (cmd == 'q') ? cur_x + vals[0] : vals[0];
+                    float cy = (cmd == 'q') ? cur_y + vals[1] : vals[1];
+                    float ex = (cmd == 'q') ? cur_x + vals[2] : vals[2];
+                    float ey = (cmd == 'q') ? cur_y + vals[3] : vals[3];
+                    int steps = 6;
+                    for (int s = 1; s <= steps && *vert_count < max_verts; s++) {
+                        float t = (float)s / (float)steps;
+                        float mt = 1.0f - t;
+                        float bx = mt*mt*cur_x + 2*mt*t*cx + t*t*ex;
+                        float by = mt*mt*cur_y + 2*mt*t*cy + t*t*ey;
+                        verts_x[*vert_count] = bx;
+                        verts_y[*vert_count] = by;
+                        (*vert_count)++;
+                    }
+                    cur_x = ex;
+                    cur_y = ey;
+                }
+                break;
+            }
 
             default:
                 /* Unknown command, skip */

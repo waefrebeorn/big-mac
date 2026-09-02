@@ -7,6 +7,7 @@
  *   - Delay/echo
  *   - Distortion (soft clip)
  *   - Chorus (modulated delay)
+ *   - VST3 plugin hosting
  *
  * Pure C11, no third party.
  */
@@ -14,6 +15,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include "wbus/wbus_vst3.h"
 
 /* ---- 3-band EQ ---------------------------------------------------------- */
 /* Simple shelving EQ: low shelf, mid peak, high shelf */
@@ -253,7 +255,22 @@ int wb_edit_set_audio_fx(wb_edit_graph *g, int track, int clip_idx,
     if ((uint32_t)clip_idx >= tr->audio_clip_count) return -1;
     if (fx_slot < 0 || fx_slot >= WB_AUDIO_FX_PER_CLIP) return -1;
 
+    /* If setting a VST3 FX, instantiate the plugin */
+    void *vst3_inst = NULL;
+    int vst3_param_count = 0;
+    if (fx->type == WB_AUDIO_FX_VST3 && fx->vst3.plugin_name[0]) {
+        /* Destroy old instance if replacing */
+        if (tr->audio_clips[clip_idx].fx_chain[fx_slot].vst3.instance) {
+            wb_vst3_destroy(tr->audio_clips[clip_idx].fx_chain[fx_slot].vst3.instance);
+        }
+        vst3_inst = wb_vst3_create(fx->vst3.plugin_name, (uint32_t)48000);
+        vst3_param_count = wb_vst3_param_count(vst3_inst);
+    }
+
     tr->audio_clips[clip_idx].fx_chain[fx_slot] = *fx;
+    /* Set instance pointer after memcpy (overwritten by struct copy) */
+    tr->audio_clips[clip_idx].fx_chain[fx_slot].vst3.instance = vst3_inst;
+    tr->audio_clips[clip_idx].fx_chain[fx_slot].vst3.param_count = vst3_param_count;
     return 0;
 }
 
@@ -264,6 +281,12 @@ int wb_edit_clear_audio_fx(wb_edit_graph *g, int track, int clip_idx,
     wb_edit_track *tr = &g->tracks[track];
     if ((uint32_t)clip_idx >= tr->audio_clip_count) return -1;
     if (fx_slot < 0 || fx_slot >= WB_AUDIO_FX_PER_CLIP) return -1;
+
+    /* If clearing a VST3 FX, destroy the plugin instance */
+    if (tr->audio_clips[clip_idx].fx_chain[fx_slot].type == WB_AUDIO_FX_VST3 &&
+        tr->audio_clips[clip_idx].fx_chain[fx_slot].vst3.instance) {
+        wb_vst3_destroy(tr->audio_clips[clip_idx].fx_chain[fx_slot].vst3.instance);
+    }
 
     memset(&tr->audio_clips[clip_idx].fx_chain[fx_slot], 0, sizeof(wb_audio_fx));
     return 0;
@@ -312,6 +335,34 @@ void wb_edit_apply_audio_fx(wb_edit_graph *g, int track, int clip_idx,
                     params[1] = fx[i].chorus.depth_ms / 1000.0f;
                     params[2] = fx[i].chorus.mix;
                     break;
+                case WB_AUDIO_FX_VST3:
+                    /* VST3: process via plugin instance, not float params */
+                    if (fx[i].vst3.instance) {
+                        /* Deinterleave stereo in/out */
+                        /* For now, process as mono-mixed; full stereo VST3 needs deinterleave */
+                        float *mix = (float *)malloc(n_frames * sizeof(float));
+                        if (mix) {
+                            for (int f = 0; f < n_frames; f++)
+                                mix[f] = buf[f * channels] * 0.5f + (channels > 1 ? buf[f * channels + 1] * 0.5f : 0);
+                            float *out = (float *)malloc(n_frames * sizeof(float));
+                            if (out) {
+                                wb_vst3_process(fx[i].vst3.instance, mix, mix, out, out, (uint32_t)n_frames);
+                                /* Write back with mix */
+                                float wet = fx[i].mix;
+                                for (int f = 0; f < n_frames; f++) {
+                                    float dry = buf[f * channels];
+                                    buf[f * channels] = dry * (1.0f - wet) + out[f] * wet;
+                                    if (channels > 1) {
+                                        dry = buf[f * channels + 1];
+                                        buf[f * channels + 1] = dry * (1.0f - wet) + out[f] * wet;
+                                    }
+                                }
+                                free(out);
+                            }
+                            free(mix);
+                        }
+                    }
+                    continue; /* skip the generic process() call below */
                 default:
                     break;
             }

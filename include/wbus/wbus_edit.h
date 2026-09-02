@@ -57,6 +57,7 @@ typedef enum {
     WB_AUDIO_FX_DELAY,      /* stereo delay/echo */
     WB_AUDIO_FX_DISTORTION, /* waveshaping distortion */
     WB_AUDIO_FX_CHORUS,     /* chorus/flanger */
+    WB_AUDIO_FX_VST3,       /* VST3 plugin instance */
     WB_AUDIO_FX_COUNT
 } wb_audio_fx_type;
 
@@ -110,6 +111,13 @@ typedef struct {
         float depth_ms;       /* modulation depth in ms */
         float mix;            /* 0..1 */
     } chorus;
+
+    /* VST3 params */
+    struct {
+        char plugin_name[256]; /* plugin name from wb_vst3_scan */
+        void *instance;        /* opaque VST3 handle */
+        int param_count;       /* number of automatable parameters */
+    } vst3;
 } wb_audio_fx;
 
 #define WB_AUDIO_FX_PER_CLIP 8

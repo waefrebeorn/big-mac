@@ -769,6 +769,12 @@ build/wb_test_dvd_author: tests/test_dvd_author.c $(CORE_OBJS)
 test_dvd_author: build/wb_test_dvd_author
 	./build/wb_test_dvd_author
 
+build/wb_test_dvd_vm: tests/test_dvd_vm.c $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $< $(filter %.o,$^) $(LIBS)
+
+test_dvd_vm: build/wb_test_dvd_vm
+	./build/wb_test_dvd_vm
+
 build/wb_test_hdr_preview: tests/test_hdr_preview.c $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $< $(filter %.o,$^) $(LIBS)
 test_hdr_preview: build/wb_test_hdr_preview

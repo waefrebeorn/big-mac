@@ -600,6 +600,88 @@ int wb_dvd_author_export(struct wb_dvd_project *p, const char *output_dir, int f
 const char *wb_dvd_author_get_error(struct wb_dvd_project *p);
 void wb_dvd_author_destroy(struct wb_dvd_project *p);
 
+/* ---- DVD-Video Virtual Machine (VM) instruction encoder (R090) ---- */
+/* DVD VM register file: 16 GPRMs + 24 SPRMs, all 16-bit unsigned. */
+typedef struct wb_dvd_vm {
+    uint16_t gprm[16];  /* General Parameter Registers 0-15 */
+    uint16_t sprm[24];  /* System Parameter Registers 0-23 */
+} wb_dvd_vm;
+
+/* Arithmetic operations for Set GPRM instructions */
+typedef enum {
+    DVD_VM_ARITH_NOP    = 0,  /* no operation */
+    DVD_VM_ARITH_ASSIGN = 1,  /* dst = src */
+    DVD_VM_ARITH_SWAP   = 2,  /* swap dst and src */
+    DVD_VM_ARITH_ADD    = 3,  /* dst += src */
+    DVD_VM_ARITH_SUB    = 4,  /* dst -= src */
+    DVD_VM_ARITH_MUL    = 5,  /* dst *= src */
+    DVD_VM_ARITH_DIV    = 6,  /* dst /= src */
+    DVD_VM_ARITH_MOD    = 7,  /* dst %= src */
+    DVD_VM_ARITH_RANDOM = 8,  /* dst = random(1..src) */
+    DVD_VM_ARITH_AND    = 9,  /* dst &= src */
+    DVD_VM_ARITH_OR     = 10, /* dst |= src */
+    DVD_VM_ARITH_XOR    = 11  /* dst ^= src */
+} wb_dvd_vm_arith_op;
+
+/* Compare operations */
+typedef enum {
+    DVD_VM_CMP_NEVER    = 0,  /* always false */
+    DVD_VM_CMP_EQ       = 1,  /* reg == src */
+    DVD_VM_CMP_NEQ      = 2,  /* reg != src */
+    DVD_VM_CMP_GT       = 3,  /* reg > src */
+    DVD_VM_CMP_GTE      = 4,  /* reg >= src */
+    DVD_VM_CMP_LT       = 5,  /* reg < src */
+    DVD_VM_CMP_LTE      = 6,  /* reg <= src */
+    DVD_VM_CMP_ALWAYS   = 7   /* always true */
+} wb_dvd_vm_cmp_op;
+
+/* Source type for Set/Cmp operands: immediate or register */
+typedef enum {
+    DVD_VM_SRC_IMM  = 0,  /* immediate 16-bit value */
+    DVD_VM_SRC_GPRM = 1,  /* GPRM register */
+    DVD_VM_SRC_SPRM = 2   /* SPRM register */
+} wb_dvd_vm_src_type;
+
+/* Link types for Link and Jump/Call instructions */
+typedef enum {
+    DVD_VM_LINK_NONE        = 0,
+    DVD_VM_LINK_PGCN        = 1,  /* LinkPGCN / LinkPGCN */
+    DVD_VM_LINK_PTTN        = 2,  /* LinkPTTN */
+    DVD_VM_LINK_PGN         = 3,  /* LinkPGN */
+    DVD_VM_LINK_CN          = 4,  /* LinkCN */
+    DVD_VM_LINK_RSM         = 5,  /* RSM */
+    DVD_VM_JUMP_TT          = 6,  /* JumpTT */
+    DVD_VM_JUMP_VTS_TT      = 7,  /* JumpVTS_TT */
+    DVD_VM_JUMP_VTS_PTT     = 8,  /* JumpVTS_PTT */
+    DVD_VM_JUMP_SS_FP       = 9,  /* JumpSS_FP */
+    DVD_VM_JUMP_SS_MENU     = 10, /* JumpSS_MENU */
+    DVD_VM_JUMP_SS_VMGM     = 11, /* JumpSS_VMGM */
+    DVD_VM_CALL_SS_FP       = 12, /* CallSS_FP */
+    DVD_VM_LINK_SFP_PGCN    = 13  /* Link_SFP_PGCN */
+} wb_dvd_vm_link_type;
+
+/* Register access */
+void     wb_dvd_vm_init(wb_dvd_vm *vm);
+void     wb_dvd_vm_set_gprm(wb_dvd_vm *vm, int reg, uint16_t val);
+void     wb_dvd_vm_set_sprm(wb_dvd_vm *vm, int reg, uint16_t val);
+uint16_t wb_dvd_vm_get_gprm(wb_dvd_vm *vm, int reg);
+uint16_t wb_dvd_vm_get_sprm(wb_dvd_vm *vm, int reg);
+
+/* Instruction emitters — each writes exactly 8 bytes to out */
+void wb_dvd_vm_emit_nop(uint8_t *out);
+void wb_dvd_vm_emit_goto(uint8_t *out, int cmd_offset);
+void wb_dvd_vm_emit_break(uint8_t *out);
+void wb_dvd_vm_emit_set_gprm(uint8_t *out, int dst_reg, int op, int src_type, uint16_t src_val);
+void wb_dvd_vm_emit_set_sprm(uint8_t *out, int dst_reg, uint16_t val);
+void wb_dvd_vm_emit_compare(uint8_t *out, int reg, int cmp_op, int src_type, uint16_t src_val);
+void wb_dvd_vm_emit_link_pgcn(uint8_t *out, int pgcn);
+void wb_dvd_vm_emit_link_pttn(uint8_t *out, int pttn);
+void wb_dvd_vm_emit_jump_tt(uint8_t *out, int title);
+void wb_dvd_vm_emit_jump_vts_tt(uint8_t *out, int vts, int title);
+void wb_dvd_vm_emit_call_ss(uint8_t *out, int pgcn);
+void wb_dvd_vm_emit_set_link(uint8_t *out, int dst_reg, int op, int src_type, uint16_t src_val, int link_type, int link_arg);
+void wb_dvd_vm_emit_conditional(uint8_t *out, int cmp_reg, int cmp_op, int cmp_src_type, uint16_t cmp_val, int true_action_count, uint8_t *true_actions);
+
 /* ---- HDR preview (R090) ---- */
 struct wb_hdr_preview;
 typedef enum { WB_HDR_DISPLAY_SDR = 0, WB_HDR_DISPLAY_HDR10, WB_HDR_DISPLAY_HLG, WB_HDR_DISPLAY_DOLBY_VISION } wb_hdr_display_mode;
@@ -627,5 +709,68 @@ int wb_svg_parse_path(const char *path_d, float *verts_x, float *verts_y, int *v
 int wb_svg_get_fill_color(wb_node *node, float *r, float *g, float *b, float *a);
 int wb_svg_get_stroke(wb_node *node, float *r, float *g, float *b, float *a, float *width);
 int wb_svg_get_transform(wb_node *node, float *transform_out);
+
+/* ---- DVD VM constants (R090) ---- */
+#define VM_OP_NOP               0
+#define VM_OP_ASSIGN            1
+#define VM_OP_SWAP              2
+#define VM_OP_ADD               3
+#define VM_OP_SUB               4
+#define VM_OP_MUL               5
+#define VM_OP_DIV               6
+#define VM_OP_MOD               7
+#define VM_OP_RND               8
+#define VM_OP_AND               9
+#define VM_OP_OR                10
+#define VM_OP_XOR               11
+#define VM_CMP_NEVER            0
+#define VM_CMP_EQ               1
+#define VM_CMP_NEQ              2
+#define VM_CMP_GT               3
+#define VM_CMP_GTE              4
+#define VM_CMP_LT               5
+#define VM_CMP_LTE              6
+#define VM_CMP_ALWAYS           7
+#define VM_SRC_IMM              0
+#define VM_SRC_GPRM             1
+#define VM_SRC_SPRM             2
+#define SPRM_MENU_LANGUAGE      0
+#define SPRM_AUDIO_STREAM       1
+#define SPRM_SUBPIC_STREAM      2
+#define SPRM_ANGLE              3
+#define SPRM_TITLE_NUMBER       4
+#define SPRM_VTS_TITLE_NUMBER   5
+#define SPRM_PGC_NUMBER         6
+#define SPRM_CHAPTER_NUMBER     7
+#define SPRM_HIGHLIGHT_BUTTON   8
+#define SPRM_NAV_TIMER          9
+#define SPRM_NAV_TIMER_PGCN     10
+#define SPRM_KARAOKE_MIX        11
+#define SPRM_PARENTAL_COUNTRY   12
+#define SPRM_PARENTAL_LEVEL     13
+#define SPRM_VIDEO_PREFERENCE   14
+#define SPRM_AUDIO_CAPS         15
+#define VM_LINK_LINKPGCN        0x01
+#define VM_LINK_LINKPTTN        0x04
+#define VM_LINK_LINKPGN         0x05
+#define VM_LINK_LINKCN          0x06
+#define VM_LINK_RSM             0x08
+
+/* DVD VM and game forward declarations */
+typedef struct wb_dvd_vm wb_dvd_vm;
+typedef struct wb_dvd_game wb_dvd_game;
+
+/* DVD game builder API */
+wb_dvd_game *wb_dvd_game_create(struct wb_dvd_project *proj, const char *name);
+void wb_dvd_game_add_score(wb_dvd_game *game, int points_per_correct, int points_per_wrong);
+void wb_dvd_game_add_question(wb_dvd_game *game, const char *video_path, int correct_button, int num_buttons);
+void wb_dvd_game_set_branching(wb_dvd_game *game, int score_threshold, int target_pgcn);
+void wb_dvd_game_add_easter_egg(wb_dvd_game *game, int button_combo[], int combo_length, int target_pgcn);
+void wb_dvd_game_set_timer(wb_dvd_game *game, int seconds, int timeout_pgcn);
+void wb_dvd_game_add_hidden_button(wb_dvd_game *game, int x, int y, int w, int h, int target_pgcn);
+void wb_dvd_game_set_parental(wb_dvd_game *game, int level, int password);
+int wb_dvd_game_generate_vm(wb_dvd_game *game, uint8_t *out, int max_len);
+int wb_dvd_game_build(wb_dvd_game *game);
+void wb_dvd_game_destroy(wb_dvd_game *game);
 
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

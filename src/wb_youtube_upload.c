@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <curl/curl.h>
+#include <unistd.h>
 #include "wbus/wbus_compositor.h"
 
 #define YT_UPLOAD_URL "https://www.googleapis.com/upload/youtube/v3/videos"
@@ -78,6 +79,28 @@ static size_t yt_write_cb(void *ptr, size_t size, size_t nmemb, void *userdata) 
     buf->size += total;
     buf->data[buf->size] = '\0';
     return total;
+}
+
+/* Read callback for curl PUT upload — feeds chunk data */
+static size_t yt_read_cb(void *ptr, size_t size, size_t nmemb, void *userdata) {
+    struct { uint8_t *data; size_t size; size_t pos; } *ctx = userdata;
+    size_t max = size * nmemb;
+    size_t remaining = ctx->size - ctx->pos;
+    size_t to_copy = max < remaining ? max : remaining;
+    if (to_copy > 0) {
+        memcpy(ptr, ctx->data + ctx->pos, to_copy);
+        ctx->pos += to_copy;
+    }
+    return to_copy;
+}
+
+/* Progress callback for upload status */
+static int yt_progress_cb(void *clientp, curl_off_t dltotal, curl_off_t dlnow,
+                           curl_off_t ultotal, curl_off_t ulnow) {
+    (void)dltotal; (void)dlnow;
+    yt_upload *up = (yt_upload *)clientp;
+    if (ultotal > 0) up->progress = (double)ulnow / (double)ultotal;
+    return up->cancel_flag ? 1 : 0;
 }
 
 /* ---- JSON extraction helpers ---- */
@@ -280,26 +303,21 @@ static int yt_upload_chunk(int64_t offset, uint8_t *data, size_t len, int64_t to
     headers = curl_slist_append(headers, cl_header);
     headers = curl_slist_append(headers, "Content-Type: application/octet-stream");
 
+    /* Use PUT with read callback for resumable upload */
+    struct { uint8_t *data; size_t size; size_t pos; } read_ctx = {data, len, 0};
+
     curl_easy_setopt(curl, CURLOPT_URL, g_upload.upload_url);
     curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
-    curl_easy_setopt(curl, CURLOPT_READFUNCTION, NULL);
-    curl_easy_setopt(curl, CURLOPT_READDATA, NULL);
+    curl_easy_setopt(curl, CURLOPT_READFUNCTION, yt_read_cb);
+    curl_easy_setopt(curl, CURLOPT_READDATA, &read_ctx);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, yt_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
-
-    /* Use CURLOPT_INFILESIZE for the chunk */
     curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)len);
-
-    /* Read callback for chunk data */
-    struct { uint8_t *data; size_t size; size_t pos; } read_ctx = {data, len, 0};
-    (void)read_ctx; /* would use read callback in full impl */
-
-    /* For simplicity, use POST with the data directly */
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)len);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, yt_progress_cb);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &g_upload);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
     CURLcode res = curl_easy_perform(curl);
     long http_code = 0;
@@ -380,10 +398,18 @@ int wb_youtube_upload(const char *video_path, const char *title,
         size_t nread = fread(chunk, 1, to_read, f);
         if (nread == 0) break;
 
-        int rc = yt_upload_chunk(offset, chunk, nread, file_size);
+        int rc = -1;
+        for (int retry = 0; retry < 3; retry++) {
+            if (retry > 0) {
+                fprintf(stderr, "YouTube: retry %d at offset %lld\n", retry, (long long)offset);
+                usleep((useconds_t)(100000 * (1 << retry))); /* exponential backoff */
+            }
+            rc = yt_upload_chunk(offset, chunk, nread, file_size);
+            if (rc >= 0) break;
+        }
         if (rc < 0) {
             snprintf(g_upload.error_msg, sizeof(g_upload.error_msg),
-                "chunk upload failed at offset %lld", (long long)offset);
+                "chunk upload failed at offset %lld after 3 retries", (long long)offset);
             g_upload.state = YT_UPLOAD_ERROR;
             break;
         }
@@ -405,6 +431,7 @@ int wb_youtube_upload(const char *video_path, const char *title,
     if (done) {
         g_upload.state = YT_UPLOAD_COMPLETE;
         g_upload.progress = 1.0;
+        /* Extract video ID from last response (would need to store response) */
         return 0;
     }
 

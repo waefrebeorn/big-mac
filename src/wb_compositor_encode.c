@@ -335,3 +335,128 @@ int wb_compositor_render_to_mp4(wb_node *root, const char *out_path,
         result = close_rc;
     return result;
 }
+
+/* ---- ffmpeg-CLI pipe export (popen/pclose) ---------------------------- */
+
+/* Export the compositor node graph to H.264 MP4 via an ffmpeg pipe.
+ * Raw RGBA frames are pulled from the graph and piped to ffmpeg's stdin.
+ * Returns 0 on success, -1 on error. */
+int wb_compositor_export_graph(wb_node *root, double fps, double duration_sec,
+                               const char *output_path, int w, int h) {
+    if (!root || !output_path || fps <= 0 || duration_sec <= 0 || w <= 0 || h <= 0)
+        return -1;
+
+    /* Build the ffmpeg command line. */
+    char cmd[2048];
+    int n = snprintf(cmd, sizeof(cmd),
+        "ffmpeg -y -f rawvideo -pix_fmt rgba -s %dx%d -r %.4f -i pipe:0 "
+        "-c:v libx264 -pix_fmt yuv420p -preset fast -crf 18 \"%s\"",
+        w, h, fps, output_path);
+    if (n < 0 || (size_t)n >= sizeof(cmd)) {
+        fprintf(stderr, "wb_compositor_export_graph: command buffer overflow\n");
+        return -1;
+    }
+
+    /* Open the pipe. */
+    FILE *pipe = popen(cmd, "w");
+    if (!pipe) {
+        perror("wb_compositor_export_graph: popen failed");
+        return -1;
+    }
+
+    int nframes = (int)(duration_sec * fps);
+    if (nframes <= 0) nframes = 1;
+
+    int result = 0;
+    for (int i = 0; i < nframes; i++) {
+        double t = (double)i / fps;
+
+        /* Pull frame from the node graph. */
+        wb_frame *f = wb_node_pull(root, t, 0, 0, w, h);
+        if (!f) {
+            fprintf(stderr, "wb_compositor_export_graph: pull failed at t=%.4f\n", t);
+            result = -1;
+            break;
+        }
+
+        /* Write raw RGBA bytes (4 bytes per pixel, row-major). */
+        size_t frame_bytes = (size_t)w * h * 4;
+        size_t written = fwrite(f->px, 1, frame_bytes, pipe);
+        wb_frame_free(f);
+
+        if (written != frame_bytes) {
+            fprintf(stderr, "wb_compositor_export_graph: short write at t=%.4f "
+                            "(%zu of %zu)\n", t, written, frame_bytes);
+            result = -1;
+            break;
+        }
+    }
+
+    /* Close the pipe and check ffmpeg's exit status. */
+    int rc = pclose(pipe);
+    if (rc != 0) {
+        fprintf(stderr, "wb_compositor_export_graph: ffmpeg exited with %d\n", rc);
+        result = -1;
+    }
+
+    return result;
+}
+
+/* Export the compositor node graph to H.264 MP4 with an audio track.
+ * First encodes video to a temp file, then muxes with audio via ffmpeg.
+ * Returns 0 on success, -1 on error. */
+int wb_compositor_export_graph_with_audio(wb_node *root, double fps,
+                                          double duration_sec,
+                                          const char *audio_wav_path,
+                                          const char *output_path,
+                                          int w, int h) {
+    if (!root || !audio_wav_path || !output_path || fps <= 0 || duration_sec <= 0)
+        return -1;
+
+    /* Build a temp video file path in the same directory as the output. */
+    char temp_video[1024];
+    /* Use a simple temp name based on output path + .tmp.mp4 */
+    int n = snprintf(temp_video, sizeof(temp_video), "%s.tmp.mp4", output_path);
+    if (n < 0 || (size_t)n >= sizeof(temp_video)) {
+        fprintf(stderr, "wb_compositor_export_graph_with_audio: path overflow\n");
+        return -1;
+    }
+
+    /* Step 1: encode video to temp file. */
+    int rc = wb_compositor_export_graph(root, fps, duration_sec, temp_video, w, h);
+    if (rc != 0) {
+        fprintf(stderr, "wb_compositor_export_graph_with_audio: video encode failed\n");
+        return -1;
+    }
+
+    /* Step 2: mux video + audio into the final output. */
+    char mux_cmd[2048];
+    n = snprintf(mux_cmd, sizeof(mux_cmd),
+        "ffmpeg -y -i \"%s\" -i \"%s\" -c:v copy -c:a aac -shortest \"%s\"",
+        temp_video, audio_wav_path, output_path);
+    if (n < 0 || (size_t)n >= sizeof(mux_cmd)) {
+        fprintf(stderr, "wb_compositor_export_graph_with_audio: mux command overflow\n");
+        remove(temp_video);
+        return -1;
+    }
+
+    FILE *pipe = popen(mux_cmd, "w");
+    if (!pipe) {
+        perror("wb_compositor_export_graph_with_audio: popen mux failed");
+        remove(temp_video);
+        return -1;
+    }
+
+    int mux_rc = pclose(pipe);
+
+    /* Step 3: remove the temp file regardless of mux result. */
+    remove(temp_video);
+
+    if (mux_rc != 0) {
+        fprintf(stderr, "wb_compositor_export_graph_with_audio: "
+                "ffmpeg mux exited with %d\n", mux_rc);
+        return -1;
+    }
+
+    return 0;
+}

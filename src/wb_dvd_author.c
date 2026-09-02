@@ -195,6 +195,7 @@ typedef struct {
     /* Menu */
     char menu_bg_path[512];
     char menu_video_path[512]; /* encoded menu MPEG-2 */
+    char menu_audio_path[512]; /* background audio for menu */
     wb_dvd_button buttons[DVD_MAX_BUTTONS];
     int button_count;
     wb_dvd_highlight highlights[DVD_MAX_BUTTONS];
@@ -347,6 +348,18 @@ int wb_dvd_author_set_menu(wb_dvd_project *p, const char *bg_image_path,
     return 0;
 }
 
+int wb_dvd_author_get_button_count(const wb_dvd_project *p) {
+    return p ? p->button_count : 0;
+}
+int wb_dvd_author_get_title_count(const wb_dvd_project *p) {
+    return p ? p->title_count : 0;
+}
+
+int wb_dvd_author_set_menu_audio(wb_dvd_project *p, const char *audio_path) {
+    if (!p || !audio_path) return -1;
+    strncpy(p->menu_audio_path, audio_path, sizeof(p->menu_audio_path) - 1);
+    return 0;
+}
 int wb_dvd_author_set_chapters(wb_dvd_project *p, int title_idx,
                                 const double *times, int count) {
     if (!p || title_idx < 0 || title_idx >= p->title_count) return -1;
@@ -954,6 +967,30 @@ void wb_dvd_game_destroy(wb_dvd_game *game) {
     free(game);
 }
 
+/* ---- Multi-angle support ---- */
+
+/* Add an angle block to a PGC for multi-angle playback */
+int wb_dvd_pgc_add_angle(wb_dvd_pgc *pgc, int cell_start, int num_angles) {
+    if (!pgc || num_angles < 2 || num_angles > 9) return -1;
+    if (pgc->num_cells + num_angles > DVD_MAX_PGC_CELLS) return -1;
+
+    int base = pgc->num_cells;
+    for (int a = 0; a < num_angles; a++) {
+        pgc->cell_vob_id[base + a] = 1;
+        pgc->cell_cell_id[base + a] = cell_start + a;
+        pgc->cell_start_time[base + a] = 0.0;
+        pgc->cell_duration[base + a] = 0.0; /* filled by encoder */
+    }
+    pgc->num_cells += num_angles;
+    return 0;
+}
+
+/* Generate VM command to switch angle */
+void wb_dvd_vm_emit_set_angle(uint8_t *out, int angle_num) {
+    /* SetSystem SPRM[3] = angle_num */
+    wb_dvd_vm_emit_set_sprm(out, SPRM_ANGLE, (uint16_t)angle_num);
+}
+
 /* ---- IFO generation ---- */
 
 static int generate_vmg_ifo(wb_dvd_project *p, const char *output_path) {
@@ -1144,17 +1181,63 @@ static int encode_menu_mpeg(wb_dvd_project *p, const char *output_path) {
 
     /* Encode menu background to MPEG-2 with ffmpeg */
     char cmd[4096];
+    if (p->menu_video_path[0]) {
+        /* Animated menu: use video file as input */
+        snprintf(cmd, sizeof(cmd),
+            "ffmpeg -y -loglevel error "
+            "-i '%s' "
+            "-c:v mpeg2video -b:v 6000k -maxrate 8000k "
+            "-bufsize 1835k -muxrate 10080000 "
+            "-r %d -s %dx%d "
+            "%s " /* audio flag */
+            "-f vob "
+            "'%s' 2>&1",
+            p->menu_video_path, fps, w, h,
+            p->menu_audio_path[0] ? "" : "-an",
+            output_path);
+    } else {
+        /* Still menu: loop background image */
+        snprintf(cmd, sizeof(cmd),
+            "ffmpeg -y -loglevel error "
+            "-loop 1 -i '%s' "
+            "-t 30 " /* 30 second menu loop */
+            "-c:v mpeg2video -b:v 6000k -maxrate 8000k "
+            "-bufsize 1835k -muxrate 10080000 "
+            "-r %d -s %dx%d "
+            "%s " /* audio flag */
+            "-f vob "
+            "'%s' 2>&1",
+            p->menu_bg_path, fps, w, h,
+            p->menu_audio_path[0] ? "" : "-an",
+            output_path);
+    }
+
+    int rc = system(cmd);
+    return rc == 0 ? 0 : -1;
+}
+
+/* Encode menu with background audio track */
+static int encode_menu_with_audio(wb_dvd_project *p, const char *output_path) {
+    if (!p->menu_bg_path[0] || !p->menu_audio_path[0]) return -1;
+
+    int w = 720;
+    int h = (p->video_std == DVD_VIDEO_PAL) ? 576 : 480;
+    int fps = (p->video_std == DVD_VIDEO_PAL) ? 25 : 30;
+
+    char cmd[4096];
     snprintf(cmd, sizeof(cmd),
         "ffmpeg -y -loglevel error "
-        "-loop 1 -i '%s' "
-        "-t 30 " /* 30 second menu loop */
+        "-loop 1 -i '%s' "       /* video input */
+        "-i '%s' "               /* audio input */
+        "-t 30 "                 /* 30 second loop */
         "-c:v mpeg2video -b:v 6000k -maxrate 8000k "
         "-bufsize 1835k -muxrate 10080000 "
         "-r %d -s %dx%d "
-        "-an " /* no audio for menu */
+        "-c:a ac3 -b:a 192k "    /* AC3 audio for DVD */
+        "-shortest "
         "-f vob "
         "'%s' 2>&1",
-        p->menu_bg_path, fps, w, h, output_path);
+        p->menu_bg_path, p->menu_audio_path, fps, w, h, output_path);
 
     int rc = system(cmd);
     return rc == 0 ? 0 : -1;
@@ -1213,6 +1296,26 @@ int wb_dvd_author_export(wb_dvd_project *p, const char *output_dir, int format) 
                     fwrite(spu, 1, spu_size, f);
                     fclose(f);
                 }
+
+                /* Mux subpicture into VOB using ffmpeg */
+                char muxed_vob[1024];
+                snprintf(muxed_vob, sizeof(muxed_vob), "%s/VIDEO_TS/VIDEO_TS_MUXED.VOB", output_dir);
+                char mux_cmd[4096];
+                snprintf(mux_cmd, sizeof(mux_cmd),
+                    "ffmpeg -y -loglevel error "
+                    "-i '%s' "           /* input VOB */
+                    "-i '%s' "           /* input SUP subpicture */
+                    "-map 0:v -map 0:a? -map 1 "  /* video, optional audio, subpicture */
+                    "-c copy "           /* stream copy (no re-encode) */
+                    "-f vob "
+                    "'%s' 2>&1",         /* output muxed VOB */
+                    menu_mpeg, spu_path, muxed_vob);
+                int mux_rc = system(mux_cmd);
+                if (mux_rc == 0) {
+                    /* Replace original VOB with muxed version */
+                    rename(muxed_vob, menu_mpeg);
+                }
+                /* If mux failed, original VOB without subpicture remains */
             }
             free(spu);
         }

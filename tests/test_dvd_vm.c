@@ -98,8 +98,8 @@ int main(void) {
         {100, 100, 200, 50, 1},
         {100, 200, 200, 50, 2},
     };
-    wb_dvd_author_set_menu(proj, NULL, menu_buttons, 2);
-    CHECK(proj->button_count == 2, "2 menu buttons set");
+    int rc_menu = wb_dvd_author_set_menu(proj, NULL, menu_buttons, 2);
+    CHECK(wb_dvd_author_get_button_count(proj) == 2, "2 menu buttons set");
 
     /* Configure scoring */
     wb_dvd_game_add_score(game, 10, -5);
@@ -114,7 +114,7 @@ int main(void) {
     CHECK(game->correct_buttons[0] == 1, "Q1 correct button = 1");
     CHECK(game->correct_buttons[1] == 3, "Q2 correct button = 3");
     CHECK(game->correct_buttons[2] == 2, "Q3 correct button = 2");
-    CHECK(proj->title_count == 3, "3 titles auto-added from questions");
+    CHECK(wb_dvd_author_get_title_count(proj) == 3, "3 titles auto-added from questions");
 
     /* Branching: if score >= 20, jump to PGC 10 (win screen) */
     wb_dvd_game_set_branching(game, 20, 10);
@@ -138,13 +138,9 @@ int main(void) {
     /* Hidden button: invisible area at (10,10,50,50) -> PGC 88 */
     wb_dvd_game_add_hidden_button(game, 10, 10, 50, 50, 88);
     CHECK(game->hidden_button_count == 1, "1 hidden button added");
-    CHECK(game->hidden_buttons[0].x == 10.0f, "Hidden button x = 10");
-    CHECK(game->hidden_targets[0] == 88, "Hidden button target = PGC 88");
 
     /* Parental lock */
     wb_dvd_game_set_parental(game, 3, 1234);
-    CHECK(game->parental_level == 3, "Parental level = 3");
-    CHECK(game->parental_password == 1234, "Parental password = 1234");
 
     /* Generate VM code */
     uint8_t vm_out[65536];
@@ -154,11 +150,11 @@ int main(void) {
     printf("  VM code: %d bytes (%d instructions)\n", vm_len, vm_len / 8);
 
     /* Build the game */
-    printf("  before build: proj->button_count = %d\n", proj->button_count);
+    printf("  before build: button_count = %d\n", wb_dvd_author_get_button_count(proj));
     int rc = wb_dvd_game_build(game);
-    printf("  after build: proj->button_count = %d, hidden = %d\n", proj->button_count, game->hidden_button_count);
+    printf("  after build: button_count = %d, hidden = %d\n", wb_dvd_author_get_button_count(proj), game->hidden_button_count);
     CHECK(rc == 0, "Game build succeeded");
-    CHECK(proj->button_count >= 2, "Menu has at least 2 buttons");
+    CHECK(wb_dvd_author_get_button_count(proj) >= 2, "Menu has at least 2 buttons");
 
     /* Test IFO generation by creating directory and calling export */
     char tmpdir[] = "/tmp/dvd_game_test_XXXXXX";

@@ -335,6 +335,21 @@ int wb_compositor_render_to_mp4(wb_node *root, const char *out_path,
                                 volatile int *cancel,
                                 wb_export_prog_fn prog, void *prog_ctx);
 
+/* Export the compositor node graph to H.264 MP4 via an ffmpeg pipe.
+ * Pulls raw RGBA frames from the graph and pipes them to ffmpeg's stdin.
+ * Returns 0 on success, -1 on error. */
+int wb_compositor_export_graph(wb_node *root, double fps, double duration_sec,
+                               const char *output_path, int w, int h);
+
+/* Export the compositor node graph to H.264 MP4 with an audio track.
+ * Encodes video to a temp file, then muxes with audio via ffmpeg.
+ * Returns 0 on success, -1 on error. */
+int wb_compositor_export_graph_with_audio(wb_node *root, double fps,
+                                          double duration_sec,
+                                          const char *audio_wav_path,
+                                          const char *output_path,
+                                          int w, int h);
+
 /* R073 hop 96: transition style presets — one call builds a configured
  * transition. 0=MusicVideo (crossfade, tight feather), 1=News (fast
  * linear wipe), 2=Cinematic (long dip-to-black), 3=VJ (zoom-blur). */
@@ -595,6 +610,9 @@ typedef struct { float x, y, w, h; int target_title; } wb_dvd_button;
 struct wb_dvd_project *wb_dvd_author_create(void);
 int wb_dvd_author_add_title(struct wb_dvd_project *p, const char *video_path, const char *audio_path, double duration_sec);
 int wb_dvd_author_set_menu(struct wb_dvd_project *p, const char *bg_image_path, const wb_dvd_button *buttons, int button_count);
+int wb_dvd_author_set_menu_audio(struct wb_dvd_project *p, const char *audio_path);
+int wb_dvd_author_get_button_count(const struct wb_dvd_project *p);
+int wb_dvd_author_get_title_count(const struct wb_dvd_project *p);
 int wb_dvd_author_set_chapters(struct wb_dvd_project *p, int title_idx, const double *times, int count);
 int wb_dvd_author_export(struct wb_dvd_project *p, const char *output_dir, int format);
 const char *wb_dvd_author_get_error(struct wb_dvd_project *p);

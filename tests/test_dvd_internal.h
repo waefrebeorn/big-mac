@@ -22,7 +22,7 @@ struct wb_dvd_game {
     int timer_seconds;
     int timer_timeout_pgcn;
     int hidden_button_count;
-    struct { float x, y, w, h; int target_title; int target_chapter; int up, down, left, right; } hidden_buttons[32];
+    struct { float x, y, w, h; int target_title; } hidden_buttons[32];
     int hidden_targets[32];
     int parental_level;
     int parental_password;
@@ -37,8 +37,10 @@ struct wb_dvd_project {
     int title_count;
     char menu_bg_path[512];
     char menu_video_path[512];
-    struct { float x, y, w, h; int target_title; int target_chapter; int up, down, left, right; } buttons[36];
+    char menu_audio_path[512];
+    struct { float x, y, w, h; int target_title; } buttons[36];
     int button_count;
+    int highlight_count;
     int chapters[99][99];
     int chapter_count[99];
     char output_dir[512];

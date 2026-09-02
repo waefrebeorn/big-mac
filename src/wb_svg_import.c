@@ -256,6 +256,28 @@ int wb_svg_import(const char *svg_path, int target_w, int target_h,
 
     int node_count = 0;
 
+    /* Parse viewBox from <svg> element */
+    float vb_x = 0, vb_y = 0, vb_w = 0, vb_h = 0;
+    int has_viewbox = 0;
+    {
+        char *svg_start = strstr(xml, "<svg");
+        if (svg_start) {
+            char *vb_attr = strstr(svg_start, "viewBox=\"");
+            if (vb_attr) {
+                vb_attr += 9;
+                sscanf(vb_attr, "%f %f %f %f", &vb_x, &vb_y, &vb_w, &vb_h);
+                has_viewbox = (vb_w > 0 && vb_h > 0);
+            }
+        }
+    }
+
+    /* Compute scale factors from viewBox to target dimensions */
+    float scale_x = 1.0f, scale_y = 1.0f;
+    if (has_viewbox && target_w > 0 && target_h > 0) {
+        scale_x = (float)target_w / vb_w;
+        scale_y = (float)target_h / vb_h;
+    }
+
     /* Simple XML parser: find elements */
     char *p = xml;
     while (*p && node_count < max_nodes) {
@@ -339,15 +361,22 @@ int wb_svg_import(const char *svg_path, int target_w, int target_h,
         float fr, fg, fb, fa;
         parse_svg_color(fill_str, &fr, &fg, &fb, &fa);
 
+        /* Apply viewBox scaling to coordinates */
+        float sx = has_viewbox ? scale_x : 1.0f;
+        float sy = has_viewbox ? scale_y : 1.0f;
+
         if (strcmp(tag, "rect") == 0 && rect_w > 0 && rect_h > 0) {
-            out_nodes[node_count] = wb_node_source_shape_rect((int)rect_w, (int)rect_h);
+            int rw = (int)(rect_w * sx);
+            int rh = (int)(rect_h * sy);
+            out_nodes[node_count] = wb_node_source_shape_rect(rw > 0 ? rw : 1, rh > 0 ? rh : 1);
             if (out_nodes[node_count]) {
                 wb_node_shape_set_fill(out_nodes[node_count], fr, fg, fb, fa);
                 node_count++;
             }
         } else if (strcmp(tag, "ellipse") == 0 && ellipse_rx > 0 && ellipse_ry > 0) {
-            out_nodes[node_count] = wb_node_source_shape_ellipse(
-                (int)(ellipse_rx * 2), (int)(ellipse_ry * 2));
+            int rw = (int)(ellipse_rx * 2 * sx);
+            int rh = (int)(ellipse_ry * 2 * sy);
+            out_nodes[node_count] = wb_node_source_shape_ellipse(rw > 0 ? rw : 1, rh > 0 ? rh : 1);
             if (out_nodes[node_count]) {
                 wb_node_shape_set_fill(out_nodes[node_count], fr, fg, fb, fa);
                 node_count++;
@@ -356,7 +385,8 @@ int wb_svg_import(const char *svg_path, int target_w, int target_h,
             attr = strstr(attrs, "r=\"");
             if (attr) {
                 float r = strtof(attr + 3, NULL);
-                out_nodes[node_count] = wb_node_source_shape_ellipse((int)(r * 2), (int)(r * 2));
+                int rd = (int)(r * 2 * sx);
+                out_nodes[node_count] = wb_node_source_shape_ellipse(rd > 0 ? rd : 1, rd > 0 ? rd : 1);
                 if (out_nodes[node_count]) {
                     wb_node_shape_set_fill(out_nodes[node_count], fr, fg, fb, fa);
                     node_count++;

@@ -2902,6 +2902,14 @@ static void draw_video_tab_panel(app *a) {
                             a->ejob.rc == 0 && !a->ejob.cancelled ? C_TEXT : 235,110,110);
             yy += 16;
         }
+        yy += 6;
+        wb_ui_draw_text(a->ren, px + 6, yy, "DVD Authoring:", 1, C_TEXT); yy += 16;
+        wb_ui_draw_text(a->ren, px + 6, yy, "^D author DVD-Video", 1, C_TEXT_DIM); yy += 14;
+        wb_ui_draw_text(a->ren, px + 6, yy, "^B author Blu-ray", 1, C_TEXT_DIM); yy += 14;
+        wb_ui_draw_text(a->ren, px + 6, yy, "HDR Preview:", 1, C_TEXT); yy += 16;
+        wb_ui_draw_text(a->ren, px + 6, yy, "^H toggle HDR10/HLG", 1, C_TEXT_DIM); yy += 14;
+        wb_ui_draw_text(a->ren, px + 6, yy, "SVG Import:", 1, C_TEXT); yy += 16;
+        wb_ui_draw_text(a->ren, px + 6, yy, "^V import SVG shapes", 1, C_TEXT_DIM); yy += 20;
         wb_ui_draw_text(a->ren, px + 6, yy, "Shortcuts:", 1, C_TEXT); yy += 16;
         wb_ui_draw_text(a->ren, px + 6, yy, "^R render  ^S set path", 1, C_TEXT_DIM);
         break;

@@ -622,6 +622,97 @@ typedef struct wb_preview {
 /* ---- SDL preview (audio-video sync) ---- */
 int wb_sdl_preview_run_with_audio(wb_preview *p, const char *audio_wav_path);
 
+/* ---- Advanced FFmpeg filter_complex (R092) ---- */
+/* Xfade transition types */
+#define WB_XFADE_FADE 0
+#define WB_XFADE_FADEBLACK 1
+#define WB_XFADE_FADEWHITE 2
+#define WB_XFADE_DISTANCE 3
+#define WB_XFADE_WIPELEFT 4
+#define WB_XFADE_WIPERIGHT 5
+#define WB_XFADE_WIPEUP 6
+#define WB_XFADE_WIPEDOWN 7
+#define WB_XFADE_SLIDELEFT 8
+#define WB_XFADE_SLIDERIGHT 9
+#define WB_XFADE_SLIDEUP 10
+#define WB_XFADE_SLIDEDOWN 11
+#define WB_XFADE_SMOOTHLEFT 12
+#define WB_XFADE_SMOOTHRIGHT 13
+#define WB_XFADE_SMOOTHUP 14
+#define WB_XFADE_SMOOTHDOWN 15
+#define WB_XFADE_CIRCLECROP 16
+#define WB_XFADE_RECTCROP 17
+#define WB_XFADE_CIRCLECLOSE 18
+#define WB_XFADE_CIRCLEOPEN 19
+#define WB_XFADE_HORZCLOSE 20
+#define WB_XFADE_HORZOPEN 21
+#define WB_XFADE_VERTCLOSE 22
+#define WB_XFADE_VERTOPEN 23
+#define WB_XFADE_DIAGBL 24
+#define WB_XFADE_DIAGBR 25
+#define WB_XFADE_DIAGTL 26
+#define WB_XFADE_DIAGTR 27
+#define WB_XFADE_HLSLICE 28
+#define WB_XFADE_HRSLICE 29
+#define WB_XFADE_VUSLICE 30
+#define WB_XFADE_VDSLICE 31
+#define WB_XFADE_DISSOLVE 32
+#define WB_XFADE_PIXELIZE 33
+#define WB_XFADE_RADIAL 34
+#define WB_XFADE_HBLUR 35
+#define WB_XFADE_WIPETL 36
+#define WB_XFADE_WIPETR 37
+#define WB_XFADE_WIPEBL 38
+#define WB_XFADE_WIPEBR 39
+#define WB_XFADE_FADEGRAYS 40
+#define WB_XFADE_SQUEEZEV 41
+#define WB_XFADE_SQUEEZEH 42
+#define WB_XFADE_ZOOMIN 43
+#define WB_XFADE_HLWIND 44
+#define WB_XFADE_HRWIND 45
+#define WB_XFADE_VUWIND 46
+#define WB_XFADE_VDWIND 47
+#define WB_XFADE_COVERLEFT 48
+#define WB_XFADE_COVERRIGHT 49
+#define WB_XFADE_COVERUP 50
+#define WB_XFADE_COVERDOWN 51
+#define WB_XFADE_REVEALLEFT 52
+#define WB_XFADE_REVEALRIGHT 53
+#define WB_XFADE_REVEALUP 54
+#define WB_XFADE_REVEALDOWN 55
+/* Blend modes: see wbus_vfx.h for WB_BLEND_* enum */
+
+
+const char *wb_xfade_name(int t);
+const char *wb_blend_name(int m);
+
+int wb_ffmpeg_transition(const char *clip_a, const char *clip_b,
+                          const char *output, int transition,
+                          double duration_sec, double offset_sec);
+int wb_ffmpeg_transition_chain(const char **clips, int num_clips,
+                                const char *output, int transition,
+                                double transition_dur);
+int wb_ffmpeg_blend(const char *clip_a, const char *clip_b,
+                     const char *output, int blend_mode,
+                     double opacity, int use_expr);
+int wb_ffmpeg_scroll_text(const char *input, const char *output,
+                           const char *text, double scroll_speed,
+                           int y_position, const char *font_color, int font_size);
+int wb_ffmpeg_speed(const char *input, const char *output, double speed);
+int wb_ffmpeg_reverse(const char *input, const char *output, int reverse_audio);
+int wb_ffmpeg_color_grade(const char *input, const char *output,
+                           double brightness, double contrast, double saturation, double hue);
+int wb_ffmpeg_pip(const char *main_video, const char *overlay_video,
+                   const char *output, int overlay_w, int overlay_h, const char *position);
+int wb_ffmpeg_ken_burns(const char *input, const char *output,
+                         int out_w, int out_h, double duration,
+                         double zoom_start, double zoom_end);
+int wb_ffmpeg_concat(const char **clips, int num_clips, const char *output);
+int wb_ffmpeg_fade(const char *input, const char *output,
+                    double fade_in_dur, double fade_out_start, double fade_out_dur);
+int wb_ffmpeg_probe(const char *path, int *out_w, int *out_h,
+                     double *out_duration, double *out_fps);
+
 struct wb_preview *wb_preview_create(wb_node *root_node, int w, int h, double fps);
 void wb_preview_set_duration(struct wb_preview *p, double duration_sec);
 void wb_preview_set_loop(struct wb_preview *p, int loop);

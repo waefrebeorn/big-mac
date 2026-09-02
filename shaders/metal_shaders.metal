@@ -142,3 +142,44 @@ kernel void effect_deep_fry(
     p.rgb = clamp(p.rgb, 0.0f, 1.0f);
     out_buf[gid] = p;
 }
+
+/* ---- HDR tone mapping kernels (R090) ---- */
+
+/* PQ OETF: linear -> PQ encoded (HDR10) */
+kernel void pq_encode(
+    device const float4 *in_buf [[buffer(0)]],
+    device float4 *out_buf [[buffer(1)]],
+    uint gid [[thread_position_in_grid]]) {
+    float4 p = in_buf[gid];
+    /* Simplified PQ: gamma 2.4 approximation */
+    p.rgb = pow(max(p.rgb, 0.0f), 1.0f/2.4f);
+    out_buf[gid] = p;
+}
+
+/* HLG OETF */
+kernel void hlg_encode(
+    device const float4 *in_buf [[buffer(0)]],
+    device float4 *out_buf [[buffer(1)]],
+    uint gid [[thread_position_in_grid]]) {
+    float4 p = in_buf[gid];
+    float3 c = p.rgb;
+    for (int i = 0; i < 3; i++) {
+        float v = c[i];
+        if (v <= 1.0f/12.0f) c[i] = sqrt(3.0f * v);
+        else c[i] = 0.17883277f * log(12.0f * v - 0.28466892f) + 0.55991073f;
+    }
+    p.rgb = c;
+    out_buf[gid] = p;
+}
+
+/* ACES tone mapping (HDR -> SDR) */
+kernel void aces_tonemap(
+    device const float4 *in_buf [[buffer(0)]],
+    device float4 *out_buf [[buffer(1)]],
+    uint gid [[thread_position_in_grid]]) {
+    float4 p = in_buf[gid];
+    float3 x = p.rgb;
+    float3 a = (x * (2.51f * x + 0.03f)) / (x * (2.43f * x + 0.59f) + 0.14f);
+    p.rgb = clamp(a, 0.0f, 1.0f);
+    out_buf[gid] = p;
+}

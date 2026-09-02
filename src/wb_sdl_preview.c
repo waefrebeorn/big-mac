@@ -210,3 +210,140 @@ int main(int argc, char **argv) {
     return 0;
 }
 #endif
+
+/* ---- Audio-video sync ---- */
+
+int wb_sdl_preview_run_with_audio(wb_preview *p, const char *audio_wav_path) {
+    if (!p || !p->window || !audio_wav_path) return -1;
+
+    /* Parse WAV header */
+    FILE *fp = fopen(audio_wav_path, "rb");
+    if (!fp) return -1;
+
+    char hdr[44];
+    if (fread(hdr, 1, 44, fp) != 44) { fclose(fp); return -1; }
+
+    int sample_rate = (int)(hdr[24] | (hdr[25] << 8) | (hdr[26] << 16) | (hdr[27] << 24));
+    int channels = (int)(hdr[22] | (hdr[23] << 8));
+    int bits_per_sample = (int)(hdr[34] | (hdr[35] << 8));
+    int data_size = (int)(hdr[40] | (hdr[41] << 8) | (hdr[42] << 16) | (hdr[43] << 24));
+
+    if (sample_rate <= 0 || channels <= 0 || data_size <= 0) { fclose(fp); return -1; }
+
+    uint8_t *audio_data = (uint8_t *)malloc(data_size);
+    if (!audio_data) { fclose(fp); return -1; }
+    int audio_read = (int)fread(audio_data, 1, data_size, fp);
+    fclose(fp);
+
+    /* Open SDL audio */
+    SDL_AudioSpec want, got;
+    SDL_memset(&want, 0, sizeof(want));
+    want.freq = sample_rate;
+    want.format = (bits_per_sample == 16) ? AUDIO_S16SYS : AUDIO_U8;
+    want.channels = (Uint8)channels;
+    want.samples = 4096;
+
+    SDL_AudioDeviceID dev = SDL_OpenAudioDevice(NULL, 0, &want, &got, 0);
+    if (dev == 0) { free(audio_data); return -1; }
+
+    /* Playback loop */
+    uint32_t frame_delay = (uint32_t)(1000.0 / p->fps);
+    uint32_t last_time = SDL_GetTicks();
+    int running = 1;
+    double current_time = 0.0;
+    int audio_pos = 0;
+    int bytes_per_sample = (bits_per_sample / 8) * channels;
+    int samples_per_frame = got.freq / (int)p->fps;
+    int bytes_per_frame = samples_per_frame * bytes_per_sample;
+
+    SDL_PauseAudioDevice(dev, 0);
+
+    while (running && p->running) {
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_QUIT) running = 0;
+            if (e.type == SDL_KEYDOWN) {
+                if (e.key.keysym.sym == SDLK_ESCAPE || e.key.keysym.sym == SDLK_q) running = 0;
+                if (e.key.keysym.sym == SDLK_SPACE) p->state = (p->state == WB_PREVIEW_PLAYING) ? WB_PREVIEW_PAUSED : WB_PREVIEW_PLAYING;
+            }
+            if (e.type == SDL_MOUSEBUTTONDOWN) {
+                SDL_Rect bar = { 10, p->height - 30, p->width - 20, 10 };
+                if (e.button.y >= bar.y && e.button.y <= bar.y + bar.h && e.button.x >= bar.x && e.button.x <= bar.x + bar.w) {
+                    float ratio = (float)(e.button.x - bar.x) / (float)bar.w;
+                    current_time = ratio * p->duration_sec;
+                    audio_pos = (int)(current_time * sample_rate) * bytes_per_sample;
+                    if (audio_pos > audio_read) audio_pos = audio_read;
+                }
+            }
+        }
+
+        if (p->state == WB_PREVIEW_PLAYING) {
+            /* Queue audio */
+            int to_queue = bytes_per_frame;
+            if (audio_pos + to_queue > audio_read) to_queue = audio_read - audio_pos;
+            if (to_queue > 0) {
+                SDL_QueueAudio(dev, audio_data + audio_pos, (Uint32)to_queue);
+                audio_pos += to_queue;
+            }
+
+            /* Render frame */
+            SDL_SetRenderDrawColor(p->renderer, 20, 20, 30, 255);
+            SDL_RenderClear(p->renderer);
+
+            if (p->root_node) {
+                wb_frame *f = p->root_node->pull(p->root_node, current_time, 0, 0, p->width, p->height, 0);
+                if (f && f->px && f->w > 0 && f->h > 0) {
+                    int px_count = f->w * f->h;
+                    uint8_t *rgba = (uint8_t *)malloc(px_count * 4);
+                    if (rgba) {
+                        for (int i = 0; i < px_count; i++) {
+                            rgba[i*4+0] = (uint8_t)(f->px[i].r < 0 ? 0 : (f->px[i].r > 255 ? 255 : f->px[i].r));
+                            rgba[i*4+1] = (uint8_t)(f->px[i].g < 0 ? 0 : (f->px[i].g > 255 ? 255 : f->px[i].g));
+                            rgba[i*4+2] = (uint8_t)(f->px[i].b < 0 ? 0 : (f->px[i].b > 255 ? 255 : f->px[i].b));
+                            rgba[i*4+3] = (uint8_t)(f->px[i].a < 0 ? 0 : (f->px[i].a > 255 ? 255 : f->px[i].a));
+                        }
+                        SDL_Texture *tex = SDL_CreateTexture(p->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, f->w, f->h);
+                        if (tex) {
+                            SDL_UpdateTexture(tex, NULL, rgba, f->w * 4);
+                            SDL_Rect dst = { 0, 0, p->width, p->height };
+                            SDL_RenderCopy(p->renderer, tex, NULL, &dst);
+                            SDL_DestroyTexture(tex);
+                        }
+                        free(rgba);
+                    }
+                    wb_frame_free(f);
+                }
+            }
+
+            /* Progress bar */
+            if (p->duration_sec > 0) {
+                float progress = (float)(current_time / p->duration_sec);
+                if (progress > 1.0f) progress = 1.0f;
+                SDL_Rect bar_bg = { 10, p->height - 30, p->width - 20, 10 };
+                SDL_SetRenderDrawColor(p->renderer, 60, 60, 80, 255);
+                SDL_RenderFillRect(p->renderer, &bar_bg);
+                SDL_Rect bar_fg = { 10, p->height - 30, (int)((p->width - 20) * progress), 10 };
+                SDL_SetRenderDrawColor(p->renderer, 0, 180, 255, 255);
+                SDL_RenderFillRect(p->renderer, &bar_fg);
+            }
+
+            SDL_RenderPresent(p->renderer);
+
+            /* Advance time */
+            uint32_t now = SDL_GetTicks();
+            uint32_t delta = now - last_time;
+            last_time = now;
+            if (delta >= frame_delay) {
+                current_time += (double)frame_delay / 1000.0;
+                if (current_time >= p->duration_sec && p->loop) current_time = 0.0;
+                else if (current_time >= p->duration_sec) { current_time = p->duration_sec; p->state = WB_PREVIEW_STOPPED; }
+            }
+        }
+
+        SDL_Delay(1);
+    }
+
+    SDL_CloseAudioDevice(dev);
+    free(audio_data);
+    return 0;
+}

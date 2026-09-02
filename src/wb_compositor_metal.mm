@@ -30,6 +30,9 @@ static id<MTLComputePipelineState> g_pipe_gain          = nil;
 static id<MTLComputePipelineState> g_pipe_invert_alpha  = nil;
 static id<MTLComputePipelineState> g_pipe_white_balance = nil;
 static id<MTLComputePipelineState> g_pipe_deep_fry      = nil;
+static id<MTLComputePipelineState> g_pipe_pq_encode     = nil;
+static id<MTLComputePipelineState> g_pipe_hlg_encode    = nil;
+static id<MTLComputePipelineState> g_pipe_aces_tonemap  = nil;
 static int g_metal_available = 0;
 
 /* ---- helpers ---- */
@@ -315,6 +318,47 @@ int wb_compositor_metal_process_white_balance(wb_frame *f,
             memcpy(f->px, [buf_out contents], buf_size);
         }
         return result;
+    }
+}
+
+/* ---- HDR compute (R091) ---- */
+extern "C" int wb_compositor_metal_process_hdr(float *float_buf, int n, int mode) {
+    if (!g_device || n <= 0 || !float_buf) return -1;
+    if (!g_pipe_pq_encode) return -1;
+
+    @autoreleasepool {
+        int buf_size = n * 4 * sizeof(float);
+        id<MTLBuffer> buf_in = [g_device newBufferWithBytes:float_buf length:buf_size options:MTLResourceStorageModeShared];
+        id<MTLBuffer> buf_out = [g_device newBufferWithLength:buf_size options:MTLResourceStorageModeShared];
+        if (!buf_in || !buf_out) return -1;
+
+        id<MTLComputePipelineState> pipe = nil;
+        switch (mode) {
+            case 0: pipe = g_pipe_aces_tonemap; break;
+            case 1: pipe = g_pipe_pq_encode; break;
+            case 2: pipe = g_pipe_hlg_encode; break;
+            default: pipe = g_pipe_aces_tonemap; break;
+        }
+        if (!pipe) return -1;
+
+        id<MTLCommandBuffer> cmd = [g_cmdq commandBuffer];
+        id<MTLComputeCommandEncoder> enc = [cmd computeCommandEncoder];
+        [enc setComputePipelineState:pipe];
+        [enc setBuffer:buf_in offset:0 atIndex:0];
+        [enc setBuffer:buf_out offset:0 atIndex:1];
+
+        MTLSize grid = MTLSizeMake(n, 1, 1);
+        NSUInteger wg = [pipe maxTotalThreadsPerThreadgroup];
+        if (wg > (NSUInteger)n) wg = (NSUInteger)n;
+        MTLSize threadgroup = MTLSizeMake(wg, 1, 1);
+        [enc dispatchThreads:grid threadsPerThreadgroup:threadgroup];
+        [enc endEncoding];
+        [cmd commit];
+        [cmd waitUntilCompleted];
+
+        if (cmd.error) return -1;
+        memcpy(float_buf, [buf_out contents], buf_size);
+        return 0;
     }
 }
 

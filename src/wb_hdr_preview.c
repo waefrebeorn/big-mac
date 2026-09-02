@@ -224,6 +224,100 @@ void wb_hdr_apply_metadata(struct wb_hdr_preview *hdr, wb_frame *frame, float ma
     (void)frame;
 }
 
+/* ---- GPU-accelerated HDR processing (Metal compute) ---- */
+
+/* Mode: 0=ACES tone map, 1=PQ encode, 2=HLG encode */
+void wb_hdr_process_frame_gpu(wb_frame *frame_in, wb_frame *frame_out, int mode) {
+    if (!frame_in || !frame_out) return;
+    if (frame_in->w != frame_out->w || frame_in->h != frame_out->h) return;
+    if (frame_in->w <= 0 || frame_in->h <= 0) return;
+
+    int n = frame_in->w * frame_in->h;
+
+    /* Check Metal availability */
+    if (!wb_compositor_metal_is_available()) {
+        /* Fall back to CPU path: use a dummy hdr_preview struct */
+        struct wb_hdr_preview *hdr = wb_hdr_preview_create(frame_in->w, frame_in->h);
+        if (!hdr) return;
+        /* Map GPU mode to display mode */
+        switch (mode) {
+            case 0: /* ACES tone map -> SDR */
+                wb_hdr_set_display_mode(hdr, WB_HDR_DISPLAY_SDR);
+                wb_hdr_set_tone_map(hdr, 1); /* ACES */
+                break;
+            case 1: /* PQ encode -> HDR10 */
+                wb_hdr_set_display_mode(hdr, WB_HDR_DISPLAY_HDR10);
+                break;
+            case 2: /* HLG encode */
+                wb_hdr_set_display_mode(hdr, WB_HDR_DISPLAY_HLG);
+                break;
+            default:
+                wb_hdr_set_display_mode(hdr, WB_HDR_DISPLAY_SDR);
+                break;
+        }
+        wb_hdr_process_frame(hdr, frame_in, frame_out);
+        wb_hdr_preview_destroy(hdr);
+        return;
+    }
+
+    /* GPU path: Metal is available */
+    {
+        /* Convert uint8 RGBA to float4 for Metal buffer */
+        float *float_buf = (float *)calloc((size_t)n * 4, sizeof(float));
+        if (!float_buf) return;
+
+        for (int i = 0; i < n; i++) {
+            float_buf[i * 4 + 0] = frame_in->px[i].r / 255.0f;
+            float_buf[i * 4 + 1] = frame_in->px[i].g / 255.0f;
+            float_buf[i * 4 + 2] = frame_in->px[i].b / 255.0f;
+            float_buf[i * 4 + 3] = frame_in->px[i].a / 255.0f;
+        }
+
+        /* Dispatch Metal compute via the compositor HDR GPU helper */
+        int result = wb_compositor_metal_process_hdr(float_buf, n, mode);
+
+        if (result == 0) {
+            /* Convert float4 back to uint8 RGBA */
+            for (int i = 0; i < n; i++) {
+                float r = float_buf[i * 4 + 0];
+                float g = float_buf[i * 4 + 1];
+                float b = float_buf[i * 4 + 2];
+                float a = float_buf[i * 4 + 3];
+                /* Clamp */
+                if (r < 0) r = 0; if (r > 1) r = 1;
+                if (g < 0) g = 0; if (g > 1) g = 1;
+                if (b < 0) b = 0; if (b > 1) b = 1;
+                if (a < 0) a = 0; if (a > 1) a = 1;
+                frame_out->px[i].r = (uint8_t)(r * 255.0f);
+                frame_out->px[i].g = (uint8_t)(g * 255.0f);
+                frame_out->px[i].b = (uint8_t)(b * 255.0f);
+                frame_out->px[i].a = (uint8_t)(a * 255.0f);
+            }
+        } else {
+            /* Metal failed, fall back to CPU */
+            struct wb_hdr_preview *hdr = wb_hdr_preview_create(frame_in->w, frame_in->h);
+            if (hdr) {
+                switch (mode) {
+                    case 0:
+                        wb_hdr_set_display_mode(hdr, WB_HDR_DISPLAY_SDR);
+                        wb_hdr_set_tone_map(hdr, 1);
+                        break;
+                    case 1:
+                        wb_hdr_set_display_mode(hdr, WB_HDR_DISPLAY_HDR10);
+                        break;
+                    case 2:
+                        wb_hdr_set_display_mode(hdr, WB_HDR_DISPLAY_HLG);
+                        break;
+                }
+                wb_hdr_process_frame(hdr, frame_in, frame_out);
+                wb_hdr_preview_destroy(hdr);
+            }
+        }
+
+        free(float_buf);
+    }
+}
+
 void wb_hdr_preview_destroy(struct wb_hdr_preview *hdr) {
     free(hdr);
 }

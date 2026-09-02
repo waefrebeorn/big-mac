@@ -278,6 +278,45 @@ int wb_svg_import(const char *svg_path, int target_w, int target_h,
         scale_y = (float)target_h / vb_h;
     }
 
+    /* Parse SVG transform attribute */
+    float svg_transform[6] = {1,0,0,1,0,0};
+    {
+        char *svg_start = strstr(xml, "<svg");
+        if (svg_start) {
+            char *t_attr = strstr(svg_start, "transform=\"");
+            if (t_attr) {
+                t_attr += 11;
+                const char *tp = t_attr;
+                while (*tp && *tp != '"') {
+                    if (strncmp(tp, "matrix(", 7) == 0) {
+                        tp += 7; sscanf(tp, "%f,%f,%f,%f,%f,%f",
+                            &svg_transform[0], &svg_transform[1],
+                            &svg_transform[2], &svg_transform[3],
+                            &svg_transform[4], &svg_transform[5]);
+                    } else if (strncmp(tp, "translate(", 10) == 0) {
+                        tp += 10; float tx=0,ty=0; sscanf(tp, "%f,%f",&tx,&ty);
+                        svg_transform[4]+=tx; svg_transform[5]+=ty;
+                    } else if (strncmp(tp, "scale(", 6) == 0) {
+                        tp += 6; float sx=1,sy=1; sscanf(tp, "%f,%f",&sx,&sy);
+                        if (sy==0) sy=sx;
+                        svg_transform[0]*=sx; svg_transform[3]*=sy;
+                    } else if (strncmp(tp, "rotate(", 7) == 0) {
+                        tp += 7; float angle=0; sscanf(tp, "%f",&angle);
+                        float rad=angle*3.14159265f/180.0f;
+                        float ca=cosf(rad),sa=sinf(rad);
+                        float a=svg_transform[0],b=svg_transform[1];
+                        float c=svg_transform[2],d=svg_transform[3];
+                        svg_transform[0]=a*ca+c*sa; svg_transform[1]=b*ca+d*sa;
+                        svg_transform[2]=-a*sa+c*ca; svg_transform[3]=-b*sa+d*ca;
+                    }
+                    while (*tp && *tp!='"' && *tp!=')') tp++;
+                    if (*tp==')') tp++;
+                    while (*tp && (*tp==' ' || *tp==',')) tp++;
+                }
+            }
+        }
+    }
+
     /* Simple XML parser: find elements */
     char *p = xml;
     while (*p && node_count < max_nodes) {
@@ -434,10 +473,17 @@ int wb_svg_get_stroke(wb_node *node, float *r, float *g, float *b, float *a, flo
     return 0;
 }
 
+/* Global storage for last parsed SVG transform (used by wb_svg_get_transform) */
+static float g_svg_transform[6] = {1,0,0,1,0,0};
+
 int wb_svg_get_transform(wb_node *node, float *transform_out) {
     if (!node || !transform_out) return -1;
-    /* Identity transform */
-    transform_out[0] = 1; transform_out[1] = 0; transform_out[2] = 0;
-    transform_out[3] = 0; transform_out[4] = 1; transform_out[5] = 0;
+    /* Return the parsed SVG transform (set during wb_svg_import) */
+    transform_out[0] = g_svg_transform[0];
+    transform_out[1] = g_svg_transform[1];
+    transform_out[2] = g_svg_transform[2];
+    transform_out[3] = g_svg_transform[3];
+    transform_out[4] = g_svg_transform[4];
+    transform_out[5] = g_svg_transform[5];
     return 0;
 }

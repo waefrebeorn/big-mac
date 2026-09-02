@@ -15,36 +15,7 @@
 #include <math.h>
 #include "wbus/wbus_compositor.h"
 
-/* ---- Preview state ---- */
-
-struct wb_preview {
-    wb_node *root_node;       /* compositor root (output node) */
-    int width, height;        /* preview dimensions */
-    double fps;               /* target playback fps */
-    double duration_sec;      /* total duration */
-    double current_time;      /* current playhead position */
-    double playback_speed;    /* 1.0 = normal, 0.5 = half, 2.0 = double */
-    int loop;                 /* loop playback */
-    wb_preview_state state;
-
-    /* Threading */
-    pthread_t thread;
-    int running;
-    pthread_mutex_t lock;
-
-    /* Frame buffer (latest rendered frame) */
-    uint8_t *frame_rgba;      /* latest frame for display */
-    int frame_ready;
-    double frame_timestamp;
-
-    /* Performance metrics */
-    double actual_fps;
-    int frame_count;
-    double last_frame_time;
-
-    /* Metal backend */
-    int use_gpu;
-} wb_preview;
+/* ---- Preview state (struct defined in wbus_compositor.h) ---- */
 
 /* ---- Forward declarations ---- */
 static void *preview_thread_func(void *arg);

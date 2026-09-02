@@ -476,6 +476,13 @@ int wb_compositor_metal_process_white_balance(wb_frame *f,
                                                float temp,
                                                float tint);
 
+/* GPU-accelerated HDR processing (R090).
+ * Processes a float4 pixel buffer in-place via Metal compute.
+ * float_buf: n_pixels * 4 floats (RGBA, 0..1 range).
+ * mode: 0=ACES tone map, 1=PQ encode, 2=HLG encode.
+ * Returns 0 on success, -1 on failure. */
+int wb_compositor_metal_process_hdr(float *float_buf, int n_pixels, int mode);
+
 #ifdef __cplusplus
 }
 #endif
@@ -587,6 +594,33 @@ const char *wb_stt_get_srt_path(void);
 /* ---- Real-time preview (R090: GPU playback) ---- */
 struct wb_preview;
 typedef enum { WB_PREVIEW_STOPPED, WB_PREVIEW_PLAYING, WB_PREVIEW_PAUSED, WB_PREVIEW_SCRUBBING } wb_preview_state;
+
+/* ---- SDL preview (R091: audio-video sync + timeline scrubbing) ---- */
+typedef struct wb_preview {
+    SDL_Window *window;
+    SDL_Renderer *renderer;
+    wb_node *root_node;
+    int width, height;
+    double fps;
+    double duration_sec;
+    double current_time;
+    double playback_speed;
+    int loop;
+    wb_preview_state state;
+    pthread_t thread;
+    int running;
+    pthread_mutex_t lock;
+    uint8_t *frame_rgba;
+    int frame_ready;
+    double frame_timestamp;
+    double actual_fps;
+    int frame_count;
+    double last_frame_time;
+    int use_gpu;
+} wb_preview;
+
+/* ---- SDL preview (audio-video sync) ---- */
+int wb_sdl_preview_run_with_audio(wb_preview *p, const char *audio_wav_path);
 
 struct wb_preview *wb_preview_create(wb_node *root_node, int w, int h, double fps);
 void wb_preview_set_duration(struct wb_preview *p, double duration_sec);
@@ -711,6 +745,7 @@ void wb_hdr_set_color_space(struct wb_hdr_preview *hdr, int cs);
 void wb_hdr_set_tone_map(struct wb_hdr_preview *hdr, int method);
 void wb_hdr_set_exposure(struct wb_hdr_preview *hdr, float exposure);
 void wb_hdr_process_frame(struct wb_hdr_preview *hdr, wb_frame *frame_in, wb_frame *frame_out);
+void wb_hdr_process_frame_gpu(wb_frame *frame_in, wb_frame *frame_out, int mode);
 void wb_hdr_apply_metadata(struct wb_hdr_preview *hdr, wb_frame *frame, float max_cll, float max_fall);
 void wb_hdr_preview_destroy(struct wb_hdr_preview *hdr);
 

@@ -587,4 +587,45 @@ double wb_preview_get_fps(wb_preview *p);
 int wb_preview_get_frame(wb_preview *p, uint8_t *out_rgba);
 void wb_preview_destroy(wb_preview *p);
 
+/* ---- DVD/Blu-ray authoring (R090) ---- */
+struct wb_dvd_project;
+typedef enum { WB_DVD_FORMAT_DVD5, WB_DVD_FORMAT_DVD9, WB_DVD_FORMAT_BD25, WB_DVD_FORMAT_BD50 } wb_dvd_format;
+typedef struct { float x, y, w, h; int target_title; } wb_dvd_button;
+
+struct wb_dvd_project *wb_dvd_author_create(void);
+int wb_dvd_author_add_title(struct wb_dvd_project *p, const char *video_path, const char *audio_path, double duration_sec);
+int wb_dvd_author_set_menu(struct wb_dvd_project *p, const char *bg_image_path, const wb_dvd_button *buttons, int button_count);
+int wb_dvd_author_set_chapters(struct wb_dvd_project *p, int title_idx, const double *times, int count);
+int wb_dvd_author_export(struct wb_dvd_project *p, const char *output_dir, int format);
+const char *wb_dvd_author_get_error(struct wb_dvd_project *p);
+void wb_dvd_author_destroy(struct wb_dvd_project *p);
+
+/* ---- HDR preview (R090) ---- */
+struct wb_hdr_preview;
+typedef enum { WB_HDR_DISPLAY_SDR = 0, WB_HDR_DISPLAY_HDR10, WB_HDR_DISPLAY_HLG, WB_HDR_DISPLAY_DOLBY_VISION } wb_hdr_display_mode;
+typedef enum { WB_HDR_CS_REC709 = 0, WB_HDR_CS_REC2020, WB_HDR_CS_DCIP3 } wb_hdr_color_space;
+struct wb_hdr_preview *wb_hdr_preview_create(int w, int h);
+void wb_hdr_set_display_mode(struct wb_hdr_preview *hdr, int mode);
+void wb_hdr_set_peak_brightness(struct wb_hdr_preview *hdr, float nits);
+void wb_hdr_set_color_space(struct wb_hdr_preview *hdr, int cs);
+void wb_hdr_set_tone_map(struct wb_hdr_preview *hdr, int method);
+void wb_hdr_set_exposure(struct wb_hdr_preview *hdr, float exposure);
+void wb_hdr_process_frame(struct wb_hdr_preview *hdr, wb_frame *frame_in, wb_frame *frame_out);
+void wb_hdr_apply_metadata(struct wb_hdr_preview *hdr, wb_frame *frame, float max_cll, float max_fall);
+void wb_hdr_preview_destroy(struct wb_hdr_preview *hdr);
+
+/* ---- YouTube upload (R090) ---- */
+int wb_youtube_set_credentials(const char *client_id, const char *client_secret, const char *refresh_token);
+int wb_youtube_upload(const char *video_path, const char *title, const char *description, const char *tags, int privacy);
+int wb_youtube_get_upload_status(double *progress, char *status_buf, int bufsize);
+int wb_youtube_cancel_upload(void);
+int wb_youtube_set_thumbnail(const char *video_path, const char *thumbnail_path);
+
+/* ---- SVG import (R090) ---- */
+int wb_svg_import(const char *svg_path, int target_w, int target_h, wb_node **out_nodes, int max_nodes);
+int wb_svg_parse_path(const char *path_d, float *verts_x, float *verts_y, int *vert_count, int max_verts);
+int wb_svg_get_fill_color(wb_node *node, float *r, float *g, float *b, float *a);
+int wb_svg_get_stroke(wb_node *node, float *r, float *g, float *b, float *a, float *width);
+int wb_svg_get_transform(wb_node *node, float *transform_out);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

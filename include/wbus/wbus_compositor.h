@@ -992,4 +992,73 @@ int wb_dvd_game_generate_vm(wb_dvd_game *game, uint8_t *out, int max_len);
 int wb_dvd_game_build(wb_dvd_game *game);
 void wb_dvd_game_destroy(wb_dvd_game *game);
 
+/* ---- YTP Effects Engine (R094) ---- */
+
+/* Keyframe interpolation types (defined in wbus_param_track.h) */
+float kf_interpolate(float t, int type, float p1, float p2, float p3);
+
+/* Cookie cutter shapes */
+enum {
+    WB_MASK_CIRCLE = 0, WB_MASK_RECTANGLE, WB_MASK_TRIANGLE, WB_MASK_STAR,
+    WB_MASK_HEART, WB_MASK_DIAMOND, WB_MASK_HEXAGON, WB_MASK_CROSS, WB_MASK_COUNT
+};
+void wb_cookie_cutter(uint8_t *rgba, int w, int h, int shape, float cx, float cy, float size);
+void wb_mirror_quad(uint8_t *dst, const uint8_t *src, int w, int h);
+void wb_kaleidoscope(uint8_t *dst, const uint8_t *src, int w, int h, int segments);
+void wb_swirl(uint8_t *dst, const uint8_t *src, int w, int h, float angle, float radius);
+void wb_spherize(uint8_t *dst, const uint8_t *src, int w, int h, float strength, float radius);
+void wb_wave_displace(uint8_t *dst, const uint8_t *src, int w, int h,
+                      float ax, float fx, float px, float ay, float fy, float py);
+void wb_zoom_punch(uint8_t *dst, const uint8_t *src, int w, int h, float scale);
+void wb_impact_frame(uint8_t *frame, int w, int h, int white);
+void wb_scramble(uint8_t *dst, const uint8_t *src, int w, int h, int seed, int block_size);
+void wb_strobe(uint8_t *dst, const uint8_t *src, int w, int h, int frame_num, int interval,
+               uint8_t r, uint8_t g, uint8_t b);
+void wb_crt_effect(uint8_t *dst, const uint8_t *src, int w, int h, float scanlines, float curve);
+void wb_recursion(uint8_t *dst, const uint8_t *src, int w, int h, float scale, float cx, float cy, int depth);
+int wb_video_stutter(const uint8_t *frame, int w, int h, uint8_t *out, int n_repeat);
+void wb_pip_overlay(uint8_t *dst, int dw, int dh, const uint8_t *src, int sw, int sh,
+                    int px, int py, float scale);
+void wb_ken_burns(uint8_t *dst, const uint8_t *src, int w, int h, float t,
+                  float sx, float sy, float ss, float ex, float ey, float es);
+
+/* MIDI step sequencer */
+#define WB_STEP_MAX 64
+typedef struct { int steps[WB_STEP_MAX]; int n_steps; int current; int running; } wb_step_seq;
+void wb_step_seq_init(wb_step_seq *s, int n);
+void wb_step_seq_set(wb_step_seq *s, int step, int val);
+int wb_step_seq_tick(wb_step_seq *s);
+void wb_step_seq_start(wb_step_seq *s);
+void wb_step_seq_stop(wb_step_seq *s);
+
+/* MIDI euclidean, probability, ratchet */
+void wb_euclidean_rhythm(int *pattern, int n_steps, int n_hits);
+int wb_midi_probability(float prob);
+int wb_midi_ratchet(int note, int vel, int count, int *out_vels);
+
+/* MIDI aftertouch */
+typedef struct { uint8_t channel_pressure; uint8_t poly_pressure[128]; float mod_depth; } wb_midi_aftertouch;
+void wb_midi_aftertouch_init(wb_midi_aftertouch *at);
+void wb_midi_aftertouch_set_channel(wb_midi_aftertouch *at, uint8_t p);
+void wb_midi_aftertouch_set_poly(wb_midi_aftertouch *at, uint8_t note, uint8_t p);
+float wb_midi_aftertouch_mod(const wb_midi_aftertouch *at, uint8_t note);
+
+/* Automation */
+enum { WB_AUTOMATION_READ = 0, WB_AUTOMATION_TOUCH, WB_AUTOMATION_LATCH,
+       WB_AUTOMATION_WRITE, WB_AUTOMATION_TRIM };
+typedef struct { int mode; float *keyframes; int n_points; int capacity;
+                 float current_value; float touch_start; float trim_offset; int touching; } wb_automation_track;
+void wb_automation_init(wb_automation_track *t, int cap);
+void wb_automation_set_mode(wb_automation_track *t, int mode);
+void wb_automation_add_keyframe(wb_automation_track *t, float time, float value);
+float wb_automation_eval(const wb_automation_track *t, float time, int interp);
+
+/* Snapshots / morph */
+#define WB_SNAPSHOT_MAX_PARAMS 32
+typedef struct { float params[WB_SNAPSHOT_MAX_PARAMS]; char name[32]; } wb_snapshot;
+typedef struct { wb_snapshot *snapshots; int n_snapshots; int capacity; } wb_snapshot_bank;
+void wb_snapshots_init(wb_snapshot_bank *b, int cap);
+int wb_snapshots_save(wb_snapshot_bank *b, const float *params, int n, const char *name);
+void wb_snapshots_morph(const wb_snapshot_bank *b, int a, int b_idx, float t, float *out, int n);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

@@ -19,7 +19,19 @@ extern "C" {
 typedef enum {
     WB_KF_HOLD = 0,
     WB_KF_LINEAR,
-    WB_KF_BEZIER
+    WB_KF_BEZIER,
+    WB_KF_HERMITE,
+    WB_KF_EASE_IN,
+    WB_KF_EASE_OUT,
+    WB_KF_EASE_INOUT,
+    WB_KF_ELASTIC,
+    WB_KF_BOUNCE,
+    WB_KF_BACK,
+    WB_KF_EXPONENTIAL,
+    WB_KF_LOGARITHMIC,
+    WB_KF_SCURVE,
+    WB_KF_TCB,
+    WB_KF_COUNT
 } wb_kf_interp;
 
 typedef struct wb_keyframe {

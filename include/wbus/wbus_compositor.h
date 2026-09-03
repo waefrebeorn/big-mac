@@ -1184,4 +1184,15 @@ void wb_source_abuse(uint8_t *dst, const uint8_t *src, int w, int h,
 void wb_subversion_poop(uint8_t *dst, const uint8_t *src, int w, int h,
                         float chaos, int seed);
 
+/* ---- YTP Remaining Gap Closers (R094g) ---- */
+void wb_sexophone_gen(float *out, int frames, int sample_rate,
+                       float freq, float intensity);
+void wb_sexophone_visual(uint8_t *dst, const uint8_t *src, int w, int h, float phase);
+void wb_dance_rave(uint8_t *dst, const uint8_t *src, int w, int h,
+                   float beat_phase, int strobe_on);
+void wb_tennis_rally(float *audio, int n_frames, int n_channels,
+                     int a_start, int a_end, int b_start, int b_end);
+void wb_scramble_perm(int *perm, int n, int seed);
+void wb_stutter_iter_fx(uint8_t *frame, int w, int h, int iteration);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

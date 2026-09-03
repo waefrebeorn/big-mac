@@ -163,6 +163,9 @@ def main():
             parts = line.strip().split('\t')
             if len(parts) == 3:
                 entries.append(parts)
+            elif len(parts) == 2:
+                # console\tfilename format
+                entries.append([parts[0], '_root_', parts[1]])
 
     categorized = []
     uncategorized = []
@@ -179,7 +182,8 @@ def main():
 
     gc = Counter(g for _, g, _ in categorized)
     print(f'Total: {len(entries)}', file=sys.stderr)
-    print(f'Categorized: {len(categorized)} ({100*len(categorized)//len(entries)}%)', file=sys.stderr)
+    pct = (100*len(categorized)//len(entries)) if entries else 0
+    print(f'Categorized: {len(categorized)} ({pct}%)', file=sys.stderr)
     print(f'Uncategorized: {len(uncategorized)}', file=sys.stderr)
     print(f'\nTop 40 games:', file=sys.stderr)
     for g, c in gc.most_common(40):

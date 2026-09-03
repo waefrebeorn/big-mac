@@ -1165,4 +1165,23 @@ int wb_mad_dash_cuts(int total_frames, int n_cuts, int *cut_positions);
 int wb_ffmpeg_stare_down(const char *input, const char *output,
                          float zoom_speed, float duration);
 
+/* ---- YTP Combination Effects (R094f) ---- */
+void wb_animated_flip(uint8_t *dst, const uint8_t *src, int w, int h, float progress);
+void wb_spin(uint8_t *dst, const uint8_t *src, int w, int h, float angle_deg);
+void wb_paint_line(uint8_t *rgba, int w, int h, int x0, int y0, int x1, int y1,
+                   uint8_t r, uint8_t g, uint8_t b, int thickness);
+void wb_paint_circle(uint8_t *rgba, int w, int h, int cx, int cy, int radius,
+                     uint8_t r, uint8_t g, uint8_t b, int filled);
+void wb_paint_arrow(uint8_t *rgba, int w, int h, int x0, int y0, int x1, int y1,
+                    uint8_t r, uint8_t g, uint8_t b);
+int wb_meme_replace(float *audio, int n_frames, int n_channels,
+                     float sample_rate, int insert_frame,
+                     const float *meme_samples, int meme_frames);
+void wb_scramble_stutter(uint8_t *dst, const uint8_t *src, int w, int h,
+                          int seed, int block_size, int n_repeats);
+void wb_source_abuse(uint8_t *dst, const uint8_t *src, int w, int h,
+                     int iteration, int seed);
+void wb_subversion_poop(uint8_t *dst, const uint8_t *src, int w, int h,
+                        float chaos, int seed);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

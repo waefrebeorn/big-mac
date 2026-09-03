@@ -1195,4 +1195,62 @@ void wb_tennis_rally(float *audio, int n_frames, int n_channels,
 void wb_scramble_perm(int *perm, int n, int seed);
 void wb_stutter_iter_fx(uint8_t *frame, int w, int h, int iteration);
 
+/* ---- YTPMV Sync Engine (R095) ---- */
+
+/* Beat detection */
+typedef struct { float *beat_times; int n_beats, capacity; float bpm, avg_energy; } wb_beat_map;
+wb_beat_map *wb_beat_map_create(int cap);
+void wb_beat_map_free(wb_beat_map *m);
+int wb_ytpmv_detect_beats(const float *audio, int n_frames, int n_channels,
+                     float sample_rate, float threshold, wb_beat_map *out);
+
+/* Audio amplitude → keyframes (AE style) */
+typedef struct { float *times, *values; int n_keyframes, capacity; } wb_audio_keys;
+wb_audio_keys *wb_audio_keys_create(int cap);
+void wb_audio_keys_free(wb_audio_keys *k);
+int wb_audio_to_keyframes(const float *audio, int n_frames, int n_channels,
+                           float sample_rate, float interval, wb_audio_keys *out);
+
+/* Wiggle expression (AE style) */
+void wb_wiggle(float *out, int n_frames, float sample_rate,
+               float frequency, float amplitude, int seed);
+void wb_audio_wiggle(float *out, int n_frames, float sample_rate,
+                     float frequency, float base_amplitude,
+                     const float *audio_keys, int n_keys, float key_interval);
+
+/* Lip sync */
+typedef enum {
+    VISEME_REST = 0, VISEME_AH, VISEME_EE, VISEME_OH, VISEME_OO,
+    VISEME_FV, VISEME_MBP, VISEME_L, VISEME_TH, VISEME_W, VISEME_COUNT
+} wb_viseme;
+wb_viseme phoneme_to_viseme(wb_phoneme_type phon);
+const char *viseme_name(wb_viseme v);
+
+typedef struct { float start_time, end_time; wb_viseme viseme; float blend; } wb_lip_frame;
+int wb_generate_lip_sync(const wb_phoneme_db *db, wb_lip_frame *frames, int max_frames);
+
+/* Beat-synced video */
+void wb_beat_sync_zoom(float *zoom_curve, int n_frames, float sample_rate,
+                        const wb_beat_map *beats, float pulse_strength);
+void wb_beat_sync_flash(uint8_t *rgba, int w, int h, int frame_num,
+                         float sample_rate, const wb_beat_map *beats,
+                         float flash_intensity);
+
+/* YTPMV auto-pilot */
+typedef struct {
+    wb_phoneme_db *phonemes;
+    wb_beat_map *beats;
+    wb_audio_keys *amp_keys;
+    wb_lip_frame *lip_frames;
+    int n_lip_frames;
+    float bpm;
+    wb_scale_type scale;
+    int root_note;
+} wb_ytpmv_plan;
+
+wb_ytpmv_plan *wb_ytpmv_plan_create(void);
+void wb_ytpmv_plan_free(wb_ytpmv_plan *plan);
+int wb_ytpmv_analyze(wb_ytpmv_plan *plan, const float *audio, int n_frames,
+                      int n_channels, float sample_rate);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

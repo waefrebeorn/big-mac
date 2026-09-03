@@ -31,6 +31,7 @@ typedef enum {
     WB_KF_LOGARITHMIC,
     WB_KF_SCURVE,
     WB_KF_TCB,
+    WB_KF_STEP,
     WB_KF_COUNT
 } wb_kf_interp;
 

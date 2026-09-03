@@ -1562,4 +1562,82 @@ void wb_rasterize_mesh(uint8_t *buffer, int w, int h, wb_omesh *mesh,
 void wb_wiggle_update(wb_layer *layer, float dt);
 void wb_overlay_audio_reactive_update(wb_layer *layer, float audio_level);
 
+/* ---- R099: Video Poopisms + YTPMV Pipeline ---- */
+
+/* Keyframe interpolation (defined in wbus_param_track.h — use WB_KF_* from there) */
+float wb_kf_interpolate(float t, int type, float p1, float p2, float p3);
+
+/* Fade curves */
+enum { WB_FADE_LINEAR=0, WB_FADE_EXPONENTIAL, WB_FADE_LOGARITHMIC, WB_FADE_SCURVE, WB_FADE_COUNT };
+float wb_fade_eval(float t, int type);
+
+/* Stutter Loop Plus */
+typedef struct { int n_repeats, current_repeat, fx_per_repeat; } wb_stutter_plus;
+void wb_stutter_plus_init(wb_stutter_plus *sp, int n_repeats);
+void wb_stutter_plus_apply(wb_stutter_plus *sp, uint8_t *frame, int w, int h, int repeat_idx);
+
+/* Strobe / Flash / Impact Frame */
+typedef struct { int frame_count, strobe_interval, flash_color, impact_pending; } wb_strobe_state;
+void wb_strobe_init(wb_strobe_state *st, int interval);
+int wb_strobe_tick(wb_strobe_state *st);
+void wb_strobe_apply(uint8_t *frame, int w, int h, int color);
+void wb_invert_flash_apply(uint8_t *frame, int w, int h);
+
+/* Frame Freeze */
+typedef struct { uint8_t *frozen_frame; int w, h, hold_frames_remaining, is_frozen; } wb_frame_freeze;
+void wb_freeze_init(wb_frame_freeze *fz);
+void wb_freeze_capture(wb_frame_freeze *fz, uint8_t *frame, int w, int h);
+void wb_freeze_hold(wb_frame_freeze *fz, int n_frames);
+int wb_freeze_tick(wb_frame_freeze *fz, uint8_t *frame, int w, int h);
+void wb_freeze_free(wb_frame_freeze *fz);
+
+/* Screen Shake */
+typedef struct { float offset_x, offset_y, velocity_x, velocity_y, decay; int active; } wb_screen_shake;
+void wb_shake_init(wb_screen_shake *sh);
+void wb_shake_trigger(wb_screen_shake *sh, float intensity);
+void wb_shake_update(wb_screen_shake *sh, float dt);
+
+/* Cookie Cutter (defined in compositor header — uses WB_MASK_* shapes) */
+
+/* Flip/Spin */
+typedef struct { float angle, speed; int flip_x, flip_y; } wb_flip_spin;
+void wb_flip_spin_init(wb_flip_spin *fs);
+void wb_flip_spin_update(wb_flip_spin *fs, float dt);
+
+/* Recursion Poop */
+typedef struct { uint8_t *inner_buffer; int inner_w, inner_h; float scale; int max_levels; } wb_recursion_poop;
+void wb_recursion_init(wb_recursion_poop *rp, float scale, int max_levels);
+void wb_recursion_apply(uint8_t *frame, int w, int h, int levels);
+void wb_recursion_free(wb_recursion_poop *rp);
+
+/* Compression Torture */
+void wb_compression_torture_ytp(uint8_t *frame, int w, int h, int quality);
+
+/* Phoneme extraction */
+int wb_extract_phonemes(const float *audio, int n_frames, int n_channels, float sample_rate, int *segments, int max_segs);
+
+/* Pitch-to-note (uses existing freq_to_midi/midi_to_freq from compositor) */
+int wb_pitch_to_note(float freq, int scale_type);
+
+/* Beat sequencer */
+#define WB_SEQ_STEPS 16
+#define WB_SEQ_TRACKS 8
+typedef struct { int grid[WB_SEQ_TRACKS][WB_SEQ_STEPS]; int current_step; float bpm, step_duration; int playing; } wb_beat_seq;
+void wb_beat_seq_init(wb_beat_seq *seq, float bpm);
+void wb_beat_seq_set(wb_beat_seq *seq, int track, int step, int phoneme_idx);
+int wb_beat_seq_tick(wb_beat_seq *seq, float dt);
+
+/* Stutter bass */
+typedef struct { float *source; int source_frames, source_channels; float source_rate; int loop_start, loop_end; float pitch_shift; } wb_stutter_bass;
+void wb_stutter_bass_init(wb_stutter_bass *sb);
+
+/* MIDI aftertouch (defined in compositor header) */
+
+/* Euclidean rhythm (defined in compositor header) */
+
+/* MIDI probability/ratchet */
+typedef struct { float probability; int ratchet_count, ratchet_div; } wb_midi_prob;
+void wb_midi_prob_init(wb_midi_prob *mp);
+int wb_midi_prob_fire(wb_midi_prob *mp);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

@@ -1292,4 +1292,274 @@ int vgm_count_files(const char *html, int html_len);
 void vgm_game_name(const char *url, char *name, int max_len);
 int vgm_game_file_count(const char *game_name);
 
+/* ---- YTPMV Production Machine (R097) ---- */
+
+/* Stutter/Gross Beat engine */
+#define WB_PATTERN_MAX 64
+typedef struct { float values[WB_PATTERN_MAX]; int n_steps; float duration_beats; int type; } wb_stutter_pattern;
+typedef struct { float *buffer; int buffer_size, write_pos, sample_rate; wb_stutter_pattern pattern; int current_step; float step_phase; float last_output[2]; int bypass; } wb_stutter_engine;
+
+void wb_stutter_init(wb_stutter_engine *eng, int sr, float dur_beats);
+void wb_stutter_free(wb_stutter_engine *eng);
+void wb_stutter_set_pattern(wb_stutter_engine *eng, const float *values, int n_steps, int type);
+void wb_stutter_preset_half_time(wb_stutter_engine *eng);
+void wb_stutter_preset_quarter_speed(wb_stutter_engine *eng);
+void wb_stutter_preset_stutter_16th(wb_stutter_engine *eng);
+void wb_stutter_preset_stutter_32nd(wb_stutter_engine *eng);
+void wb_stutter_preset_ramp_down(wb_stutter_engine *eng);
+void wb_stutter_preset_tape_stop(wb_stutter_engine *eng);
+void wb_stutter_preset_gate(wb_stutter_engine *eng, float duty);
+float wb_stutter_process(wb_stutter_engine *eng, float input, float bpm);
+void wb_stutter_process_buffer(wb_stutter_engine *eng, float *out, const float *in, int n_frames, int n_channels, float bpm);
+
+/* Formant-preserving pitch shifter */
+typedef struct { float *window; int window_size; float last_pitch; float formant_shift; } wb_formant_shifter;
+void wb_formant_init(wb_formant_shifter *fs, int window_size);
+void wb_formant_free(wb_formant_shifter *fs);
+int wb_formant_shift(const float *in, float *out, int n_frames, int n_channels, float ratio, float formant_ratio);
+
+/* Sidechain compressor */
+typedef struct { float threshold, ratio, attack, release, hold; float envelope, gain; int hold_counter, sample_rate; } wb_sidechain_comp;
+void wb_sidechain_init(wb_sidechain_comp *comp, int sample_rate);
+void wb_sidechain_set_ytpmv(wb_sidechain_comp *comp, float threshold, float ratio, float attack_ms, float release_ms);
+float wb_sidechain_process_ytpmv(wb_sidechain_comp *comp, float input, float trigger);
+float wb_sidechain_process_internal_ytpmv(wb_sidechain_comp *comp, float input);
+
+/* Datamosh */
+typedef struct { uint8_t *prev_frame; int width, height, block_size; float intensity, motion_scale; int duplicate_count, duplicate_idx; } wb_datamosh;
+void wb_datamosh_init(wb_datamosh *dm, int w, int h);
+void wb_datamosh_free(wb_datamosh *dm);
+void wb_datamosh_apply(wb_datamosh *dm, uint8_t *frame, float intensity);
+
+/* Sentence mixer */
+typedef struct { int start_frame, end_frame; float energy, pitch_estimate; int type; } wb_phoneme_seg;
+int wb_detect_phonemes_ytpmv(const float *audio, int n_frames, int n_channels, float sample_rate, wb_phoneme_seg *segs, int max_segs);
+int wb_sentence_mix_ytpmv(const float *in, float *out, int n_frames, int n_channels, const wb_phoneme_seg *segs, int n_segs, const int *pattern, int n_pattern);
+
+/* ---- 3D Character Overlay System (R098) ---- */
+
+/* Overlay math types (local to this subsystem) */
+typedef struct { float x, y, z, w; } wb_o_vec4;
+typedef struct { float x, y, z; } wb_o_vec3;
+typedef struct { float m[16]; } wb_o_mat4;
+
+/* Forward declarations */
+typedef struct wb_omesh wb_omesh;
+
+#define WB_MAX_OVERLAY_BONES 64
+#define WB_MAX_WEIGHTS 4
+#define WB_MAX_LAYERS 128
+#define WB_MAX_EFFECTS_PER_LAYER 16
+#define WB_MESH_MAX_VERTS 4096
+#define WB_MESH_MAX_FACES 4096
+
+/* Overlay mesh types (defined in header for test access) */
+typedef struct {
+    wb_o_vec3 pos, normal;
+    float u, v;
+    int bone_ids[WB_MAX_WEIGHTS];
+    float bone_weights[WB_MAX_WEIGHTS];
+} wb_o_vertex;
+
+typedef struct { int v[3]; } wb_o_face;
+
+typedef struct {
+    char name[64];
+    int parent;
+    wb_o_mat4 bind_pose, inv_bind, current;
+} wb_o_bone;
+
+struct wb_omesh {
+    wb_o_vertex vertices[WB_MESH_MAX_VERTS];
+    wb_o_face faces[WB_MESH_MAX_FACES];
+    int n_verts, n_faces;
+    wb_o_bone bones[WB_MAX_OVERLAY_BONES];
+    int n_bones;
+};
+
+void wb_omesh_init(wb_omesh *mesh);
+void wb_omesh_create_cube(wb_omesh *mesh, float size);
+void wb_omesh_create_humanoid(wb_omesh *mesh);
+
+/* Matrix utilities */
+void wb_mat4_identity(wb_o_mat4 *m);
+wb_o_mat4 wb_mat4_mul(wb_o_mat4 a, wb_o_mat4 b);
+wb_o_vec3 wb_mat4_transform_point(wb_o_mat4 m, wb_o_vec3 p);
+wb_o_mat4 wb_mat4_translate(float x, float y, float z);
+wb_o_mat4 wb_mat4_scale(float x, float y, float z);
+wb_o_mat4 wb_mat4_rotate_y(float angle);
+wb_o_mat4 wb_mat4_rotate_x(float angle);
+wb_o_mat4 wb_mat4_rotate_z(float angle);
+wb_o_mat4 wb_mat4_perspective(float fov_y, float aspect, float near_c, float far_c);
+wb_o_mat4 wb_mat4_look_at(wb_o_vec3 eye, wb_o_vec3 target, wb_o_vec3 up);
+
+/* Animation */
+typedef struct {
+    float time;
+    wb_o_vec3 translation;
+    float rotation[4];
+    wb_o_vec3 scale;
+} wb_anim_keyframe;
+
+typedef struct {
+    char bone_name[64];
+    wb_anim_keyframe keyframes[128];
+    int n_keyframes;
+} wb_anim_track;
+
+typedef struct {
+    char name[64];
+    wb_anim_track tracks[WB_MAX_OVERLAY_BONES];
+    int n_tracks;
+    float duration, fps;
+} wb_animation;
+
+void wb_anim_init(wb_animation *anim);
+void wb_anim_create_walk(wb_animation *anim);
+void wb_anim_create_dance(wb_animation *anim);
+void wb_anim_evaluate(wb_animation *anim, float time, wb_omesh *mesh, wb_o_mat4 *bone_matrices);
+
+/* Lip-sync (uses existing wb_viseme enum) */
+typedef struct {
+    int current_viseme, target_viseme;
+    float blend, blend_speed, mouth_open, mouth_wide;
+} wb_lipsync;
+
+void wb_lipsync_init(wb_lipsync *ls);
+void wb_lipsync_set_viseme(wb_lipsync *ls, int phoneme_type);
+void wb_lipsync_update(wb_lipsync *ls, float dt);
+
+/* Particle system */
+typedef struct {
+    float emit_x, emit_y, emit_rate;
+    float life_min, life_max;
+    float vel_min, vel_max;
+    float angle, spread;
+    float size_start, size_end;
+    uint32_t color_start, color_end;
+    float gravity;
+    int max_particles;
+} wb_particle_config;
+
+typedef struct {
+    float x, y, vx, vy, life, max_life, size;
+    uint32_t color;
+    int active;
+} wb_particle;
+
+typedef struct {
+    wb_particle_config config;
+    wb_particle particles[256];
+    int n_active;
+    float emit_accum;
+} wb_particle_system;
+
+void wb_particles_init(wb_particle_system *ps, wb_particle_config *config);
+void wb_particles_update(wb_particle_system *ps, float dt);
+
+/* Meta-layer system */
+#define WB_MAX_LAYERS 128
+#define WB_MAX_EFFECTS_PER_LAYER 16
+
+/* Layer types — 60 meta-layer abilities */
+enum {
+    WB_LAYER_3D_MODEL=0, WB_LAYER_SKELETAL_ANIM, WB_LAYER_SPRITE_SHEET,
+    WB_LAYER_PARTICLE_EMITTER, WB_LAYER_CHROMA_KEY, WB_LAYER_BLEND_MODE,
+    WB_LAYER_TRANSFORM, WB_LAYER_TRACK_MATTE, WB_LAYER_ADJUSTMENT,
+    WB_LAYER_3D_CAMERA, WB_LAYER_3D_LIGHT, WB_LAYER_NULL_OBJECT,
+    WB_LAYER_SHAPE, WB_LAYER_TEXT, WB_LAYER_AUDIO_REACTIVE,
+    WB_LAYER_DISPLACEMENT, WB_LAYER_GRADIENT, WB_LAYER_SOLID_COLOR,
+    WB_LAYER_IMAGE_SEQUENCE, WB_LAYER_VIDEO, WB_LAYER_PRE_COMP,
+    WB_LAYER_TIME_REMAP, WB_LAYER_MOTION_BLUR, WB_LAYER_DEPTH_OF_FIELD,
+    WB_LAYER_VIGNETTE, WB_LAYER_LENS_FLARE, WB_LAYER_LIGHT_SWEEP,
+    WB_LAYER_EDGE_GLOW, WB_LAYER_DROP_SHADOW, WB_LAYER_STROKE,
+    WB_LAYER_3D_TEXT, WB_LAYER_REPEATER, WB_LAYER_WIGGLE,
+    WB_LAYER_LOOP, WB_LAYER_TIME_STRETCH, WB_LAYER_FRAME_BLEND,
+    WB_LAYER_POSTERIZE_TIME, WB_LAYER_POSTERIZE, WB_LAYER_TRITONE,
+    WB_LAYER_COLOR_BALANCE, WB_LAYER_CURVES, WB_LAYER_LEVELS,
+    WB_LAYER_HUE_SAT, WB_LAYER_INVERT, WB_LAYER_STROBE_FX,
+    WB_LAYER_TURBULENT_DISPLACE, WB_LAYER_OPTICS_COMP, WB_LAYER_POLAR,
+    WB_LAYER_MIRROR_FX, WB_LAYER_RIPPLE_FX, WB_LAYER_WAVE_WARP,
+    WB_LAYER_MESH_WARP, WB_LAYER_CORNER_PIN, WB_LAYER_LENS_BLUR,
+    WB_LAYER_GLOW_FX, WB_LAYER_FIND_EDGES, WB_LAYER_EMBOSS,
+    WB_LAYER_MOSAIC, WB_LAYER_LIP_SYNC, WB_LAYER_AUDIO_SPECTRUM,
+    WB_LAYER_TYPE_COUNT
+};
+
+/* Blend modes (defined in wbus_vfx.h — use WB_BLEND_* from there) */
+
+/* Shape types */
+enum { WB_SHAPE_RECT=0, WB_SHAPE_ELLIPSE, WB_SHAPE_POLYGON, WB_SHAPE_STAR };
+
+/* Layer transform */
+typedef struct {
+    float pos_x, pos_y, pos_z;
+    float rot_x, rot_y, rot_z;
+    float scale_x, scale_y, scale_z;
+    float anchor_x, anchor_y, anchor_z;
+    float opacity;
+} wb_layer_transform;
+
+/* Shape data */
+typedef struct {
+    int shape_type;
+    float width, height;
+    int sides;
+    float corner_radius;
+    uint32_t fill_color, stroke_color;
+    float stroke_width;
+} wb_shape_data;
+
+/* Text data */
+typedef struct {
+    char text[256];
+    char font_name[64];
+    float font_size;
+    uint32_t color;
+    int bold, italic, align;
+} wb_text_data;
+
+/* Layer */
+typedef struct {
+    char name[64];
+    int type, visible, locked, solo, parent, blend_mode;
+    wb_layer_transform transform;
+    float in_point, out_point, time_stretch;
+    union {
+        wb_omesh *mesh;
+        wb_shape_data *shape;
+        wb_text_data *text;
+        wb_particle_config *particles;
+        wb_lipsync *lipsync;
+        wb_animation *anim;
+    } data;
+    int audio_reactive, audio_band;
+    float audio_scale_min, audio_scale_max, audio_rotation_scale;
+    float wiggle_freq, wiggle_amp, wiggle_time;
+    int n_effects, effects[WB_MAX_EFFECTS_PER_LAYER];
+    float effect_params[WB_MAX_EFFECTS_PER_LAYER][8];
+    uint8_t *buffer;
+    int buf_w, buf_h;
+} wb_layer;
+
+/* Composition */
+typedef struct {
+    wb_layer layers[WB_MAX_LAYERS];
+    int n_layers, width, height;
+    float duration, fps, current_time;
+    wb_o_vec3 camera_pos, camera_target, camera_up;
+    float camera_fov;
+    int camera_ortho;
+    uint8_t *output;
+} wb_comp;
+
+void wb_comp_init(wb_comp *comp, int w, int h, float duration, float fps);
+void wb_comp_free(wb_comp *comp);
+int wb_comp_add_layer(wb_comp *comp, int type, const char *name);
+void wb_comp_blend_layer(wb_comp *comp, int layer_idx);
+void wb_rasterize_mesh(uint8_t *buffer, int w, int h, wb_omesh *mesh,
+                        wb_o_mat4 *bone_matrices, wb_o_mat4 *model_view_proj, uint32_t color);
+void wb_wiggle_update(wb_layer *layer, float dt);
+void wb_overlay_audio_reactive_update(wb_layer *layer, float audio_level);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

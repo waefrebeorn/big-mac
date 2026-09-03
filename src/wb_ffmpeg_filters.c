@@ -702,3 +702,120 @@ int wb_ffmpeg_probe(const char *path, int *out_w, int *out_h,
     pclose(p);
     return 0;
 }
+
+/* ================================================================
+ * DARK ARTS FFmpeg WRAPPERS (R094)
+ * ================================================================ */
+
+/* Strobe effect: alternate frames */
+int wb_ffmpeg_strobe(const char *input, const char *output,
+                     int interval, int fps) {
+    char cmd[2046];
+    snprintf(cmd, sizeof(cmd),
+        "%s -i \"%s\" -vf \"select='not(mod(n\\,%d))',setpts=N/FRAME_RATE/TB\" "
+        "-r %d \"%s\" 2>/dev/null",
+        ffmpeg_path(), input, interval * 2, fps, output);
+    return run_ffmpeg(cmd);
+}
+
+/* CRT / scanlines effect */
+int wb_ffmpeg_crt(const char *input, const char *output,
+                  float scanline_intensity, float curvature) {
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd),
+        "%s -i \"%s\" -vf \""
+        "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':"
+        "a='if(mod(Y\\,2)\\,alpha(X,Y)*%.2f\\,alpha(X,Y))',"
+        "lenscorrection=k1=%.4f:k2=0\" "
+        "\"%s\" 2>/dev/null",
+        ffmpeg_path(), input, 1.0f - scanline_intensity, curvature, output);
+    return run_ffmpeg(cmd);
+}
+
+/* Compression torture: re-encode at very low quality */
+int wb_ffmpeg_compression_torture(const char *input, const char *output,
+                                   int passes, int quality) {
+    char cmd[4096];
+    char temp1[] = "/tmp/wb_torture_a.mp4";
+    char temp2[] = "/tmp/wb_torture_b.mp4";
+
+    snprintf(cmd, sizeof(cmd),
+        "%s -y -i \"%s\" -c:v libx264 -preset ultrafast -crf %d "
+        "-an \"%s\" 2>/dev/null",
+        ffmpeg_path(), input, quality, temp1);
+    if (run_ffmpeg(cmd) != 0) return -1;
+
+    for (int i = 1; i < passes; i++) {
+        snprintf(cmd, sizeof(cmd),
+            "%s -y -i \"%s\" -c:v libx264 -preset ultrafast -crf %d "
+            "-an \"%s\" 2>/dev/null",
+            ffmpeg_path(), temp1, quality, temp2);
+        if (run_ffmpeg(cmd) != 0) { unlink(temp1); return -1; }
+        unlink(temp1);
+        strcpy(temp1, temp2);
+    }
+
+    snprintf(cmd, sizeof(cmd),
+        "%s -y -i \"%s\" -i \"%s\" -c:v libx264 -preset ultrafast -crf %d "
+        "-c:a copy \"%s\" 2>/dev/null",
+        ffmpeg_path(), temp1, input, quality, output);
+    int rc = run_ffmpeg(cmd);
+    unlink(temp1);
+    unlink(temp2);
+    return rc;
+}
+
+/* Mad dash cut: rapid accelerating cuts */
+int wb_ffmpeg_mad_dash(const char *input, const char *output,
+                       int n_cuts, float start_gap, float accel) {
+    char cmd[4096];
+    char select_expr[2048] = "select=";
+
+    float gap = start_gap;
+    float pos = 0;
+    for (int i = 0; i < n_cuts && strlen(select_expr) < 1800; i++) {
+        char segment[64];
+        if (i > 0) strcat(select_expr, "+");
+        snprintf(segment, sizeof(segment), "eq(n\\,%.0f)", pos);
+        strcat(select_expr, segment);
+        pos += gap;
+        gap *= accel;
+        if (gap < 2) gap = 2;
+    }
+    strcat(select_expr, ",setpts=N/FRAME_RATE/TB");
+
+    snprintf(cmd, sizeof(cmd),
+        "%s -i \"%s\" -vf \"%s\" \"%s\" 2>/dev/null",
+        ffmpeg_path(), input, select_expr, output);
+    return run_ffmpeg(cmd);
+}
+
+/* YTPMV pitch shift with formant preservation (rubberband) */
+int wb_ffmpeg_ytpmv_pitch_shift(const char *input, const char *output,
+                                 float pitch_ratio, int formant) {
+    char cmd[2048];
+    if (formant) {
+        snprintf(cmd, sizeof(cmd),
+            "%s -i \"%s\" -af \"rubberband=pitch=%.4f:formant=preserve\" "
+            "\"%s\" 2>/dev/null",
+            ffmpeg_path(), input, pitch_ratio, output);
+    } else {
+        snprintf(cmd, sizeof(cmd),
+            "%s -i \"%s\" -af \"rubberband=pitch=%.4f\" \"%s\" 2>/dev/null",
+            ffmpeg_path(), input, pitch_ratio, output);
+    }
+    return run_ffmpeg(cmd);
+}
+
+/* Stare down: slow zoom on freeze frame */
+int wb_ffmpeg_stare_down(const char *input, const char *output,
+                         float zoom_speed, float duration) {
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd),
+        "%s -i \"%s\" -vf "
+        "\"zoompan=z='1+%.4f*in/%d':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+        "d=1:s=320x240:fps=30\" -t %.2f \"%s\" 2>/dev/null",
+        ffmpeg_path(), input, zoom_speed, (int)(duration * 30),
+        duration, output);
+    return run_ffmpeg(cmd);
+}

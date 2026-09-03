@@ -1162,4 +1162,7 @@ void wb_infinite_loop_blend(uint8_t *frames, int w, int h,
                             int n_frames, int blend_frames);
 int wb_mad_dash_cuts(int total_frames, int n_cuts, int *cut_positions);
 
+int wb_ffmpeg_stare_down(const char *input, const char *output,
+                         float zoom_speed, float duration);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

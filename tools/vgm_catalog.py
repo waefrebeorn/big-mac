@@ -1,27 +1,38 @@
 #!/usr/bin/env python3
 """
-tools/vgm_catalog.py — VGMusic.com catalog builder (R06).
+tools/vgm_catalog.py — VGMusic.com catalog + download tool (R096).
 
-Builds a catalog of all MIDI files available on VGMusic.com by parsing
-their directory listing pages (not scraping — just reading the index HTML).
+SOURCES (in order of preference):
+1. 2011 MediaFire zip snapshot (22,000+ files, single download):
+   http://www.mediafire.com/download/i7q64yoj9j27xbu/2011-03-12-vgmusic.com.zip
+   - Download once, extract locally. No repeated requests to VGMusic.
+
+2. VGMusic directory listings (for files added after 2011):
+   - Only fetches index HTML pages, never individual MIDI files.
+   - Rate limited: 1s between console pages, 0.5s between game pages.
 
 Usage:
-    python3 tools/vgm_catalog.py --build-catalog
-    python3 tools/vgm_catalog.py --top 10000 --output vgm_top10k.txt
-    python3 tools/vgm_catalog.py --download vgm_top10k.txt --dir ~/vgm/
-
-Respects VGMusic.com's terms: only downloads for personal use.
+    python3 tools/vgm_catalog.py --build-catalog > vgm_catalog.tsv
+    python3 tools/vgm_catalog.py --top 10000 --output vgm_top10k.tsv
+    python3 tools/vgm_catalog.py --extract-zip vgm_2011.zip --dir ~/vgm/
+    
+Do NOT use --download to fetch individual files from VGMusic.
+Use the MediaFire zip or archive.org instead.
 """
 
 import os
 import sys
 import re
 import time
+import zipfile
 import urllib.request
 import urllib.error
 from collections import defaultdict
 
 BASE_URL = "https://www.vgmusic.com"
+
+# 2011 full archive snapshot (22,000+ MIDI files)
+MEDIAFIRE_ZIP = "https://www.mediafire.com/file/i7q64yoj9j27xbu/2011-03-12-vgmusic.com.zip"
 
 CONSOLES = [
     ("nes", "/music/console/nintendo/nes/"),
@@ -49,6 +60,24 @@ CONSOLES = [
     ("pc", "/music/computer/pc/"),
     ("arcade", "/music/other/arcade/"),
 ]
+
+def extract_zip(zip_path, output_dir):
+    """Extract VGMusic zip and catalog all files."""
+    print(f"Extracting {zip_path}...", file=sys.stderr)
+    catalog = []
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        for info in zf.infolist():
+            if info.filename.lower().endswith('.mid'):
+                # Path format: vgmusic.com/music/console/nintendo/snes/filename.mid
+                parts = info.filename.split('/')
+                if len(parts) >= 5 and parts[1] == 'music':
+                    console = parts[3] if parts[2] == 'console' else parts[2]
+                    game = parts[4] if len(parts) > 4 else '_root_'
+                    filename = parts[-1]
+                    catalog.append((console, game, filename))
+        zf.extractall(output_dir)
+    print(f"Extracted {len(catalog)} MIDI files to {output_dir}", file=sys.stderr)
+    return catalog
 
 def fetch_page(path):
     """Fetch a directory listing page from VGMusic."""
@@ -138,89 +167,29 @@ def get_top_games(catalog, n=10000):
 
     return result
 
-def download_midi(console_name, game_name, filename, output_dir):
-    """Download a single MIDI file."""
-    # Build URL
-    if game_name == "_root":
-        url = f"{BASE_URL}/music/console/{console_name}/{filename}"
-    else:
-        game_folder = game_name.replace(' ', '_')
-        url = f"{BASE_URL}/music/console/{console_name}/{game_folder}/{filename}"
-
-    # Determine console path
-    console_path = None
-    for cname, cpath in CONSOLES:
-        if cname == console_name:
-            console_path = cpath
-            break
-    if console_path is None:
-        return False
-
-    if game_name == "_root":
-        url = BASE_URL + console_path + filename
-    else:
-        game_folder = game_name.replace(' ', '_')
-        url = BASE_URL + console_path + game_folder + '/' + filename
-
-    # Create output path
-    out_dir = os.path.join(output_dir, console_name, game_name.replace('/', '_'))
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, filename)
-
-    if os.path.exists(out_path):
-        return True  # Already downloaded
-
-    req = urllib.request.Request(url, headers={
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            with open(out_path, 'wb') as f:
-                f.write(resp.read())
-        return True
-    except (urllib.error.URLError, OSError) as e:
-        print(f"  Failed: {url}: {e}", file=sys.stderr)
-        return False
+# download_midi removed — use MediaFire zip instead
 
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='VGMusic.com catalog tool')
-    parser.add_argument('--build-catalog', action='store_true', help='Build catalog')
+    parser.add_argument('--build-catalog', action='store_true', help='Build catalog from index')
     parser.add_argument('--top', type=int, default=10000, help='Top N songs')
     parser.add_argument('--output', type=str, help='Output file')
-    parser.add_argument('--download', type=str, help='Download list file')
-    parser.add_argument('--dir', type=str, default='~/vgm', help='Download directory')
+    parser.add_argument('--extract-zip', type=str, help='Extract VGMusic zip file')
+    parser.add_argument('--dir', type=str, default='~/vgm', help='Output directory')
     args = parser.parse_args()
 
-    if args.build_catalog:
+    if args.extract_zip:
+        output_dir = os.path.expanduser(args.dir)
+        catalog = extract_zip(args.extract_zip, output_dir)
+        for console, game, filename in catalog:
+            print(f"{console}\t{game}\t{filename}")
+    elif args.build_catalog:
         catalog = build_catalog()
-        # Output as TSV: console\tgame\tfilename
         for console, game_dict in sorted(catalog.items()):
             for game, files in sorted(game_dict.items()):
                 for f in files:
                     print(f"{console}\t{game}\t{f}")
-
-    elif args.download:
-        # Download from a catalog file
-        output_dir = os.path.expanduser(args.dir)
-        os.makedirs(output_dir, exist_ok=True)
-
-        with open(args.download) as f:
-            lines = f.readlines()
-
-        total = len(lines)
-        for i, line in enumerate(lines):
-            parts = line.strip().split('\t')
-            if len(parts) != 3:
-                continue
-            console, game, filename = parts
-            if i % 100 == 0:
-                print(f"Downloading {i+1}/{total}...", file=sys.stderr)
-            download_midi(console, game, filename, output_dir)
-            time.sleep(0.2)  # Rate limit
-
-        print(f"Downloaded to {output_dir}", file=sys.stderr)
-
     else:
         # Default: build catalog and output top N
         catalog = build_catalog()

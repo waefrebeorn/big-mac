@@ -713,6 +713,81 @@ int wb_ffmpeg_fade(const char *input, const char *output,
 int wb_ffmpeg_probe(const char *path, int *out_w, int *out_h,
                      double *out_duration, double *out_fps);
 
+/* ---- Chroma Key Engine (R093) ---- */
+void *wb_chromakey_create(int width, int height);
+void wb_chromakey_destroy(void *inst);
+void wb_chromakey_set_key_color(void *inst, float r, float g, float b);
+void wb_chromakey_set_threshold(void *inst, float t);
+void wb_chromakey_set_softness(void *inst, float s);
+void wb_chromakey_process(void *inst, const uint8_t *fg, uint8_t *out, int w, int h);
+
+/* ---- Chroma Key / Rotoscope / Scene Detection (R093) ---- */
+typedef struct {
+    double timestamp;
+    double scene_score;
+} wb_scene_cut;
+typedef struct {
+    wb_scene_cut *cuts;
+    int count;
+    int capacity;
+} wb_scene_list;
+
+/* Basic chromakey: key_color is 0xRRGGBB */
+int wb_chromakey(const char *input, const char *output,
+                  uint32_t key_color, double similarity, double blend,
+                  const char *key_color_name);
+int wb_chromakey_composite(const char *foreground, const char *background,
+                            const char *output, uint32_t key_color,
+                            double similarity, double blend,
+                            double overlay_x, double overlay_y,
+                            double overlay_scale);
+int wb_chromakey_pro(const char *input, const char *output,
+                      uint32_t key_color, double similarity, double blend,
+                      double feather_radius, double erode_size,
+                      int denoise_strength);
+int wb_chromakey_pro_composite(const char *foreground, const char *background,
+                                const char *output, uint32_t key_color,
+                                double similarity, double blend,
+                                double feather_radius, double erode_size,
+                                double overlay_x, double overlay_y,
+                                double overlay_scale);
+int wb_keylight_pro(const char *input, const char *output,
+                     uint32_t key_color, double screen_gain,
+                     double screen_balance, double alpha_bias,
+                     double despill_bias, double edge_thickness,
+                     double edge_feather);
+
+/* Scene detection */
+wb_scene_list *wb_scene_detect_ffmpeg(const char *input, double threshold);
+void wb_scene_list_ffmpeg_free(wb_scene_list *list);
+int wb_split_at_scenes(const char *input, const char *output_pattern,
+                        double threshold);
+
+/* Auto rotoscope */
+int wb_auto_rotoscope(const char *input, const char *background,
+                       const char *output, double threshold, double feather);
+int wb_auto_rotoscope_luma(const char *input, const char *background,
+                            const char *output, double threshold,
+                            double feather, int edge_dilate);
+
+/* Edge detection: method 0=prewitt, 1=sobel, 2=canny */
+int wb_edge_detect(const char *input, const char *output,
+                    int method, double threshold);
+
+/* Content-aware fill / object removal */
+int wb_content_aware_fill(const char *input, const char *output,
+                           int x, int y, int w, int h, int method);
+
+/* Auto reframe */
+int wb_auto_reframe(const char *input, const char *output,
+                     int target_w, int target_h, int motion_analysis);
+
+/* Depth estimation + cutout */
+int wb_depth_pseudo(const char *input, const char *output,
+                     double edge_weight, double blur_far);
+int wb_depth_cutout(const char *input, const char *output,
+                     double depth_threshold, double feather);
+
 struct wb_preview *wb_preview_create(wb_node *root_node, int w, int h, double fps);
 void wb_preview_set_duration(struct wb_preview *p, double duration_sec);
 void wb_preview_set_loop(struct wb_preview *p, int loop);

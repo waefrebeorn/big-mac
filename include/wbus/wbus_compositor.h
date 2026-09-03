@@ -1640,4 +1640,38 @@ typedef struct { float probability; int ratchet_count, ratchet_div; } wb_midi_pr
 void wb_midi_prob_init(wb_midi_prob *mp);
 int wb_midi_prob_fire(wb_midi_prob *mp);
 
+/* ---- R100: YTPMV Renderer + Relative Automation ---- */
+
+/* YTPMV Renderer */
+#define YTPMV_MAX_PHONEMES 256
+#define YTPMV_MAX_CLIPS 64
+#define YTPMV_MAX_TRACKS 8
+
+typedef struct { int start_frame, end_frame; float energy, pitch_hz; int midi_note, clip_index; } ytpmv_phoneme;
+typedef struct { char name[64]; int phoneme_type; float duration; int loop; } ytpmv_clip;
+typedef struct { ytpmv_phoneme phonemes[YTPMV_MAX_PHONEMES]; int n_phonemes; float duration; } ytpmv_track;
+typedef struct { ytpmv_clip clips[YTPMV_MAX_CLIPS]; int n_clips; ytpmv_track tracks[YTPMV_MAX_TRACKS]; int n_tracks; float bpm, duration; int n_beats, current_beat; float current_time; int current_phoneme[YTPMV_MAX_TRACKS]; int strobe_on, freeze_active; float shake_intensity; uint8_t *frame_buffer; int frame_w, frame_h; } ytpmv_renderer;
+
+void ytpmv_init(ytpmv_renderer *r, float bpm, float duration, int w, int h);
+void ytpmv_free(ytpmv_renderer *r);
+int ytpmv_add_clip(ytpmv_renderer *r, const char *name, int phoneme_type, float duration);
+int ytpmv_add_track(ytpmv_renderer *r);
+int ytpmv_process_audio(ytpmv_renderer *r, int track_idx, const float *audio, int n_frames, int n_channels, float sample_rate);
+int ytpmv_get_active_phoneme(ytpmv_renderer *r, int track_idx, float time);
+void ytpmv_tick(ytpmv_renderer *r, float dt);
+void ytpmv_trigger_fx(ytpmv_renderer *r, int fx_type);
+
+/* Relative automation */
+typedef struct { float *values; int n_values; float base_value; } wb_relative_auto;
+void wb_relative_init(wb_relative_auto *ra, int n);
+void wb_relative_set(wb_relative_auto *ra, int idx, float multiplier);
+float wb_relative_apply(wb_relative_auto *ra, int idx, float value);
+void wb_relative_free(wb_relative_auto *ra);
+
+/* YTPMV sentence mixer (video) */
+typedef struct { int *target_sequence; int n_target; int *source_indices; } ytpmv_sentence_mix;
+void ytpmv_sentence_init(ytpmv_sentence_mix *sm, int n);
+void ytpvm_sentence_remap(ytpmv_sentence_mix *sm, const int *source_types, int n_source);
+void ytpmv_sentence_free(ytpmv_sentence_mix *sm);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

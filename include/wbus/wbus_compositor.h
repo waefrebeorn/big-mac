@@ -1253,4 +1253,43 @@ void wb_ytpmv_plan_free(wb_ytpmv_plan *plan);
 int wb_ytpmv_analyze(wb_ytpmv_plan *plan, const float *audio, int n_frames,
                       int n_channels, float sample_rate);
 
+/* ---- VGMusic MIDI Parser (R096) ---- */
+
+typedef struct {
+    uint16_t format, n_tracks, ticks_per_qn;
+} midi_header;
+
+typedef struct {
+    uint32_t tick;
+    uint8_t type, data1, data2, channel, meta_type;
+    uint32_t meta_len;
+    uint8_t *meta_data;
+} midi_event;
+
+typedef struct {
+    midi_event *events;
+    int n_events, capacity;
+    char name[128];
+} midi_track;
+
+typedef struct {
+    midi_header header;
+    midi_track *tracks;
+    int n_tracks;
+    uint32_t total_ticks;
+    float tempo_bpm;
+    char title[256], composer[256], copyright[256];
+} midi_file;
+
+midi_file *wb_midi_parse(const uint8_t *data, int size);
+void wb_midi_free(midi_file *midi);
+
+/* VGMusic helpers (catalog parsing) */
+typedef struct { char name[256]; char url[512]; int file_count; } vgm_game;
+typedef struct { char name[64]; char url[512]; int total_files; } vgm_console;
+
+int vgm_count_files(const char *html, int html_len);
+void vgm_game_name(const char *url, char *name, int max_len);
+int vgm_game_file_count(const char *game_name);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

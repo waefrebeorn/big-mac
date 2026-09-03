@@ -1061,4 +1061,105 @@ void wb_snapshots_init(wb_snapshot_bank *b, int cap);
 int wb_snapshots_save(wb_snapshot_bank *b, const float *params, int n, const char *name);
 void wb_snapshots_morph(const wb_snapshot_bank *b, int a, int b_idx, float t, float *out, int n);
 
+/* ---- YTPMV Pipeline (R094b) ---- */
+
+typedef enum {
+    PHON_VOWEL_A = 0, PHON_VOWEL_E, PHON_VOWEL_I, PHON_VOWEL_O, PHON_VOWEL_U,
+    PHON_CONSONANT_B, PHON_CONSONANT_D, PHON_CONSONANT_F, PHON_CONSONANT_G,
+    PHON_CONSONANT_H, PHON_CONSONANT_K, PHON_CONSONANT_L, PHON_CONSONANT_M,
+    PHON_CONSONANT_N, PHON_CONSONANT_P, PHON_CONSONANT_R, PHON_CONSONANT_S,
+    PHON_CONSONANT_T, PHON_CONSONANT_V, PHON_CONSONANT_W, PHON_CONSONANT_Z,
+    PHON_SILENCE, PHON_UNKNOWN, PHON_COUNT
+} wb_phoneme_type;
+
+typedef struct {
+    float start_time, end_time, duration;
+    float pitch_hz, confidence, energy, formant_f1, formant_f2;
+    wb_phoneme_type type;
+    int midi_note, velocity;
+} wb_phoneme;
+
+typedef struct {
+    wb_phoneme *phonemes;
+    int count, capacity;
+    float total_duration, bpm, sample_rate;
+} wb_phoneme_db;
+
+wb_phoneme_db *wb_phoneme_db_create(int cap);
+void wb_phoneme_db_free(wb_phoneme_db *db);
+int wb_phoneme_add(wb_phoneme_db *db, float start, float end,
+                    float pitch, float energy, wb_phoneme_type type);
+
+/* Pitch/note mapping */
+int freq_to_midi(float freq_hz);
+float midi_to_freq(int midi_note);
+const char *midi_note_name(int note);
+int midi_note_octave(int note);
+float pitch_shift_ratio(float current_hz, int target_midi);
+
+/* Scales */
+typedef enum {
+    SCALE_MAJOR = 0, SCALE_MINOR, SCALE_PENTATONIC, SCALE_BLUES,
+    SCALE_DORIAN, SCALE_MIXOLYDIAN, SCALE_CHROMATIC, SCALE_HARMONIC_MINOR,
+    SCALE_MELODIC_MINOR, SCALE_WHOLE_TONE, SCALE_DIMINISHED, SCALE_COUNT
+} wb_scale_type;
+int midi_quantize_to_scale(int note, wb_scale_type scale, int root);
+int midi_in_scale(int note, wb_scale_type scale, int root);
+
+/* Beat sequencer */
+#define WB_SEQ_MAX_STEPS 64
+#define WB_SEQ_MAX_TRACKS 16
+typedef struct {
+    int notes[WB_SEQ_MAX_STEPS], velocities[WB_SEQ_MAX_STEPS];
+    int gates[WB_SEQ_MAX_STEPS], enabled[WB_SEQ_MAX_STEPS];
+    int n_steps, current_step;
+    float bpm, swing;
+    int running;
+    void *phoneme_db;
+} wb_seq_track;
+
+typedef struct {
+    wb_seq_track tracks[WB_SEQ_MAX_TRACKS];
+    int n_tracks, current_tick, ticks_per_step, running;
+    float bpm;
+} wb_sequencer;
+
+void wb_sequencer_init(wb_sequencer *seq, float bpm, int n_steps);
+void wb_sequencer_set_note(wb_sequencer *seq, int track, int step, int note, int vel);
+int wb_sequencer_tick(wb_sequencer *seq, int track);
+int wb_sequencer_current_note(const wb_sequencer *seq, int track);
+void wb_sequencer_start(wb_sequencer *seq);
+void wb_sequencer_stop(wb_sequencer *seq);
+
+/* YTPMV renderer */
+typedef struct {
+    wb_phoneme_db *db;
+    wb_sequencer *seq;
+    float master_bpm;
+    wb_scale_type scale;
+    int root_note;
+    float pitch_shift_max;
+    int formant_preserve;
+    int beat_sync_fx;
+} wb_ytpmv_renderer;
+
+wb_ytpmv_renderer *wb_ytpmv_create(wb_phoneme_db *db, float bpm);
+void wb_ytpmv_free(wb_ytpmv_renderer *r);
+
+/* ---- Dark Arts Effects (R094c) ---- */
+
+void wb_compression_torture(uint8_t *rgba, int w, int h, int quality);
+void wb_stare_down(uint8_t *dst, const uint8_t *src, int w, int h,
+                   float zoom_level, float cx, float cy);
+void wb_mysterious_zoom(uint8_t *dst, const uint8_t *src, int w, int h,
+                        float zoom, float angle_deg, float cx, float cy);
+void wb_bleep_bar(uint8_t *rgba, int w, int h, int x0, int y0, int x1, int y1,
+                  uint8_t r, uint8_t g, uint8_t b);
+void wb_mlg_flash(uint8_t *rgba, int w, int h, float intensity);
+void wb_saponite(uint8_t *dst, const uint8_t *src, int w, int h,
+                 float zoom, float saturation_boost);
+void wb_infinite_loop_blend(uint8_t *frames, int w, int h,
+                            int n_frames, int blend_frames);
+int wb_mad_dash_cuts(int total_frames, int n_cuts, int *cut_positions);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

@@ -2910,6 +2910,10 @@ static void draw_video_tab_panel(app *a) {
         wb_ui_draw_text(a->ren, px + 6, yy, "^H toggle HDR10/HLG", 1, C_TEXT_DIM); yy += 14;
         wb_ui_draw_text(a->ren, px + 6, yy, "SVG Import:", 1, C_TEXT); yy += 16;
         wb_ui_draw_text(a->ren, px + 6, yy, "^V import SVG shapes", 1, C_TEXT_DIM); yy += 20;
+        wb_ui_draw_text(a->ren, px + 6, yy, "YTP / Dark Arts:", 1, C_TEXT); yy += 16;
+        wb_ui_draw_text(a->ren, px + 6, yy, "^Y YTP export pipeline", 1, C_TEXT_DIM); yy += 14;
+        wb_ui_draw_text(a->ren, px + 6, yy, "^M YTPMV pitch+render", 1, C_TEXT_DIM); yy += 14;
+        wb_ui_draw_text(a->ren, px + 6, yy, "^G dark arts composite", 1, C_TEXT_DIM); yy += 20;
         wb_ui_draw_text(a->ren, px + 6, yy, "Shortcuts:", 1, C_TEXT); yy += 16;
         wb_ui_draw_text(a->ren, px + 6, yy, "^R render  ^S set path", 1, C_TEXT_DIM);
         break;
@@ -2929,8 +2933,17 @@ static void draw_fx_panel(app *a) {
     setc(a->ren, C_BG);
     wb_ui_draw_text(a->ren, px + 6, py + 4, "FX", 1, C_BG);
     int yy = py + 30;
-    const char *fx_names[] = { "Deep Fry","VHS","Glitch","Chromatic Aberration","Vignette","Posterize","Blur","Sharpen","Noise","Pixelate","RGB Split","Scanlines" };
-    for (int i = 0; i < 12; i++) {
+    const char *fx_names[] = {
+        "Deep Fry","VHS","Glitch","Chromatic Aberration","Vignette",
+        "Posterize","Blur","Sharpen","Noise","Pixelate","RGB Split",
+        "Scanlines","Swirl","Spherize","Wave","Mirror","Kaleidoscope",
+        "Cookie Cutter","Strobe","CRT","Scramble","Zoom Punch",
+        "Impact Frame","MLG Flash","Saponite","Recursion","PiP",
+        "Ken Burns","Stutter","Mad Dash","Bleep","Torture",
+        "Stare Down","Mystery Zoom","Inf Loop"
+    };
+    int n_fx = sizeof(fx_names) / sizeof(fx_names[0]);
+    for (int i = 0; i < n_fx; i++) {
         int sel = (i == a->fx_selected);
         if (sel) { setc(a->ren, C_ACCENT); SDL_Rect r = { px+4, yy-2, pw-8, 16 }; SDL_RenderFillRect(a->ren, &r); setc(a->ren, C_BG); }
         char buf[64]; snprintf(buf, sizeof(buf), "%s%d%s %s", sel?"> ":"  ", i+1, sel?" <":"", fx_names[i]);

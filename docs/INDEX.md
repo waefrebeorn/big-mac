@@ -273,3 +273,16 @@ Pinned: R002 wiring (staged render/Xrun/double-buffer/DAG-worker model) is done 
 | 000 | ALL (mega mix) | concatenation of ytp001-003 |
 
 Source: 62 PD + 120+ commercials + 10 anime + 15 YouTube → 263 clips + 4 SFX = ~10.5GB.
+
+## R094 — YTP Dark Arts & MIDI/Automation Gap Database
+- `docs/R094-ytp-dark-arts-gap-database.md` — Complete taxonomy of:
+  - 60 YTP poopisms (canonical + advanced + obscure/dark arts)
+  - 15 YTPMV production techniques + 8 sub-genres
+  - 20 MIDI techniques (90s-2000s DAW era)
+  - 25 automation styles (linear → elastic, touch/latch/write)
+  - 15 keyframe interpolation types (constant → TCB)
+  - Priority build list (28 items, 4 tiers)
+- Key finding: Big Mac has ~20 of 120 techniques — 100 gaps remain
+- Dark arts: recursion poop, steganography, compression torture, AVS plugin abuse
+- YTPMV MIDI: phoneme→note mapping, step sequencer, euclidean, probability, ratchet
+- Old-school automation: TCB splines, snapshot morph, trim/relative modes

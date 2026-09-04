@@ -1833,4 +1833,23 @@ void wb_ytpmv_project_init(wb_ytpmv_project *proj);
 void wb_ytpmv_project_free(wb_ytpmv_project *proj);
 int wb_project_build_ytpmv(wb_ytpmv_project *proj, const char *audio_path, const char *video_path, float bpm);
 
+/* ---- R108: Matte Painting + Cutout System ---- */
+
+/* Rotoscope */
+typedef struct { uint8_t *background; int width, height, threshold, feather, erode, dilate; float spill_suppress; } wb_rotoscope;
+void wb_rotoscope_init(wb_rotoscope *r, int w, int h);
+void wb_rotoscope_apply(wb_rotoscope *r, uint8_t *foreground, uint8_t *alpha_out);
+void wb_rotoscope_free(wb_rotoscope *r);
+
+/* Depth matte */
+enum { DEPTH_LUMA=0, DEPTH_EDGE, DEPTH_GRADIENT, DEPTH_RADIAL };
+typedef struct { int width, height, depth_type, blur_radius; float near_plane, far_plane; } wb_depth_matte;
+void wb_depth_init(wb_depth_matte *d, int w, int h);
+void wb_depth_generate(wb_depth_matte *d, const uint8_t *frame, uint8_t *depth_out);
+
+/* 3D parallax */
+typedef struct { int width, height, n_layers; float camera_x, camera_y, camera_z, camera_rot_x, camera_rot_y, fov; } wb_parallax_3d;
+void wb_parallax_init(wb_parallax_3d *p, int w, int h);
+void wb_parallax_apply_layer(const wb_parallax_3d *p, const uint8_t *src, uint8_t *dst, float layer_depth);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

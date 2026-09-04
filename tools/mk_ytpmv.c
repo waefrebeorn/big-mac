@@ -267,7 +267,8 @@ int main(int argc, char **argv) {
         wb_mapper_free(&mm);
     }
     
-    /* Render pitch-corrected audio */
+    /* Render pitch-corrected audio (skip if melody mode already wrote audio) */
+    if (!melody_mode) {
     int out_frames = n_frames;
     float *output_audio = (float *)calloc(out_frames, sizeof(float));
     if (!output_audio) {
@@ -285,6 +286,9 @@ int main(int argc, char **argv) {
     write_wav(audio_out, output_audio, rendered, sample_rate);
     fprintf(stderr, "[mk_ytpmv] Wrote intermediate audio: %s\n", audio_out);
     
+    free(output_audio);
+    }
+    
     /* Build video using ffmpeg */
     /* For each phoneme, extract the corresponding video segment and concat them */
     fprintf(stderr, "[mk_ytpmv] Building video from source: %s\n", video_path);
@@ -296,7 +300,6 @@ int main(int argc, char **argv) {
     if (!cf) {
         fprintf(stderr, "[mk_ytpmv] Failed to create concat file\n");
         free(audio);
-        free(output_audio);
         return 1;
     }
     
@@ -336,9 +339,9 @@ int main(int argc, char **argv) {
     
     /* Merge audio + video */
     snprintf(cmd, sizeof(cmd),
-        "ffmpeg -y -v error -i /tmp/wb_ytpmv_video.mp4 -i \"%s\" "
+        "ffmpeg -y -v error -i /tmp/wb_ytpmv_video.mp4 -i \"/tmp/wb_ytpmv_audio.wav\" "
         "-c:v copy -c:a aac -shortest \"%s\"",
-        audio_out, output_path);
+        output_path);
     fprintf(stderr, "[mk_ytpmv] Merging audio + video -> %s\n", output_path);
     int final_rc = system(cmd);
     
@@ -355,11 +358,12 @@ int main(int argc, char **argv) {
         unlink(seg_path);
     }
     unlink(concat_path);
+    char audio_out[512];
+    snprintf(audio_out, sizeof(audio_out), "/tmp/wb_ytpmv_audio.wav");
     unlink(audio_out);
     unlink("/tmp/wb_ytpmv_video.mp4");
     
     free(audio);
-    free(output_audio);
     
     return final_rc == 0 ? 0 : 1;
 }

@@ -1862,6 +1862,12 @@ int wb_beat_grid_is_on_beat(wb_beat_grid *bg, float time_sec, float tolerance_se
 int wb_beat_grid_beat_at(wb_beat_grid *bg, float time_sec);
 int wb_beat_grid_generate_pattern(wb_beat_grid *bg, int pattern_type, int *hit_flags, int n_steps);
 
+/* ---- R114: Phoneme Segmentation (real speech) ---- */
+int wb_detect_onsets(const float *audio, int n_frames, int n_channels,
+                       float sample_rate, int *onsets, int max_onsets);
+int wb_extract_phonemes_real(const float *audio, int n_frames, int n_channels,
+                               float sample_rate, int *segments, int max_segs);
+
 /* ---- R112: Melody-Following Pitch Mapper ---- */
 typedef struct { float start_time, duration, velocity; int midi_note; } wb_melody_event;
 typedef struct { wb_melody_event events[1024]; int n_events; float total_duration, bpm; } wb_melody;

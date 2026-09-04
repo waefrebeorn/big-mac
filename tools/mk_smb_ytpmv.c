@@ -208,7 +208,8 @@ static float* read_wav(const char *path, int *out_frames, int *out_channels, int
 
         if (memcmp(chunk_id, "fmt ", 4) == 0) {
             uint16_t format, ch;
-            uint32_t rate, bps;
+            uint32_t rate;
+            uint16_t bps;
             fread(&format, 2, 1, f);
             fread(&ch, 2, 1, f);
             channels = ch;
@@ -338,13 +339,36 @@ int main(int argc, char **argv) {
     target.total_duration = audio_dur;
     fprintf(stderr, "Target melody: %d events, %.1fs\n", target.n_events, target.total_duration);
 
-    /* Detect phonemes */
+    /* Detect phonemes using real speech segmentation */
     ytpmv_producer prod;
     ytpmv_prod_init(&prod, (float)sample_rate);
     prod.bpm = mel.bpm;
     prod.scale_type = 2;
 
-    int n_ph = ytpmv_prod_analyze(&prod, audio, n_frames, channels);
+    /* Use onset-based segmentation for real speech */
+    int segs[4096];
+    int n_segs = wb_extract_phonemes_real(audio, n_frames, channels, (float)sample_rate, segs, 4096);
+    fprintf(stderr, "Segmentation: %d onsets detected\n", n_segs);
+
+    /* Build phoneme data from onsets */
+    prod.n_phonemes = 0;
+    int prev = 0;
+    for (int i = 0; i <= n_segs && prod.n_phonemes < YTPMV_MAX_PHONEMES; i++) {
+        int end = (i < n_segs) ? segs[i] : n_frames;
+        if (end <= prev) continue;
+        int seg_len = end - prev;
+        if (seg_len < 2048) { prev = end; continue; }
+
+        prod.segments[prod.n_phonemes] = prev;
+        prod.start_times[prod.n_phonemes] = (float)prev / sample_rate;
+        prod.durations[prod.n_phonemes] = (float)seg_len / sample_rate;
+        prod.midi_notes[prod.n_phonemes] = 60;
+        prod.pitches[prod.n_phonemes] = 200.0f;
+        prod.velocities[prod.n_phonemes] = 0.8f;
+        prod.n_phonemes++;
+        prev = end;
+    }
+    int n_ph = prod.n_phonemes;
     fprintf(stderr, "Detected %d phonemes\n", n_ph);
 
     if (n_ph == 0) {

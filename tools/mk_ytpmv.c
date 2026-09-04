@@ -142,6 +142,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "  --bpm N      Target BPM (default 120)\n");
         fprintf(stderr, "  --scale S    Musical scale: major, minor, chromatic (default chromatic)\n");
         fprintf(stderr, "  --auto-bpm   Auto-detect BPM from source audio\n");
+        fprintf(stderr, "  --melody     Follow C major melody contour (vs scale snap)\n");
         return 1;
     }
     
@@ -152,6 +153,7 @@ int main(int argc, char **argv) {
     float bpm = 120.0f;
     int scale_type = 2; /* chromatic */
     int auto_bpm = 0;
+    int melody_mode = 0; /* follow melody vs scale snap */
     
     /* Parse args */
     for (int i = 4; i < argc; i++) {
@@ -164,6 +166,8 @@ int main(int argc, char **argv) {
             else scale_type = 2;
         } else if (strcmp(argv[i], "--auto-bpm") == 0) {
             auto_bpm = 1;
+        } else if (strcmp(argv[i], "--melody") == 0) {
+            melody_mode = 1;
         }
     }
     
@@ -232,6 +236,35 @@ int main(int argc, char **argv) {
     for (int i = 0; i < n_ph && i < 20; i++) {
         fprintf(stderr, "  [%d] t=%.3fs dur=%.3fs (quantized)\n",
                 i, prod.start_times[i], prod.durations[i]);
+    }
+    
+    /* Melody-following mode: use melody mapper for pitch-corrected render */
+    if (melody_mode) {
+        wb_melody target;
+        wb_melody_build_c_major(&target, bpm, n_ph / 4 + 1);
+        
+        wb_melody_mapper mm;
+        wb_mapper_init(&mm, (float)sample_rate);
+        mm.target = target;
+        mm.source_audio = audio;
+        mm.source_frames = n_frames;
+        mm.source_channels = channels;
+        
+        wb_mapper_assign(&mm, prod.start_times, prod.durations, n_ph);
+        
+        int out_frames = n_frames;
+        float *melody_output = (float *)calloc(out_frames, sizeof(float));
+        int rendered = wb_mapper_render(&mm, melody_output, out_frames);
+        fprintf(stderr, "[mk_ytpmv] Melody-follow render: %d frames\n", rendered);
+        
+        /* Write melody-follow audio */
+        char audio_out[512];
+        snprintf(audio_out, sizeof(audio_out), "/tmp/wb_ytpmv_audio.wav");
+        write_wav(audio_out, melody_output, rendered > 0 ? rendered : out_frames, sample_rate);
+        fprintf(stderr, "[mk_ytpmv] Wrote melody-follow audio: %s\n", audio_out);
+        
+        free(melody_output);
+        wb_mapper_free(&mm);
     }
     
     /* Render pitch-corrected audio */

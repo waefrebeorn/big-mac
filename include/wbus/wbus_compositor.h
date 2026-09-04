@@ -1862,4 +1862,20 @@ int wb_beat_grid_is_on_beat(wb_beat_grid *bg, float time_sec, float tolerance_se
 int wb_beat_grid_beat_at(wb_beat_grid *bg, float time_sec);
 int wb_beat_grid_generate_pattern(wb_beat_grid *bg, int pattern_type, int *hit_flags, int n_steps);
 
+/* ---- R112: Melody-Following Pitch Mapper ---- */
+typedef struct { float start_time, duration, velocity; int midi_note; } wb_melody_event;
+typedef struct { wb_melody_event events[1024]; int n_events; float total_duration, bpm; } wb_melody;
+void wb_melody_init(wb_melody *m, float bpm, float duration);
+int wb_melody_add_note(wb_melody *m, float start, float dur, int midi, float vel);
+int wb_melody_note_at(const wb_melody *m, float time_sec);
+float wb_melody_freq_at(const wb_melody *m, float time_sec);
+void wb_melody_build_c_major(wb_melody *m, float bpm, int bars);
+void wb_melody_from_notes(wb_melody *m, const int *midi_notes, const float *durations, int n_notes, float bpm);
+
+typedef struct { wb_melody target; float *source_audio; int source_frames, source_channels; float sample_rate; float *phoneme_starts; float *phoneme_durations; int *phoneme_target_midi; float *phoneme_pitch_ratio; int n_phonemes; float *output_audio; int output_frames; } wb_melody_mapper;
+void wb_mapper_init(wb_melody_mapper *mm, float sample_rate);
+void wb_mapper_assign(wb_melody_mapper *mm, const float *start_times, const float *durations, int n_phonemes);
+int wb_mapper_render(wb_melody_mapper *mm, float *output, int out_frames);
+void wb_mapper_free(wb_melody_mapper *mm);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

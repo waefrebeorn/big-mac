@@ -261,6 +261,12 @@ build/wb_mk_burn: build/tools/mk_burn.o $(CORE_OBJS)
 mk_burn: build/wb_mk_burn
 	./build/wb_mk_burn
 
+build/wb_mk_ytpmv: build/tools/mk_ytpmv.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+mk_ytpmv: build/wb_mk_ytpmv
+	./build/wb_mk_ytpmv
+
 build/wb_mk_tts_podcast: build/tools/mk_tts_podcast.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 

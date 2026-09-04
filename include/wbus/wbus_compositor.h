@@ -1674,4 +1674,46 @@ void ytpmv_sentence_init(ytpmv_sentence_mix *sm, int n);
 void ytpvm_sentence_remap(ytpmv_sentence_mix *sm, const int *source_types, int n_source);
 void ytpmv_sentence_free(ytpmv_sentence_mix *sm);
 
+/* ---- R101: Advanced Glitch Effects + Final YTP Gaps ---- */
+
+/* Pixel sort */
+void wb_pixel_sort(uint8_t *frame, int w, int h, int threshold, int horizontal);
+
+/* Stutter Loop Minus */
+typedef struct { int n_blank, n_show, counter, blanking; } wb_stutter_minus;
+void wb_stutter_minus_init(wb_stutter_minus *sm, int blank, int show);
+int wb_stutter_minus_tick(wb_stutter_minus *sm);
+
+/* Buzzing Stutter */
+typedef struct { int n_repeat, counter; float phase, buzz_freq; } wb_buzzing_stutter;
+void wb_buzzing_stutter_init(wb_buzzing_stutter *bs, int n_repeat, float buzz_freq);
+float wb_buzzing_stutter_gen(wb_buzzing_stutter *bs, float sample_rate);
+int wb_buzzing_stutter_tick(wb_buzzing_stutter *bs);
+
+/* Sex-O-Phone */
+typedef struct { float phase, freq, pulse_phase, intensity; } wb_sexophone;
+void wb_sexophone_init(wb_sexophone *sax);
+float wb_sexophone_gen_sample(wb_sexophone *sax, float sample_rate);
+float wb_sexophone_pulse(wb_sexophone *sax, float dt);
+
+/* Tech Text */
+void wb_tech_text(uint8_t *frame, int w, int h, int x, int y, const char *text,
+                    uint8_t r, uint8_t g, uint8_t b);
+
+/* Remux Chain */
+typedef struct { int passes, current_pass, base_quality; float artifact_accumulation; } wb_remux_chain;
+void wb_remux_init(wb_remux_chain *rc, int passes, int base_quality);
+void wb_remux_pass(wb_remux_chain *rc, uint8_t *frame, int w, int h);
+
+/* Steganography */
+int wb_steg_embed(uint8_t *frame, int w, int h, const char *msg);
+int wb_steg_extract(const uint8_t *frame, int w, int h, char *msg, int max_len);
+int wb_steg_embed_frame(uint8_t *carrier, int cw, int ch, const uint8_t *hidden, int hw, int h);
+
+/* Video timestretch */
+typedef struct { float *frame_buffer; int w, h; float ratio, source_pos; int n_blend; } wb_video_timestretch;
+void wb_video_ts_init(wb_video_timestretch *ts, int w, int h, float ratio);
+void wb_video_ts_process(wb_video_timestretch *ts, const uint8_t *current, uint8_t *output);
+void wb_video_ts_free(wb_video_timestretch *ts);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

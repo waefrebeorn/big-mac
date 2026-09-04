@@ -1762,4 +1762,38 @@ typedef struct { int bass_threshold, octave_drop; float slide_duration; } wb_bas
 void wb_bass_drop_init(wb_bass_drop_cfg *cfg);
 int wb_bass_drop_process(const wb_bass_drop_cfg *cfg, wb_piano_roll *pr);
 
+/* ---- R103: Composition Timeline System ---- */
+
+/* Keyframe track */
+#define MAX_KEYFRAMES 32
+typedef struct { float time, value, tangent_in, tangent_out; int interpolation; } wb_comp_keyframe;
+typedef struct { wb_comp_keyframe keys[MAX_KEYFRAMES]; int n_keys; float default_value; } wb_comp_kf_track;
+void wb_comp_kf_init(wb_comp_kf_track *t, float default_val);
+int wb_comp_kf_add(wb_comp_kf_track *t, float time, float value, int interp);
+float wb_comp_kf_eval(const wb_comp_kf_track *t, float time);
+
+/* 3D transform */
+typedef struct { float x, y, z, rx, ry, rz, sx, sy, sz, ax, ay, az, opacity; } wb_comp_transform_3d;
+void wb_comp_transform_init(wb_comp_transform_3d *t);
+void wb_comp_transform_apply(const wb_comp_transform_3d *t, float px, float py, float *out_x, float *out_y);
+
+/* Track matte */
+enum { WB_MATTE_NONE=0, WB_MATTE_ALPHA, WB_MATTE_LUMA, WB_MATTE_ALPHA_INV, WB_MATTE_LUMA_INV };
+typedef struct { int matte_layer, matte_type, preserve_alpha; } wb_comp_track_matte;
+void wb_comp_matte_init(wb_comp_track_matte *m);
+float wb_comp_matte_apply(const wb_comp_track_matte *m, float src_alpha, float matte_alpha, float matte_luma);
+
+/* Composition */
+enum { COMP_TRACK_AUDIO=0, COMP_TRACK_VIDEO, COMP_TRACK_ADJUSTMENT };
+typedef struct { int active; float start_time, duration, source_start; int media_index; wb_comp_kf_track pos_x, pos_y, pos_z, rot_x, rot_y, rot_z, scale_x, scale_y, opacity; int blend_mode; wb_comp_track_matte matte; } wb_comp_track_clip;
+typedef struct { int active, type, muted, solo, locked, parent, is_3d; char name[64]; float volume, pan; wb_comp_track_clip clips[16]; int n_clips; int effects[8]; int n_effects; } wb_comp_track;
+typedef struct { wb_comp_track tracks[16]; int n_tracks; float duration, fps; int width, height; float bpm; struct { float pos_x, pos_y, pos_z, rot_x, rot_y, rot_z, fov, near_plane, far_plane; int is_ortho; } camera; float bg_r, bg_g, bg_b, bg_a; uint8_t *output; } wb_comp_comp;
+
+void wb_comp_timeline_init(wb_comp_comp *c, int w, int h, float fps, float duration);
+void wb_comp_timeline_free(wb_comp_comp *c);
+int wb_comp_timeline_add_track(wb_comp_comp *c, int type, const char *name);
+wb_comp_track_clip* wb_comp_timeline_get_clip_at(wb_comp_comp *c, int track_idx, float time);
+void wb_comp_timeline_eval_transform(wb_comp_track_clip *clip, float time, wb_comp_transform_3d *out);
+void wb_comp_timeline_render_frame(wb_comp_comp *c, float time);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

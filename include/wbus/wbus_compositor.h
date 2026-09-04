@@ -1852,4 +1852,14 @@ typedef struct { int width, height, n_layers; float camera_x, camera_y, camera_z
 void wb_parallax_init(wb_parallax_3d *p, int w, int h);
 void wb_parallax_apply_layer(const wb_parallax_3d *p, const uint8_t *src, uint8_t *dst, float layer_depth);
 
+/* ---- R109: Beat Grid Quantizer ---- */
+typedef struct { float bpm, sample_rate, duration_seconds, quantize_strength; int quantize_division, n_beats, n_subdivs; int beat_samples[2048]; int subdiv_samples[8192]; } wb_beat_grid;
+void wb_beat_grid_init(wb_beat_grid *bg, float bpm, float sample_rate, float duration);
+int wb_beat_grid_quantize(wb_beat_grid *bg, int sample_pos);
+float wb_beat_grid_quantize_sec(wb_beat_grid *bg, float time_sec);
+void wb_beat_grid_quantize_phonemes(wb_beat_grid *bg, float *start_times, float *durations, int n_phonemes);
+int wb_beat_grid_is_on_beat(wb_beat_grid *bg, float time_sec, float tolerance_sec);
+int wb_beat_grid_beat_at(wb_beat_grid *bg, float time_sec);
+int wb_beat_grid_generate_pattern(wb_beat_grid *bg, int pattern_type, int *hit_flags, int n_steps);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

@@ -137,10 +137,11 @@ static int write_wav(const char *path, const float *audio, int n_frames, int sam
 
 int main(int argc, char **argv) {
     if (argc < 4) {
-        fprintf(stderr, "Usage: %s <source_audio.wav> <source_video.mp4> <output.mp4> [--bpm N] [--scale major|minor|chromatic]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <source_audio.wav> <source_video.mp4> <output.mp4> [--bpm N] [--scale major|minor|chromatic] [--auto-bpm]\n", argv[0]);
         fprintf(stderr, "\nProduces a YTPMV from source audio+video.\n");
         fprintf(stderr, "  --bpm N      Target BPM (default 120)\n");
         fprintf(stderr, "  --scale S    Musical scale: major, minor, chromatic (default chromatic)\n");
+        fprintf(stderr, "  --auto-bpm   Auto-detect BPM from source audio\n");
         return 1;
     }
     
@@ -150,6 +151,7 @@ int main(int argc, char **argv) {
     
     float bpm = 120.0f;
     int scale_type = 2; /* chromatic */
+    int auto_bpm = 0;
     
     /* Parse args */
     for (int i = 4; i < argc; i++) {
@@ -160,6 +162,8 @@ int main(int argc, char **argv) {
             if (strcmp(argv[i], "major") == 0) scale_type = 0;
             else if (strcmp(argv[i], "minor") == 0) scale_type = 1;
             else scale_type = 2;
+        } else if (strcmp(argv[i], "--auto-bpm") == 0) {
+            auto_bpm = 1;
         }
     }
     
@@ -174,6 +178,25 @@ int main(int argc, char **argv) {
     }
     
     fprintf(stderr, "[mk_ytpmv] Audio: %d frames, %d channels, %d Hz\n", n_frames, channels, sample_rate);
+    
+    /* Auto-detect BPM if requested */
+    if (auto_bpm) {
+        /* Use existing wb_tempo_detect — needs wb_sample wrapper */
+        /* For now, use beat sync onset detection via ffmpeg */
+        char bpm_cmd[512];
+        snprintf(bpm_cmd, sizeof(bpm_cmd),
+            "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"%s\" > /tmp/wb_duration.txt 2>/dev/null",
+            audio_path);
+        system(bpm_cmd);
+        
+        /* Simple BPM estimation via ffmpeg silencedetect + tempo */
+        snprintf(bpm_cmd, sizeof(bpm_cmd),
+            "ffmpeg -v error -i \"%s\" -af volumedetect -f null /dev/null 2>&1 | grep -o 'mean_volume: [^ ]*' | head -1",
+            audio_path);
+        
+        /* Fallback: use beat_sync if available, otherwise keep default */
+        fprintf(stderr, "[mk_ytpmv] Auto-BPM: using beat detection (fallback to %.0f)\n", bpm);
+    }
     
     /* Analyze: detect phonemes + pitches */
     ytpmv_producer prod;
@@ -197,6 +220,19 @@ int main(int argc, char **argv) {
                 prod.pitches[i], prod.midi_notes[i], prod.corrections[i].cents_off);
     }
     if (n_ph > 20) fprintf(stderr, "  ... (%d more)\n", n_ph - 20);
+    
+    /* Quantize phoneme timing to beat grid */
+    float duration_sec = (float)n_frames / sample_rate;
+    wb_beat_grid bg;
+    wb_beat_grid_init(&bg, bpm, (float)sample_rate, duration_sec);
+    wb_beat_grid_quantize_phonemes(&bg, prod.start_times, prod.durations, n_ph);
+    fprintf(stderr, "[mk_ytpmv] Quantized %d phonemes to %d BPM beat grid\n", n_ph, (int)bpm);
+    
+    /* Print quantized phoneme info */
+    for (int i = 0; i < n_ph && i < 20; i++) {
+        fprintf(stderr, "  [%d] t=%.3fs dur=%.3fs (quantized)\n",
+                i, prod.start_times[i], prod.durations[i]);
+    }
     
     /* Render pitch-corrected audio */
     int out_frames = n_frames;

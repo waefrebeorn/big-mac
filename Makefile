@@ -267,6 +267,12 @@ build/wb_mk_ytpmv: build/tools/mk_ytpmv.o $(CORE_OBJS)
 mk_ytpmv: build/wb_mk_ytpmv
 	./build/wb_mk_ytpmv
 
+build/wb_mk_ytp: build/tools/mk_ytp.o
+	$(CC) $(CFLAGS) $(INC) -o $@ $^ -lm
+
+mk_ytp: build/wb_mk_ytp
+	./build/wb_mk_ytp
+
 build/wb_mk_tts_podcast: build/tools/mk_tts_podcast.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 

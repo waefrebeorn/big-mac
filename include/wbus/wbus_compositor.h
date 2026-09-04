@@ -1796,4 +1796,20 @@ wb_comp_track_clip* wb_comp_timeline_get_clip_at(wb_comp_comp *c, int track_idx,
 void wb_comp_timeline_eval_transform(wb_comp_track_clip *clip, float time, wb_comp_transform_3d *out);
 void wb_comp_timeline_render_frame(wb_comp_comp *c, float time);
 
+/* ---- R104: YTPMV Production Pipeline ---- */
+
+/* Pitch detection */
+float wb_detect_pitch(const float *audio, int n_frames, int sample_rate, float min_freq, float max_freq);
+
+/* Pitch correction */
+typedef struct { float original_pitch, target_pitch, ratio; int midi_note; float cents_off; } wb_pitch_correction;
+wb_pitch_correction wb_correct_pitch(float detected_hz, int scale_type);
+
+/* YTPMV Producer */
+#define YTPMV_MAX_PHONEMES 256
+typedef struct { float *source_audio; int source_frames, source_channels; float sample_rate; int segments[YTPMV_MAX_PHONEMES]; float pitches[YTPMV_MAX_PHONEMES]; wb_pitch_correction corrections[YTPMV_MAX_PHONEMES]; int n_phonemes; int midi_notes[YTPMV_MAX_PHONEMES]; float start_times[YTPMV_MAX_PHONEMES], durations[YTPMV_MAX_PHONEMES], velocities[YTPMV_MAX_PHONEMES]; float bpm; int scale_type, base_note; float *output_audio; int output_frames; } ytpmv_producer;
+void ytpmv_prod_init(ytpmv_producer *p, float sample_rate);
+int ytpmv_prod_analyze(ytpmv_producer *p, const float *audio, int n_frames, int n_channels);
+int ytpmv_prod_render(ytpmv_producer *p, float *output, int out_frames, int out_channels);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

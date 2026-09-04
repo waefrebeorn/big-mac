@@ -1,10 +1,9 @@
 /* mk_smb_ytpmv.c — Super Mario Bros 1-1 YTPMV Producer (R113).
  *
- * Produces a YTPMV using the SMB 1-1 overworld melody as the target.
- * Uses real speech audio as source, pitch-shifts phonemes to follow
- * the iconic Mario melody.
+ * Uses the actual SMB1OW.mid MIDI file for the target melody.
+ * Uses real YTP character voice audio.
  *
- * Usage: mk_smb_ytpmv <source_audio.wav> <source_video.mp4> <output.mp4>
+ * Usage: mk_smb_ytpmv <source_audio.wav> <source_video.mp4> <midi_file.mid> <output.mp4>
  */
 
 #include <stdio.h>
@@ -12,52 +11,182 @@
 #include <string.h>
 #include <math.h>
 #include <unistd.h>
+#include <stdint.h>
 
 #include "wbus/wbus_compositor.h"
 
-/* SMB 1-1 Overworld melody — the iconic first section.
- * Each entry: {midi_note, duration_in_beats}
- * Tempo: ~174 BPM, so 1 beat = 0.345s
- *
- * The melody (simplified):
- * E5 E5 E5 C5 E5 G5  | C5 G4 E4 A4 B4 Bb4 A4 |
- * G4 E5 G5 A5 F5 G5  | E5 C5 D5 B4            |
- * (repeat with variations)
- */
+/* ============ MIDI Parser ============ */
+
+static uint32_t read_be32(const uint8_t *p) {
+    return (p[0]<<24)|(p[1]<<16)|(p[2]<<8)|p[3];
+}
+static uint16_t read_be16(const uint8_t *p) {
+    return (p[0]<<8)|p[1];
+}
+static uint32_t read_vlq(const uint8_t **p) {
+    uint32_t val = 0;
+    uint8_t c;
+    int i = 0;
+    do {
+        c = (*p)[i++];
+        val = (val << 7) | (c & 0x7F);
+    } while (c & 0x80 && i < 4);
+    *p += i;
+    return val;
+}
 
 typedef struct {
-    int midi_note;     /* MIDI note number, 0 = rest */
-    float beats;       /* duration in beats */
-} smb_note_t;
+    int tick;
+    int note;
+    int vel;
+} midi_note_t;
 
-/* First phrase of SMB overworld — the iconic "duh duh duh duh duh duh DA-DA" */
-static const smb_note_t smb_phrase1[] = {
-    /* Bar 1: E E E C E G */
-    {76, 0.5f}, {76, 0.5f}, {76, 0.5f}, {72, 0.5f}, {76, 0.5f}, {79, 1.0f},
-    /* Bar 2: C G E A B Bb A */
-    {72, 1.0f}, {67, 1.0f}, {64, 1.0f}, {69, 1.0f}, {71, 0.5f}, {70, 0.5f}, {69, 1.0f},
-    /* Bar 3: G E G A F G */
-    {67, 0.5f}, {76, 0.5f}, {79, 0.5f}, {81, 0.5f}, {77, 0.5f}, {79, 0.5f},
-    /* Bar 4: E C D B */
-    {76, 1.0f}, {72, 1.0f}, {74, 1.0f}, {71, 1.0f},
-};
+typedef struct {
+    midi_note_t *notes;
+    int n_notes;
+    int capacity;
+    float bpm;
+    int ticks_per_beat;
+    float duration_sec;
+} midi_melody_t;
 
-/* Second phrase — variation */
-static const smb_note_t smb_phrase2[] = {
-    /* Bar 5: E C D B */
-    {76, 0.5f}, {72, 0.5f}, {74, 0.5f}, {71, 0.5f},
-    /* Bar 6: C5 G4 E4 G4 A4 F4 G4 */
-    {72, 0.5f}, {67, 0.5f}, {64, 0.5f}, {67, 0.5f}, {69, 0.5f}, {65, 0.5f}, {67, 0.5f},
-    /* Bar 7: E4 C4 D4 B4 C4 */
-    {64, 0.5f}, {60, 0.5f}, {62, 0.5f}, {71, 0.5f}, {72, 0.5f},
-    /* Bar 8: G4 F#4 F4 D4 */
-    {67, 0.5f}, {66, 0.5f}, {65, 0.5f}, {62, 0.5f},
-};
+static int midi_load(const char *path, midi_melody_t *mel) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *data = malloc(sz);
+    fread(data, 1, sz, f);
+    fclose(f);
 
-/* WAV reading helper */
+    uint8_t *p = data;
+    if (memcmp(p, "MThd", 4) != 0) { free(data); return -1; }
+    p += 4;
+    uint32_t hdr_len = read_be32(p); p += 4;
+    uint16_t format = read_be16(p); p += 2;
+    uint16_t ntracks = read_be16(p); p += 2;
+    mel->ticks_per_beat = read_be16(p); p += 2;
+    p += hdr_len - 6;
+
+    mel->bpm = 120.0f; /* default */
+    mel->notes = NULL;
+    mel->n_notes = 0;
+    mel->capacity = 0;
+
+    for (int t = 0; t < ntracks; t++) {
+        if (memcmp(p, "MTrk", 4) != 0) break;
+        p += 4;
+        uint32_t trk_len = read_be32(p); p += 4;
+        uint8_t *trk_end = p + trk_len;
+
+        uint8_t running_status = 0;
+        int abs_tick = 0;
+        int note_count = 0;
+
+        /* First pass: count notes */
+        uint8_t *pp = p;
+        while (pp < trk_end) {
+            uint32_t dt = read_vlq(&pp);
+            abs_tick += dt;
+            uint8_t status = *pp;
+            if (status & 0x80) { running_status = status; pp++; }
+            else status = running_status;
+
+            if (status == 0xFF) {
+                uint8_t type = *pp++;
+                uint32_t meta_len = read_vlq(&pp);
+                if (type == 0x51 && meta_len == 3) {
+                    uint32_t us = (pp[0]<<16)|(pp[1]<<8)|pp[2];
+                    mel->bpm = 60000000.0f / us;
+                }
+                pp += meta_len;
+            } else if ((status & 0xF0) == 0x90) {
+                int vel = pp[1];
+                pp += 2;
+                if (vel > 0) note_count++;
+            } else if ((status & 0xF0) == 0x80) {
+                pp += 2;
+            } else if ((status & 0xF0) == 0xA0 || (status & 0xF0) == 0xB0 || (status & 0xF0) == 0xE0) {
+                pp += 2;
+            } else if (status == 0xF0 || status == 0xF7) {
+                uint32_t syx_len = read_vlq(&pp);
+                pp += syx_len;
+            } else {
+                pp++;
+            }
+        }
+
+        /* Allocate if this track has the most notes */
+        if (note_count > mel->capacity) {
+            free(mel->notes);
+            mel->capacity = note_count + 100;
+            mel->notes = malloc(mel->capacity * sizeof(midi_note_t));
+            mel->n_notes = 0;
+        }
+
+        /* Second pass: store notes from the track with most notes */
+        if (note_count > mel->n_notes / 2) {
+            /* Reset and store this track's notes */
+            int stored = 0;
+            pp = p;
+            abs_tick = 0;
+            running_status = 0;
+            mel->n_notes = 0;
+
+            while (pp < trk_end && mel->n_notes < mel->capacity) {
+                uint32_t dt = read_vlq(&pp);
+                abs_tick += dt;
+                uint8_t status = *pp;
+                if (status & 0x80) { running_status = status; pp++; }
+                else status = running_status;
+
+                if (status == 0xFF) {
+                    uint8_t type = *pp++;
+                    uint32_t meta_len = read_vlq(&pp);
+                    pp += meta_len;
+                } else if ((status & 0xF0) == 0x90) {
+                    int note = pp[0];
+                    int vel = pp[1];
+                    pp += 2;
+                    if (vel > 0) {
+                        mel->notes[mel->n_notes].tick = abs_tick;
+                        mel->notes[mel->n_notes].note = note;
+                        mel->notes[mel->n_notes].vel = vel;
+                        mel->n_notes++;
+                    }
+                } else if ((status & 0xF0) == 0x80) {
+                    pp += 2;
+                } else if ((status & 0xF0) == 0xA0 || (status & 0xF0) == 0xB0 || (status & 0xF0) == 0xE0) {
+                    pp += 2;
+                } else if (status == 0xF0 || status == 0xF7) {
+                    uint32_t syx_len = read_vlq(&pp);
+                    pp += syx_len;
+                } else {
+                    pp++;
+                }
+            }
+        }
+
+        p = trk_end;
+    }
+
+    /* Compute duration */
+    if (mel->n_notes > 0) {
+        int last_tick = mel->notes[mel->n_notes-1].tick;
+        float beats = (float)last_tick / mel->ticks_per_beat;
+        mel->duration_sec = beats * (60.0f / mel->bpm);
+    }
+
+    free(data);
+    return 0;
+}
+
+/* ============ WAV Helpers ============ */
+
 static float* read_wav(const char *path, int *out_frames, int *out_channels, int *out_rate) {
     FILE *f = fopen(path, "rb");
-    if (!f) { fprintf(stderr, "[smb_ytpmv] cannot open %s\n", path); return NULL; }
+    if (!f) return NULL;
 
     char riff[4];
     fread(riff, 1, 4, f);
@@ -100,12 +229,10 @@ static float* read_wav(const char *path, int *out_frames, int *out_channels, int
     if (data_size == 0) { fclose(f); return NULL; }
 
     int n_samples = data_size / (bits / 8) / channels;
-    float *audio = (float *)malloc(n_samples * sizeof(float));
-    if (!audio) { fclose(f); return NULL; }
+    float *audio = malloc(n_samples * sizeof(float));
 
     if (bits == 16) {
-        int16_t *buf = (int16_t *)malloc(data_size);
-        if (!buf) { free(audio); fclose(f); return NULL; }
+        int16_t *buf = malloc(data_size);
         fread(buf, 1, data_size, f);
         for (int i = 0; i < n_samples; i++) {
             float s = 0;
@@ -128,23 +255,17 @@ static int write_wav(const char *path, const float *audio, int n_frames, int sam
     if (!f) return -1;
 
     int data_size = n_frames * 2;
-    int file_size = 36 + data_size;
-
     fwrite("RIFF", 1, 4, f);
-    uint32_t v = file_size; fwrite(&v, 4, 1, f);
+    uint32_t v = 36 + data_size; fwrite(&v, 4, 1, f);
     fwrite("WAVE", 1, 4, f);
-
-    fwrite("fmt ", 1, 4, f);
-    v = 16; fwrite(&v, 4, 1, f);
-    uint16_t fmt = 1; fwrite(&fmt, 2, 1, f);
-    fmt = 1; fwrite(&fmt, 2, 1, f);
+    fwrite("fmt ", 1, 4, f); v = 16; fwrite(&v, 4, 1, f);
+    uint16_t w = 1; fwrite(&w, 2, 1, f);
+    w = 1; fwrite(&w, 2, 1, f);
     v = sample_rate; fwrite(&v, 4, 1, f);
     v = sample_rate * 2; fwrite(&v, 4, 1, f);
-    uint16_t block = 2; fwrite(&block, 2, 1, f);
-    uint16_t bits = 16; fwrite(&bits, 2, 1, f);
-
-    fwrite("data", 1, 4, f);
-    v = data_size; fwrite(&v, 4, 1, f);
+    w = 2; fwrite(&w, 2, 1, f);
+    w = 16; fwrite(&w, 2, 1, f);
+    fwrite("data", 1, 4, f); v = data_size; fwrite(&v, 4, 1, f);
 
     for (int i = 0; i < n_frames; i++) {
         float s = audio[i];
@@ -153,73 +274,75 @@ static int write_wav(const char *path, const float *audio, int n_frames, int sam
         int16_t s16 = (int16_t)(s * 32767.0f);
         fwrite(&s16, 2, 1, f);
     }
-
     fclose(f);
     return 0;
 }
 
+/* ============ Main ============ */
+
 int main(int argc, char **argv) {
-    if (argc < 4) {
-        fprintf(stderr, "Usage: %s <source_audio.wav> <source_video.mp4> <output.mp4> [--bpm 174]\n", argv[0]);
+    if (argc < 5) {
+        fprintf(stderr, "Usage: %s <source_audio.wav> <source_video.mp4> <midi_file.mid> <output.mp4>\n", argv[0]);
         return 1;
     }
 
     const char *audio_path = argv[1];
     const char *video_path = argv[2];
-    const char *output_path = argv[3];
-    float bpm = 174.0f;
-
-    for (int i = 4; i < argc; i++) {
-        if (strcmp(argv[i], "--bpm") == 0 && i + 1 < argc) {
-            bpm = atof(argv[++i]);
-        }
-    }
+    const char *midi_path = argv[3];
+    const char *output_path = argv[4];
 
     fprintf(stderr, "=== SMB 1-1 YTPMV Producer ===\n");
-    fprintf(stderr, "BPM: %.0f\n", bpm);
+
+    /* Load MIDI */
+    midi_melody_t mel;
+    if (midi_load(midi_path, &mel) != 0 || mel.n_notes == 0) {
+        fprintf(stderr, "Failed to load MIDI: %s\n", midi_path);
+        return 1;
+    }
+    fprintf(stderr, "MIDI: %d notes, %.1f BPM, %.1fs duration\n",
+            mel.n_notes, mel.bpm, mel.duration_sec);
 
     /* Load source audio */
     int n_frames, channels, sample_rate;
     float *audio = read_wav(audio_path, &n_frames, &channels, &sample_rate);
     if (!audio) {
-        fprintf(stderr, "[smb_ytpmv] Failed to load audio\n");
+        fprintf(stderr, "Failed to load audio: %s\n", audio_path);
         return 1;
     }
     fprintf(stderr, "Audio: %d frames, %d ch, %d Hz (%.1fs)\n",
             n_frames, channels, sample_rate, (float)n_frames / sample_rate);
 
-    /* Build SMB melody */
-    wb_melody melody;
-    wb_melody_init(&melody, bpm, 0);
+    /* Build target melody from MIDI — limit to audio duration */
+    float audio_dur = (float)n_frames / sample_rate;
+    wb_melody target;
+    wb_melody_init(&target, mel.bpm, audio_dur);
 
-    float beat_dur = 60.0f / bpm;
-    float time = 0;
+    float beat_dur = 60.0f / mel.bpm;
+    for (int i = 0; i < mel.n_notes; i++) {
+        float start = (float)mel.notes[i].tick / mel.ticks_per_beat * beat_dur;
+        if (start >= audio_dur) break; /* Don't add notes past audio end */
 
-    /* Add phrase 1 twice */
-    for (int rep = 0; rep < 2; rep++) {
-        int n1 = sizeof(smb_phrase1) / sizeof(smb_phrase1[0]);
-        for (int i = 0; i < n1; i++) {
-            float dur = smb_phrase1[i].beats * beat_dur;
-            wb_melody_add_note(&melody, time, dur, smb_phrase1[i].midi_note, 0.9f);
-            time += dur;
+        float gap;
+        if (i + 1 < mel.n_notes) {
+            gap = (float)(mel.notes[i+1].tick - mel.notes[i].tick) / mel.ticks_per_beat * beat_dur;
+        } else {
+            gap = beat_dur;
         }
-    }
-    /* Add phrase 2 */
-    int n2 = sizeof(smb_phrase2) / sizeof(smb_phrase2[0]);
-    for (int i = 0; i < n2; i++) {
-        float dur = smb_phrase2[i].beats * beat_dur;
-        wb_melody_add_note(&melody, time, dur, smb_phrase2[i].midi_note, 0.9f);
-        time += dur;
-    }
-    melody.total_duration = time;
+        /* Clamp gap so note doesn't extend past audio */
+        if (start + gap > audio_dur - 0.05f)
+            gap = audio_dur - 0.05f - start;
+        if (gap < 0.05f) gap = 0.05f;
 
-    fprintf(stderr, "Melody: %d notes, %.1fs duration\n", melody.n_events, melody.total_duration);
+        wb_melody_add_note(&target, start, gap, mel.notes[i].note, mel.notes[i].vel / 127.0f);
+    }
+    target.total_duration = audio_dur;
+    fprintf(stderr, "Target melody: %d events, %.1fs\n", target.n_events, target.total_duration);
 
-    /* Detect phonemes using existing engine */
+    /* Detect phonemes */
     ytpmv_producer prod;
     ytpmv_prod_init(&prod, (float)sample_rate);
-    prod.bpm = bpm;
-    prod.scale_type = 2; /* chromatic */
+    prod.bpm = mel.bpm;
+    prod.scale_type = 2;
 
     int n_ph = ytpmv_prod_analyze(&prod, audio, n_frames, channels);
     fprintf(stderr, "Detected %d phonemes\n", n_ph);
@@ -230,143 +353,102 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* Print phoneme info */
-    for (int i = 0; i < n_ph && i < 30; i++) {
-        fprintf(stderr, "  [%2d] t=%.3fs dur=%.3fs pitch=%.1fHz -> MIDI %d\n",
-                i, prod.start_times[i], prod.durations[i],
-                prod.pitches[i], prod.midi_notes[i]);
+    for (int i = 0; i < n_ph && i < 20; i++) {
+        fprintf(stderr, "  [%2d] t=%.3fs dur=%.3fs pitch=%.1fHz MIDI %d\n",
+                i, prod.start_times[i], prod.durations[i], prod.pitches[i], prod.midi_notes[i]);
     }
-    if (n_ph > 30) fprintf(stderr, "  ... (%d more)\n", n_ph - 30);
+    if (n_ph > 20) fprintf(stderr, "  ... (%d more)\n", n_ph - 20);
 
     /* Quantize to beat grid */
     float duration_sec = (float)n_frames / sample_rate;
     wb_beat_grid bg;
-    wb_beat_grid_init(&bg, bpm, (float)sample_rate, duration_sec);
+    wb_beat_grid_init(&bg, mel.bpm, (float)sample_rate, duration_sec);
     wb_beat_grid_quantize_phonemes(&bg, prod.start_times, prod.durations, n_ph);
-    fprintf(stderr, "Quantized to %.0f BPM beat grid\n", bpm);
 
-    /* Use melody mapper to follow SMB melody */
+    /* Map phonemes to MIDI melody */
     wb_melody_mapper mm;
     wb_mapper_init(&mm, (float)sample_rate);
-    mm.target = melody;
+    mm.target = target;
     mm.source_audio = audio;
     mm.source_frames = n_frames;
     mm.source_channels = channels;
-
     wb_mapper_assign(&mm, prod.start_times, prod.durations, n_ph);
 
-    /* Print melody assignments */
     fprintf(stderr, "Melody assignments:\n");
-    for (int i = 0; i < mm.n_phonemes && i < 30; i++) {
+    for (int i = 0; i < mm.n_phonemes && i < 20; i++) {
         if (mm.phoneme_target_midi[i] > 0) {
             fprintf(stderr, "  [%2d] t=%.3fs -> MIDI %d (%.1f Hz)\n",
-                    i, mm.phoneme_starts[i], mm.phoneme_target_midi[i],
-                    mm.phoneme_pitch_ratio[i]);
+                    i, mm.phoneme_starts[i], mm.phoneme_target_midi[i], mm.phoneme_pitch_ratio[i]);
         }
     }
 
-    /* Render melody-follow audio */
-    int out_frames = n_frames;
-    if ((int)(melody.total_duration * sample_rate) > out_frames)
-        out_frames = (int)(melody.total_duration * sample_rate);
+    /* Render */
+    int out_frames = n_frames; /* Match audio length */
 
-    float *output_audio = (float *)calloc(out_frames, sizeof(float));
-    if (!output_audio) {
-        fprintf(stderr, "Failed to allocate output\n");
-        free(audio);
-        return 1;
-    }
-
+    float *output_audio = calloc(out_frames, sizeof(float));
     int rendered = wb_mapper_render(&mm, output_audio, out_frames);
-    fprintf(stderr, "Rendered %d frames of melody-follow audio\n", rendered);
+    fprintf(stderr, "Rendered %d frames\n", rendered);
 
     /* Write audio */
-    char audio_out[512];
-    snprintf(audio_out, sizeof(audio_out), "/tmp/smb_ytpmv_audio.wav");
-    write_wav(audio_out, output_audio, rendered > 0 ? rendered : out_frames, sample_rate);
-    fprintf(stderr, "Wrote: %s\n", audio_out);
+    write_wav("/tmp/smb_ytpmv_audio.wav", output_audio, rendered > 0 ? rendered : out_frames, sample_rate);
 
-    /* Build video — extract segments per phoneme */
+    /* Build video */
     fprintf(stderr, "Building video...\n");
-
-    char concat_path[512];
-    snprintf(concat_path, sizeof(concat_path), "/tmp/smb_ytpmv_concat.txt");
-    FILE *cf = fopen(concat_path, "w");
-    if (!cf) {
-        fprintf(stderr, "Failed to create concat file\n");
-        free(audio);
-        free(output_audio);
-        return 1;
-    }
+    FILE *cf = fopen("/tmp/smb_ytpmv_concat.txt", "w");
+    if (!cf) { free(audio); free(output_audio); return 1; }
 
     char cmd[2048];
     for (int i = 0; i < n_ph; i++) {
         float start = prod.start_times[i];
         float dur = prod.durations[i];
-        char seg_path[512];
-        snprintf(seg_path, sizeof(seg_path), "/tmp/smb_ytpmv_seg_%04d.mp4", i);
+        char seg[512];
+        snprintf(seg, sizeof(seg), "/tmp/smb_ytpmv_seg_%04d.mp4", i);
 
-        /* Speed adjustment for pitch correction */
         float speed = 1.0f;
-        if (i < mm.n_phonemes && mm.phoneme_target_midi[i] > 0) {
-            float target_freq = mm.phoneme_pitch_ratio[i];
-            if (prod.pitches[i] > 0)
-                speed = target_freq / prod.pitches[i];
-            if (speed > 3.0f) speed = 3.0f;
-            if (speed < 0.33f) speed = 0.33f;
+        if (i < mm.n_phonemes && mm.phoneme_target_midi[i] > 0 && prod.pitches[i] > 0) {
+            speed = mm.phoneme_pitch_ratio[i] / prod.pitches[i];
+            /* ffmpeg atempo range is [0.5, 2.0] — clamp to valid range */
+            if (speed > 2.0f) speed = 2.0f;
+            if (speed < 0.5f) speed = 0.5f;
         }
 
         snprintf(cmd, sizeof(cmd),
             "ffmpeg -y -v error -ss %.4f -t %.4f -i \"%s\" "
             "-vf \"setpts=%.4f*PTS\" -af \"atempo=%.4f\" "
             "-c:v libx264 -preset fast -crf 23 -c:a aac \"%s\"",
-            start, dur, video_path, 1.0f/speed, speed, seg_path);
-
-        fprintf(stderr, "  Seg %2d: %.3fs-%.3fs speed=%.3f midi=%d\n",
-                i, start, start+dur, speed,
-                (i < mm.n_phonemes) ? mm.phoneme_target_midi[i] : 0);
-        int rc = system(cmd);
-        if (rc != 0) {
-            fprintf(stderr, "    WARNING: failed\n");
-            continue;
-        }
-        fprintf(cf, "file '%s'\n", seg_path);
+            start, dur, video_path, 1.0f/speed, speed, seg);
+        system(cmd);
+        fprintf(cf, "file '%s'\n", seg);
     }
     fclose(cf);
 
-    /* Concatenate video */
     snprintf(cmd, sizeof(cmd),
-        "ffmpeg -y -v error -f concat -safe 0 -i \"%s\" -c copy /tmp/smb_ytpmv_video.mp4",
-        concat_path);
-    fprintf(stderr, "Concatenating video...\n");
+        "ffmpeg -y -v error -f concat -safe 0 -i \"/tmp/smb_ytpmv_concat.txt\" -c copy /tmp/smb_ytpmv_video.mp4");
     system(cmd);
 
-    /* Merge audio + video */
     snprintf(cmd, sizeof(cmd),
-        "ffmpeg -y -v error -i /tmp/smb_ytpmv_video.mp4 -i \"%s\" "
-        "-c:v copy -c:a aac -shortest \"%s\"",
-        audio_out, output_path);
-    fprintf(stderr, "Merging...\n");
-    int final_rc = system(cmd);
+        "ffmpeg -y -v error -i /tmp/smb_ytpmv_video.mp4 -i /tmp/smb_ytpmv_audio.wav "
+        "-c:v copy -c:a aac -shortest \"%s\"", output_path);
+    int rc = system(cmd);
 
     /* Cleanup */
     for (int i = 0; i < n_ph; i++) {
-        char seg_path[512];
-        snprintf(seg_path, sizeof(seg_path), "/tmp/smb_ytpmv_seg_%04d.mp4", i);
-        unlink(seg_path);
+        char seg[512];
+        snprintf(seg, sizeof(seg), "/tmp/smb_ytpmv_seg_%04d.mp4", i);
+        unlink(seg);
     }
-    unlink(concat_path);
+    unlink("/tmp/smb_ytpmv_concat.txt");
     unlink("/tmp/smb_ytpmv_video.mp4");
-    unlink(audio_out);
+    unlink("/tmp/smb_ytpmv_audio.wav");
     free(audio);
     free(output_audio);
+    free(mel.notes);
     wb_mapper_free(&mm);
 
-    if (final_rc == 0) {
+    if (rc == 0) {
         fprintf(stderr, "\n=== SUCCESS: %s ===\n", output_path);
     } else {
-        fprintf(stderr, "\n=== FAILED (rc=%d) ===\n", final_rc);
+        fprintf(stderr, "\n=== FAILED ===\n");
     }
-
-    return final_rc == 0 ? 0 : 1;
+    return rc == 0 ? 0 : 1;
 }

@@ -1812,4 +1812,25 @@ void ytpmv_prod_init(ytpmv_producer *p, float sample_rate);
 int ytpmv_prod_analyze(ytpmv_producer *p, const float *audio, int n_frames, int n_channels);
 int ytpmv_prod_render(ytpmv_producer *p, float *output, int out_frames, int out_channels);
 
+/* ---- R105: Project + Render Graph ---- */
+enum { MEDIA_AUDIO=0, MEDIA_VIDEO, MEDIA_IMAGE };
+typedef struct { char path[512]; char name[64]; int type; float duration; int width, height, sample_rate, channels, valid; } wb_media_entry;
+typedef struct { wb_media_entry entries[256]; int n_entries; } wb_media_lib;
+void wb_media_init(wb_media_lib *lib);
+int wb_media_add(wb_media_lib *lib, const char *path, const char *name, int type);
+
+enum { RENDER_SRC_MEDIA=0, RENDER_SRC_COLOR, RENDER_FILTER, RENDER_COMPOSITE, RENDER_TEXT, RENDER_OUTPUT };
+typedef struct { int type; char name[64]; int inputs[4]; int n_inputs; union { int media_index; struct { float r,g,b,a; } color; struct { char filter_name[64]; char filter_args[256]; } filter; struct { int blend_mode; int n_layers; } composite; struct { char text[256]; int x, y, size, font_color; } text; struct { char output_path[512]; int codec, quality; } output; } params; int executed; } wb_render_node;
+typedef struct { wb_render_node nodes[128]; int n_nodes; int output_node; } wb_render_graph;
+void wb_graph_init(wb_render_graph *g);
+int wb_graph_add_media(wb_render_graph *g, const char *name, int media_index);
+int wb_graph_add_filter(wb_render_graph *g, const char *name, const char *filter_name, const char *filter_args, int *inputs, int n_inputs);
+int wb_graph_add_composite(wb_render_graph *g, const char *name, int blend_mode, int *inputs, int n_inputs);
+int wb_graph_set_output(wb_render_graph *g, int node_idx, const char *path);
+
+typedef struct { wb_media_lib media; wb_comp_comp composition; wb_render_graph graph; char output_path[512]; int output_codec, output_quality, output_preset; int ytpmv_mode; float ytpmv_bpm; int ytpmv_scale; } wb_ytpmv_project;
+void wb_ytpmv_project_init(wb_ytpmv_project *proj);
+void wb_ytpmv_project_free(wb_ytpmv_project *proj);
+int wb_project_build_ytpmv(wb_ytpmv_project *proj, const char *audio_path, const char *video_path, float bpm);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

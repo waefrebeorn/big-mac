@@ -1716,4 +1716,50 @@ void wb_video_ts_init(wb_video_timestretch *ts, int w, int h, float ratio);
 void wb_video_ts_process(wb_video_timestretch *ts, const uint8_t *current, uint8_t *output);
 void wb_video_ts_free(wb_video_timestretch *ts);
 
+/* ---- R102: Sampler Instrument + Piano Roll ---- */
+
+/* Sampler */
+#define MAX_SAMPLE_REGIONS 32
+typedef struct { int root_note, low_note, high_note; float *audio; int n_frames, channels; char name[64]; } wb_sample_region;
+typedef struct { wb_sample_region regions[MAX_SAMPLE_REGIONS]; int n_regions; float volume, pan; int loop; float fine_pitch, note_pan, note_velocity, note_shift; } wb_sampler_inst;
+void wb_sampler_init(wb_sampler_inst *s);
+int wb_sampler_add_region(wb_sampler_inst *s, const float *audio, int n_frames, int channels, int root_note, const char *name);
+int wb_sampler_play_note(wb_sampler_inst *s, int note, float velocity, float *out, int out_frames, int out_channels, float sample_rate);
+void wb_sampler_free(wb_sampler_inst *s);
+
+/* Piano Roll */
+#define MAX_PR_NOTES 4096
+#define TICKS_PER_BEAT 480
+typedef struct { int active, tick_position, note, length; float velocity, fine_pitch, pan, shift; int clip_index; } wb_piano_note;
+typedef struct { wb_piano_note notes[MAX_PR_NOTES]; int n_notes; float bpm; int beats_per_bar, bars, quantize_grid, quantize_strength; float swing; } wb_piano_roll;
+void wb_piano_init(wb_piano_roll *pr, float bpm, int beats_per_bar, int bars);
+int wb_piano_add_note(wb_piano_roll *pr, int bar, int beat, int tick_in_beat, int note, float velocity, int length_ticks);
+int wb_piano_get_notes_at(const wb_piano_roll *pr, int tick, int *indices, int max_indices);
+int wb_piano_dedupe(wb_piano_roll *pr);
+void wb_piano_transpose(wb_piano_roll *pr, int semitones);
+int wb_piano_total_ticks(const wb_piano_roll *pr);
+
+/* Clip triggers */
+typedef struct { int note, clip_index; float pitch_shift; } wb_clip_mapping;
+typedef struct { wb_clip_mapping mappings[128]; int n_mappings; } wb_clip_triggers;
+void wb_clip_triggers_init(wb_clip_triggers *ct);
+void wb_clip_triggers_map(wb_clip_triggers *ct, int note, int clip_index, float pitch_shift);
+int wb_clip_triggers_find(wb_clip_triggers *ct, int note, float *pitch_shift);
+
+/* Harmony generator */
+typedef struct { int interval_semitones; float velocity_scale; int active; } wb_harmony_voice;
+typedef struct { wb_harmony_voice voices[4]; int n_voices; } wb_harmony_gen;
+void wb_harmony_init(wb_harmony_gen *hg);
+void wb_harmony_add_voice(wb_harmony_gen *hg, int semitones, float velocity_scale);
+int wb_harmony_generate(wb_harmony_gen *hg, const wb_piano_roll *source, wb_piano_roll *output);
+
+/* Stutter retrigger */
+typedef struct { int retrigger_count, retrigger_div; float velocity_decay; } wb_stutter_cfg;
+int wb_stutter_apply(const wb_stutter_cfg *cfg, const wb_piano_note *source, wb_piano_roll *output, int bar, int beat, int tick);
+
+/* Bass drop */
+typedef struct { int bass_threshold, octave_drop; float slide_duration; } wb_bass_drop_cfg;
+void wb_bass_drop_init(wb_bass_drop_cfg *cfg);
+int wb_bass_drop_process(const wb_bass_drop_cfg *cfg, wb_piano_roll *pr);
+
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

@@ -1894,6 +1894,54 @@ int vfx_generate_shake(vfx_shake_config *cfg, vfx_beat_track *bt, char *output, 
 int vfx_generate_flash(vfx_flash_config *cfg, vfx_beat_track *bt, char *output, int max_len);
 int vfx_generate_rgb_shift(vfx_rgb_shift_config *cfg, vfx_beat_track *bt, char *output, int max_len);
 
+/* ---- R131: Multi-Character YTPMV Engine ---- */
+#define MAX_CHARS 8
+#define MAX_SAMPLES_PER_CHAR 16
+#define MAX_HARMONY 4
+#define MAX_VOICES 16
+
+typedef struct {
+    char name[64]; char source_video[256]; char source_audio[256];
+    struct { char name[64]; float start_time, duration; float pitch_hz; int midi_note; int vowel_class; } samples[MAX_SAMPLES_PER_CHAR];
+    int n_samples;
+    float min_pitch_hz, max_pitch_hz; int min_midi, max_midi; float quality;
+} ytpmv_character;
+
+void ytpmv_character_init(ytpmv_character *ch, const char *name);
+int ytpmv_character_add_sample(ytpmv_character *ch, const char *name, float start, float dur, float pitch_hz);
+int ytpmv_character_select_sample(ytpmv_character *ch, int target_midi, float *out_ratio);
+
+typedef struct { int intervals[MAX_HARMONY]; int n_voices; float volumes[MAX_HARMONY]; } ytpmv_harmony;
+void ytpmv_harmony_init(ytpmv_harmony *h);
+void ytpmv_harmony_major(ytpmv_harmony *h);
+void ytpmv_harmony_minor(ytpmv_harmony *h);
+void ytpmv_harmony_power(ytpmv_harmony *h);
+void ytpmv_harmony_duet(ytpmv_harmony *h);
+
+typedef struct {
+    ytpmv_character characters[MAX_CHARS]; int n_characters;
+    int channel_to_char[16]; ytpmv_harmony harmony[MAX_CHARS];
+    float master_volume, reverb_mix, compression_threshold;
+} ytpmv_project;
+void ytpmv_project_init(ytpmv_project *proj);
+int ytpmv_project_add_character(ytpmv_project *proj, const char *name);
+ytpmv_character* ytpmv_project_get_character(ytpmv_project *proj, int index);
+void ytpmv_project_assign_channel(ytpmv_project *proj, int channel, int char_index);
+void ytpmv_project_auto_assign(ytpmv_project *proj);
+
+typedef struct { int character_index, sample_index, midi_note; float start_time, duration, volume, pitch_ratio; int active; } ytpmv_voice;
+typedef struct { ytpmv_voice voices[MAX_VOICES]; int n_active; } ytpmv_voice_pool;
+void ytpmv_voice_pool_init(ytpmv_voice_pool *pool);
+int ytpmv_voice_allocate(ytpmv_voice_pool *pool, int char_idx, int sample_idx, int midi_note, float start, float dur, float vol, float ratio);
+void ytpmv_voice_pool_update(ytpmv_voice_pool *pool, float current_time);
+
+typedef struct { int notes[8]; float start_time, duration; int n_notes; } ytpmv_chord;
+int ytpmv_decompose_chord(ytpmv_chord *chord, ytpmv_project *proj, ytpmv_voice *voices, int max_voices);
+int ytpmv_generate_harmony(int root_note, ytpmv_harmony *harmony, int *output_notes, float *output_volumes, int max_voices);
+
+typedef struct { float pitch_accuracy, timing_accuracy, volume_consistency, formant_quality, overall; } ytpmv_quality_score;
+ytpmv_quality_score ytpmv_evaluate(float *pitch_ratios, int n_notes, float *start_times, float *durations, float bpm, float sample_rate);
+
 #ifdef __cplusplus
 }
 #endif

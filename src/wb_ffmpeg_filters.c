@@ -796,7 +796,7 @@ int wb_ffmpeg_ytpmv_pitch_shift(const char *input, const char *output,
     char cmd[2048];
     if (formant) {
         snprintf(cmd, sizeof(cmd),
-            "%s -i \"%s\" -af \"rubberband=pitch=%.4f:formant=preserve\" "
+            "%s -i \"%s\" -af \"rubberband=pitch=%.4f:formant=preserved\" "
             "\"%s\" 2>/dev/null",
             ffmpeg_path(), input, pitch_ratio, output);
     } else {

@@ -279,6 +279,12 @@ build/wb_mk_ytpmv_ffmpeg: build/tools/mk_ytpmv_ffmpeg.o $(CORE_OBJS)
 mk_ytpmv_ffmpeg: build/wb_mk_ytpmv_ffmpeg
 	./build/wb_mk_ytpmv_ffmpeg
 
+build/wb_mk_ytpmv_sampler: build/tools/mk_ytpmv_sampler.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+mk_ytpmv_sampler: build/wb_mk_ytpmv_sampler
+	./build/wb_mk_ytpmv_sampler
+
 build/wb_mk_ytp: build/tools/mk_ytp.o
 	$(CC) $(CFLAGS) $(INC) -o $@ $^ -lm
 

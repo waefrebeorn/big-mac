@@ -176,7 +176,7 @@ def main():
         aud_ins += f" -i /tmp/ytpmv2_a_{idx}.wav"
         aud_flt += f"[{idx}:a]adelay={ms}|{ms}[a{idx}];"
     mix_inputs = ''.join(f'[a{seg["idx"]}]' for seg in segments)
-    aud_flt += f"{mix_inputs}amix=inputs={len(segments)}:duration=longest[aout]"
+    aud_flt += f"{mix_inputs}amix=inputs={len(segments)}:duration=longest,loudnorm=I=-16:TP=-1.5:LRA=11[aout]"
     run(f'ffmpeg -y -v error{aud_ins} -filter_complex "{aud_flt}" -map "[aout]" -acodec aac -t {int(total_dur+1)} /tmp/ytpmv2_audio.m4a')
 
     # Merge

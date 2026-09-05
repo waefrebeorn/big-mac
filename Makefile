@@ -273,6 +273,13 @@ build/wb_mk_smb_ytpmv: build/tools/mk_smb_ytpmv.o $(CORE_OBJS)
 mk_smb_ytpmv: build/wb_mk_smb_ytpmv
 	./build/wb_mk_smb_ytpmv
 
+# ---- R136 YTPMV Sampler tool ----
+build/wb_mk_ytpmv_sampler: build/tools/mk_ytpmv_sampler.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+mk_ytpmv_sampler: build/wb_mk_ytpmv_sampler
+	./build/wb_mk_ytpmv_sampler
+
 build/wb_mk_ytpmv_ffmpeg: build/tools/mk_ytpmv_ffmpeg.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 

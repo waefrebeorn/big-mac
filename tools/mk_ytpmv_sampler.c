@@ -1,478 +1,424 @@
-/* mk_ytpmv_sampler.c — YTPMV Producer using Big Mac's sampler engine (R116).
+/* mk_ytpmv_sampler.c — YTPMV Producer using Big Mac's sampler engine.
  *
- * The CORRECT way to make YTPMV, matching the FL Studio Slicex workflow:
- * 1. Load a character voice sample into Big Mac's sampler instrument
- * 2. Parse the target MIDI file to get note events
- * 3. For each MIDI note, trigger the sampler at that pitch
- * 4. Render the audio to WAV using Big Mac's render pipeline
- * 5. Merge with video
+ * Usage: mk_ytpmv_sampler <sample.wav> <midi.mid> <output.wav> [--root-note N] [--transpose N]
  *
- * This uses the existing wb_sampler + wb_smf + wb_render infrastructure
- * instead of naive resampling.
+ * Loads a character voice sample into Big Mac's sampler, plays a MIDI file
+ * through it, and renders the result to WAV. Then use ffmpeg to merge with video.
  *
- * Usage: mk_ytpmv_sampler <source_audio.wav> <source_video.mp4> <midi_file.mid> <output.mp4>
+ * This is the CORRECT way to make YTPMV audio:
+ * - The sampler handles pitch-shifting with proper interpolation
+ * - Each MIDI note triggers the sample at the correct pitch
+ * - ADSR envelope prevents clicks
+ * - Formant preservation keeps the character's voice recognizable
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <unistd.h>
-#include <stdint.h>
-
 #include "wbus/wbus_compositor.h"
+#include "wbus/wbus.h"
 
-/* ============ WAV Reader ============ */
-
-static float* read_wav(const char *path, int *out_frames, int *out_channels, int *out_rate) {
+/* WAV reading (simple PCM 16-bit) */
+static int read_wav(const char *path, float **out_audio, int *out_frames, int *out_channels, float *out_sr) {
     FILE *f = fopen(path, "rb");
-    if (!f) return NULL;
-
-    char riff[4]; fread(riff, 1, 4, f);
-    if (memcmp(riff, "RIFF", 4) != 0) { fclose(f); return NULL; }
-    uint32_t size; fread(&size, 4, 1, f);
-    char wave[4]; fread(wave, 1, 4, f);
-
-    int channels = 1, sample_rate = 44100, bits = 16;
-    int data_size = 0;
-
+    if (!f) { fprintf(stderr, "Cannot open %s\n", path); return -1; }
+    
+    char riff[4]; uint32_t size; char wave[4];
+    fread(riff, 1, 4, f); fread(&size, 4, 1, f); fread(wave, 1, 4, f);
+    
+    /* Find fmt chunk */
+    char chunk_id[4]; uint32_t chunk_size;
+    int fmt_found = 0, data_found = 0;
+    uint16_t format, channels; uint32_t sample_rate, byte_rate;
+    uint16_t block_align, bits_per_sample;
+    float *audio = NULL;
+    int n_frames = 0, n_channels = 0;
+    
     while (!feof(f)) {
-        char chunk_id[4]; uint32_t chunk_size;
         if (fread(chunk_id, 1, 4, f) != 4) break;
         if (fread(&chunk_size, 4, 1, f) != 1) break;
-
+        
         if (memcmp(chunk_id, "fmt ", 4) == 0) {
-            uint16_t format, ch; uint32_t rate; uint16_t bps;
-            fread(&format, 2, 1, f); fread(&ch, 2, 1, f);
-            channels = ch; fread(&rate, 4, 1, f); sample_rate = rate;
-            fseek(f, 6, SEEK_CUR); fread(&bps, 2, 1, f); bits = bps;
+            fread(&format, 2, 1, f);
+            fread(&channels, 2, 1, f);
+            fread(&sample_rate, 4, 1, f);
+            fread(&byte_rate, 4, 1, f);
+            fread(&block_align, 2, 1, f);
+            fread(&bits_per_sample, 2, 1, f);
             if (chunk_size > 16) fseek(f, chunk_size - 16, SEEK_CUR);
+            fmt_found = 1;
+            n_channels = channels;
+            *out_sr = (float)sample_rate;
         } else if (memcmp(chunk_id, "data", 4) == 0) {
-            data_size = chunk_size; break;
+            if (!fmt_found) { fprintf(stderr, "data before fmt\n"); fclose(f); return -1; }
+            n_frames = chunk_size / (n_channels * 2); /* 16-bit */
+            audio = (float *)calloc(n_frames * n_channels, sizeof(float));
+            int16_t *buf = (int16_t *)malloc(chunk_size);
+            size_t nread = fread(buf, 1, chunk_size, f);
+            (void)nread;
+            for (int i = 0; i < n_frames * n_channels; i++) {
+                audio[i] = buf[i] / 32768.0f;
+            }
+            free(buf);
+            data_found = 1;
+            break;
         } else {
             fseek(f, chunk_size, SEEK_CUR);
         }
     }
-
-    if (data_size == 0) { fclose(f); return NULL; }
-    int n_samples = data_size / (bits / 8) / channels;
-    float *audio = malloc(n_samples * sizeof(float));
-    if (!audio) { fclose(f); return NULL; }
-
-    if (bits == 16) {
-        int16_t *buf = malloc(data_size);
-        if (!buf) { free(audio); fclose(f); return NULL; }
-        fread(buf, 1, data_size, f);
-        for (int i = 0; i < n_samples; i++) {
-            float s = 0;
-            for (int c = 0; c < channels; c++)
-                s += buf[i * channels + c] / 32768.0f;
-            audio[i] = s / channels;
-        }
-        free(buf);
-    }
     fclose(f);
-    *out_frames = n_samples; *out_channels = channels; *out_rate = sample_rate;
-    return audio;
-}
-
-static int write_wav(const char *path, const float *audio, int n_frames, int sr) {
-    FILE *f = fopen(path, "wb");
-    if (!f) return -1;
-    int ds = n_frames * 2;
-    fwrite("RIFF",1,4,f); uint32_t v=36+ds; fwrite(&v,4,1,f);
-    fwrite("WAVE",1,4,f); fwrite("fmt ",1,4,f); v=16; fwrite(&v,4,1,f);
-    uint16_t w=1; fwrite(&w,2,1,f); w=1; fwrite(&w,2,1,f);
-    v=sr; fwrite(&v,4,1,f); v=sr*2; fwrite(&v,4,1,f);
-    w=2; fwrite(&w,2,1,f); w=16; fwrite(&w,2,1,f);
-    fwrite("data",1,4,f); v=ds; fwrite(&v,4,1,f);
-    for (int i=0;i<n_frames;i++) {
-        float s=audio[i]; if(s>1)s=1; if(s<-1)s=-1;
-        int16_t s16=(int16_t)(s*32767.0f); fwrite(&s16,2,1,f);
-    }
-    fclose(f);
+    
+    if (!data_found) { fprintf(stderr, "No data chunk in %s\n", path); return -1; }
+    
+    *out_audio = audio;
+    *out_frames = n_frames;
+    *out_channels = n_channels;
     return 0;
 }
 
-/* ============ MIDI Parser ============ */
-
-static uint32_t read_be32(const uint8_t *p) { return (p[0]<<24)|(p[1]<<16)|(p[2]<<8)|p[3]; }
-static uint16_t read_be16(const uint8_t *p) { return (p[0]<<8)|p[1]; }
-static uint32_t read_vlq(const uint8_t **p) {
-    uint32_t val = 0; uint8_t c; int i = 0;
-    do { c = (*p)[i++]; val = (val << 7) | (c & 0x7F); } while (c & 0x80 && i < 4);
-    *p += i; return val;
-}
-
-static const char *ffmpeg_path(void) {
-    static char path[256] = {0};
-    if (!path[0]) {
-        const char *p = getenv("FFMPEG");
-        if (p) snprintf(path, sizeof(path), "%s", p);
-        else snprintf(path, sizeof(path), "/Users/waefrebeorn/.local/bin/ffmpeg");
-    }
-    return path;
-}
+/* Simple MIDI parser — extracts note events with timing */
+#define MAX_MIDI_EVENTS 4096
 
 typedef struct {
     float start_time;   /* seconds */
     float duration;     /* seconds */
-    int midi_note;      /* 0-127 */
+    int note;           /* MIDI note number */
     int velocity;       /* 0-127 */
-} note_event_t;
+} midi_event_t;
 
 typedef struct {
-    note_event_t *events;
+    midi_event_t events[MAX_MIDI_EVENTS];
     int n_events;
-    float bpm;
-    float duration;
-} midi_notes_t;
+    float total_duration;
+} midi_sequence_t;
 
-static int midi_load(const char *fp, midi_notes_t *out) {
-    FILE *f = fopen(fp, "rb");
-    if (!f) return -1;
-    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-    uint8_t *data = malloc(sz); fread(data, 1, sz, f); fclose(f);
-
-    uint8_t *p = data;
-    if (memcmp(p, "MThd", 4) != 0) { free(data); return -1; }
-    p += 4; uint32_t hdr_len = read_be32(p); p += 4;
-    p += 2; /* format */
-    uint16_t ntracks = read_be16(p); p += 2;
-    int ticks_per_beat = read_be16(p); p += 2;
-    p += hdr_len - 6;
-
-    float bpm = 120.0f;
-    note_event_t *all_events = malloc(16384 * sizeof(note_event_t));
-    int n_all = 0;
-    int best_track = -1;
-    int best_track_notes = 0;
-
-    for (int t = 0; t < ntracks; t++) {
-        if (memcmp(p, "MTrk", 4) != 0) break;
-        p += 4; uint32_t trk_len = read_be32(p); p += 4;
-        uint8_t *trk_end = p + trk_len;
-
-        uint8_t running_status = 0;
-        int abs_tick = 0;
-        int track_notes = 0;
-
-        /* Count notes in this track */
-        uint8_t *pp = p;
-        while (pp < trk_end) {
-            uint32_t dt = read_vlq(&pp); abs_tick += dt;
-            uint8_t status = *pp;
-            if (status & 0x80) { running_status = status; pp++; }
-            else status = running_status;
-
+static int parse_midi(const char *path, midi_sequence_t *seq, int max_notes) {
+    FILE *f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "Cannot open %s\n", path); return -1; }
+    
+    /* Read entire file */
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *data = (uint8_t *)malloc(fsize);
+    size_t nread = fread(data, 1, fsize, f);
+    (void)nread;
+    fclose(f);
+    
+    /* Parse header */
+    if (memcmp(data, "MThd", 4) != 0) { fprintf(stderr, "Not a MIDI file\n"); free(data); return -1; }
+    
+    uint32_t header_len = (data[4]<<24)|(data[5]<<16)|(data[6]<<8)|data[7];
+    uint16_t format = (data[8]<<8)|data[9];
+    uint16_t n_tracks = (data[10]<<8)|data[11];
+    uint16_t ticks_per_beat = (data[12]<<8)|data[13];
+    
+    if (ticks_per_beat == 0) ticks_per_beat = 96;
+    
+    seq->n_events = 0;
+    seq->total_duration = 0;
+    
+    uint8_t *ptr = data + 8 + header_len;
+    uint8_t *end = data + fsize;
+    
+    float tempo = 500000.0f; /* default 120 BPM */
+    
+    /* Find the track with the most notes */
+    int best_track = -1; int best_count = 0;
+    
+    for (int t = 0; t < n_tracks && ptr < end; t++) {
+        if (memcmp(ptr, "MTrk", 4) != 0) break;
+        uint32_t track_len = (ptr[4]<<24)|(ptr[5]<<16)|(ptr[6]<<8)|ptr[7];
+        uint8_t *tend = ptr + 8 + track_len;
+        
+        int count = 0;
+        uint8_t *p = ptr + 8;
+        while (p < tend) {
+            /* Read variable-length delta */
+            uint32_t delta = 0;
+            uint8_t b;
+            do { b = *p++; delta = (delta << 7) | (b & 0x7F); } while (b & 0x80);
+            
+            uint8_t status = *p;
             if (status == 0xFF) {
-                uint8_t type = *pp++; uint32_t meta_len = read_vlq(&pp);
-                if (type == 0x51 && meta_len == 3) {
-                    uint32_t us = (pp[0]<<16)|(pp[1]<<8)|pp[2];
-                    bpm = 60000000.0f / us;
+                uint8_t type = p[1];
+                uint32_t len = 0;
+                uint8_t *lp = p + 2;
+                do { b = *lp++; len = (len << 7) | (b & 0x7F); } while (b & 0x80);
+                if (type == 0x51 && len >= 3) {
+                    tempo = (lp[0]<<16)|(lp[1]<<8)|lp[2];
                 }
-                pp += meta_len;
-            } else if ((status & 0xF0) == 0x90) {
-                int vel = pp[1]; pp += 2;
-                if (vel > 0) track_notes++;
-            } else if ((status & 0xF0) == 0x80) { pp += 2; }
-            else if ((status & 0xF0) >= 0xA0 && (status & 0xF0) <= 0xE0) { pp += 2; }
-            else if (status == 0xF0 || status == 0xF7) { uint32_t l = read_vlq(&pp); pp += l; }
-            else { pp++; }
-        }
-
-        /* Pick the track with the most notes (melody track) */
-        if (track_notes > best_track_notes) {
-            best_track_notes = track_notes;
-            best_track = t;
-
-            /* Re-parse to extract notes */
-            n_all = 0;
-            pp = p;
-            abs_tick = 0;
-            running_status = 0;
-
-            /* Track active notes for duration calculation */
-            int active_note[128] = {0};
-            int active_tick[128] = {0};
-
-            while (pp < trk_end && n_all < 16384) {
-                uint32_t dt = read_vlq(&pp); abs_tick += dt;
-                uint8_t status = *pp;
-                if (status & 0x80) { running_status = status; pp++; }
-                else status = running_status;
-
-                if (status == 0xFF) {
-                    uint8_t type = *pp++; uint32_t meta_len = read_vlq(&pp);
-                    pp += meta_len;
-                } else if ((status & 0xF0) == 0x90) {
-                    int note = pp[0]; int vel = pp[1]; pp += 2;
-                    if (vel > 0) {
-                        active_note[note] = 1;
-                        active_tick[note] = abs_tick;
-                    } else {
-                        /* Note off (velocity 0) */
-                        if (active_note[note]) {
-                            float start = (float)active_tick[note] / ticks_per_beat * (60.0f / bpm);
-                            float dur = (float)(abs_tick - active_tick[note]) / ticks_per_beat * (60.0f / bpm);
-                            if (dur > 0.02f) {
-                                all_events[n_all].start_time = start;
-                                all_events[n_all].duration = dur;
-                                all_events[n_all].midi_note = note;
-                                all_events[n_all].velocity = vel;
-                                n_all++;
-                            }
-                            active_note[note] = 0;
-                        }
-                    }
-                } else if ((status & 0xF0) == 0x80) {
-                    int note = pp[0]; pp += 2;
-                    if (active_note[note]) {
-                        float start = (float)active_tick[note] / ticks_per_beat * (60.0f / bpm);
-                        float dur = (float)(abs_tick - active_tick[note]) / ticks_per_beat * (60.0f / bpm);
-                        if (dur > 0.02f) {
-                            all_events[n_all].start_time = start;
-                            all_events[n_all].duration = dur;
-                            all_events[n_all].midi_note = note;
-                            all_events[n_all].velocity = 100;
-                            n_all++;
-                        }
-                        active_note[note] = 0;
-                    }
-                } else if ((status & 0xF0) >= 0xA0 && (status & 0xF0) <= 0xE0) { pp += 2; }
-                else if (status == 0xF0 || status == 0xF7) { uint32_t l = read_vlq(&pp); pp += l; }
-                else { pp++; }
+                p = lp + len;
+            } else if ((status & 0x80) == 0) {
+                /* Running status */
+                p++;
+            } else {
+                uint8_t type = status >> 4;
+                uint8_t chan = status & 0x0F;
+                (void)chan;
+                if (type == 0x8 || type == 0x9) {
+                    count++;
+                    p += 2;
+                } else if (type == 0xA || type == 0xB || type == 0xE) {
+                    p += 2;
+                } else if (type == 0xC || type == 0xD) {
+                    p += 1;
+                } else if (status == 0xF0 || status == 0xF7) {
+                    /* SysEx */
+                    while (*p != 0xF7) p++;
+                    p++;
+                } else {
+                    p++;
+                }
             }
         }
-
-        p = trk_end;
+        
+        if (count > best_count) {
+            best_count = count;
+            best_track = t;
+        }
+        
+        ptr = tend;
     }
-
-    out->events = all_events;
-    out->n_events = n_all;
-    out->bpm = bpm;
-    out->duration = 0;
-    for (int i = 0; i < n_all; i++) {
-        float end = all_events[i].start_time + all_events[i].duration;
-        if (end > out->duration) out->duration = end;
+    
+    if (best_track < 0) { fprintf(stderr, "No notes found\n"); free(data); return -1; }
+    
+    /* Re-parse the best track to extract events */
+    ptr = data + 8 + header_len;
+    for (int t = 0; t <= best_track && ptr < end; t++) {
+        uint32_t tlen2 = (ptr[4]<<24)|(ptr[5]<<16)|(ptr[6]<<8)|ptr[7];
+        if (t == best_track) {
+            uint8_t *tend = ptr + 8 + tlen2;
+            uint8_t *p = ptr + 8;
+            float time = 0;
+            tempo = 500000.0f;
+            
+            /* Track active notes for duration calculation */
+            struct { float start; int active; } note_state[128];
+            memset(note_state, 0, sizeof(note_state));
+            
+            while (p < tend && seq->n_events < MAX_MIDI_EVENTS) {
+                uint32_t delta = 0;
+                uint8_t b;
+                do { b = *p++; delta = (delta << 7) | (b & 0x7F); } while (b & 0x80);
+                
+                time += (float)delta / ticks_per_beat * (tempo / 1000000.0f);
+                
+                uint8_t status = *p;
+                if (status == 0xFF) {
+                    uint8_t type = p[1];
+                    uint32_t len = 0;
+                    uint8_t *lp = p + 2;
+                    do { b = *lp++; len = (len << 7) | (b & 0x7F); } while (b & 0x80);
+                    if (type == 0x51 && len >= 3) {
+                        tempo = (lp[0]<<16)|(lp[1]<<8)|lp[2];
+                    }
+                    p = lp + len;
+                } else if ((status & 0x80) == 0) {
+                    /* Running status — note_on with note=status, vel=p[0] */
+                    uint8_t note = status;
+                    uint8_t vel = p[0];
+                    p++;
+                    if (vel > 0) {
+                        note_state[note].start = time;
+                        note_state[note].active = 1;
+                    } else if (note_state[note].active) {
+                        if (seq->n_events < max_notes) {
+                            midi_event_t *e = &seq->events[seq->n_events++];
+                            e->start_time = note_state[note].start;
+                            e->duration = time - note_state[note].start;
+                            e->note = note;
+                            e->velocity = 100;
+                            if (e->duration > seq->total_duration) seq->total_duration = e->duration + note_state[note].start;
+                        }
+                        note_state[note].active = 0;
+                    }
+                } else {
+                    uint8_t type = status >> 4;
+                    if (type == 0x9) { /* Note on */
+                        uint8_t note = p[1];
+                        uint8_t vel = p[2];
+                        p += 3;
+                        if (vel > 0) {
+                            note_state[note].start = time;
+                            note_state[note].active = 1;
+                        }
+                    } else if (type == 0x8) { /* Note off */
+                        uint8_t note = p[1];
+                        p += 2;
+                        if (note_state[note].active) {
+                            if (seq->n_events < max_notes) {
+                                midi_event_t *e = &seq->events[seq->n_events++];
+                                e->start_time = note_state[note].start;
+                                e->duration = time - note_state[note].start;
+                                e->note = note;
+                                e->velocity = 100;
+                                if (time > seq->total_duration) seq->total_duration = time;
+                            }
+                            note_state[note].active = 0;
+                        }
+                    } else if (type == 0xC || type == 0xD) {
+                        p += 2;
+                    } else {
+                        p += 3;
+                    }
+                }
+            }
+        }
+        ptr += 8 + tlen2;
     }
-
+    
     free(data);
-    return n_all > 0 ? 0 : -1;
+    return 0;
 }
 
-/* ============ Main ============ */
-
 int main(int argc, char **argv) {
-    if (argc < 5) {
-        fprintf(stderr, "Usage: %s <source_audio.wav> <source_video.mp4> <midi_file.mid> <output.mp4>\n", argv[0]);
+    if (argc < 4) {
+        fprintf(stderr, "Usage: %s <sample.wav> <midi.mid> <output.wav> [--root-note N] [--transpose N]\n", argv[0]);
         return 1;
     }
-
-    const char *audio_path = argv[1];
-    const char *video_path = argv[2];
-    const char *midi_path = argv[3];
-    const char *output_path = argv[4];
-
-    fprintf(stderr, "=== YTPMV Producer (sampler engine) ===\n");
-
-    /* Load MIDI */
-    midi_notes_t midi;
-    if (midi_load(midi_path, &midi) != 0 || midi.n_events == 0) {
-        fprintf(stderr, "Failed to load MIDI\n"); return 1;
+    
+    const char *sample_path = argv[1];
+    const char *midi_path = argv[2];
+    const char *output_path = argv[3];
+    int root_note = 89;  /* Default: Kirby MIDI 89 */
+    int transpose = 0;
+    
+    for (int i = 4; i < argc; i++) {
+        if (strcmp(argv[i], "--transpose") == 0 && i+1 < argc) transpose = atoi(argv[++i]);
     }
-    /* Limit to first portion of MIDI (first 10 seconds) */
-    float midi_limit = 10.0f; /* seconds */
-    int limited_notes = 0;
-    for (int i = 0; i < midi.n_events; i++) {
-        if (midi.events[i].start_time < midi_limit) {
-            limited_notes++;
-        }
+    
+    /* Load sample */
+    float *audio = NULL; int n_frames = 0, n_channels = 0; float sample_rate = 44100;
+    if (read_wav(sample_path, &audio, &n_frames, &n_channels, &sample_rate) != 0) return 1;
+    
+    printf("Loaded sample: %d frames, %d ch, %.0f Hz\n", n_frames, n_channels, sample_rate);
+    
+    /* Parse MIDI */
+    midi_sequence_t seq;
+    if (parse_midi(midi_path, &seq, 2000) != 0) { free(audio); return 1; }
+    
+    printf("Parsed MIDI: %d events, %.1fs total\n", seq.n_events, seq.total_duration);
+    
+    /* Calculate transpose to fit sample range */
+    int min_note = 127, max_note = 0;
+    for (int i = 0; i < seq.n_events; i++) {
+        if (seq.events[i].note < min_note) min_note = seq.events[i].note;
+        if (seq.events[i].note > max_note) max_note = seq.events[i].note;
     }
-    if (limited_notes > 0) {
-        midi.n_events = limited_notes;
-        midi.duration = midi_limit;
+    printf("MIDI range: %d-%d\n", min_note, max_note);
+    
+    /* Create sampler instrument */
+    wb_sampler_inst sampler;
+    wb_sampler_init(&sampler);
+    
+    /* Add multiple regions covering the full MIDI range.
+     * Each region covers ±12 semitones from its root note.
+     * We create regions every 24 semitones to cover 0-127. */
+    for (int r = 0; r < 128; r += 24) {
+        char name[32];
+        snprintf(name, sizeof(name), "voice_%d", r);
+        int region = wb_sampler_add_region(&sampler, audio, n_frames, n_channels, r + 12, name);
+        if (region < 0) break;
     }
-
-    fprintf(stderr, "MIDI: %d notes, %.1f BPM, %.1fs (limited to %.1fs)\n",
-            midi.n_events, midi.bpm, midi.duration, midi_limit);
-
-    /* Load source audio */
-    int n_frames, channels, sample_rate;
-    float *audio = read_wav(audio_path, &n_frames, &channels, &sample_rate);
-    if (!audio) { fprintf(stderr, "Failed to load audio\n"); return 1; }
-    float audio_dur = (float)n_frames / sample_rate;
-    fprintf(stderr, "Audio: %d frames, %d ch, %d Hz (%.1fs)\n", n_frames, channels, sample_rate, audio_dur);
-
-    /* Strategy: For each MIDI note, extract a segment from the source audio,
-     * pitch-shift it to the target note using rubberband, and place it at the
-     * correct time. Then mix all segments together.
-     *
-     * Key insight: We cycle through the source audio, taking segments proportional
-     * to each note's duration, and pitch-shift them.
-     */
-
-    /* Limit to first N notes if there are too many */
-    int max_notes = midi.n_events;
-    if (max_notes > 64) max_notes = 64; /* reasonable limit for ffmpeg */
-
-    /* Calculate total output duration */
-    float total_dur = midi_limit + 1.0f;
-
-    fprintf(stderr, "Processing %d notes, %.1fs output...\n", max_notes, total_dur);
-
-    /* Extract pitch-shifted segments */
-    char cmd[4096];
-    int n_segs = 0;
-    char *seg_files[256];
-
-    float src_pos = 0; /* position in source audio */
-
-    for (int i = 0; i < max_notes && n_segs < 256; i++) {
-        note_event_t *ev = &midi.events[i];
-
-        /* Skip if start time is beyond our output */
-        if (ev->start_time >= total_dur) continue;
-
-        /* Clamp duration */
-        float dur = ev->duration;
-        if (dur < 0.05f) dur = 0.05f;
-        if (dur > 2.0f) dur = 2.0f;
-        if (ev->start_time + dur > total_dur) dur = total_dur - ev->start_time;
-
-        /* Extract segment from source audio (cycling through it) */
-        int src_start = (int)(src_pos * sample_rate);
-        int src_len = (int)(dur * sample_rate);
-        if (src_start + src_len > n_frames) {
-            src_start = 0; /* wrap around */
-            if (src_len > n_frames) src_len = n_frames / 4;
-        }
-        src_pos += dur;
-        if (src_pos >= audio_dur) src_pos = 0;
-
-        char seg_path[512], shifted_path[512];
-        snprintf(seg_path, sizeof(seg_path), "/tmp/ytpmv_s_%04d.wav", n_segs);
-        snprintf(shifted_path, sizeof(shifted_path), "/tmp/ytpmv_x_%04d.wav", n_segs);
-
-        /* Extract segment using ffmpeg seek */
-        float src_start_time = (float)src_start / sample_rate;
-        snprintf(cmd, sizeof(cmd),
-            "%s -y -v error -ss %.4f -t %.4f -i \"%s\" -acodec pcm_s16le -ar %d -ac 1 \"%s\"",
-            ffmpeg_path(), src_start_time, dur, audio_path, sample_rate, seg_path);
-        fprintf(stderr, "    extract: ss=%.3f dur=%.3f\n", src_start_time, dur);
-        int ext_rc = system(cmd);
-        if (ext_rc != 0) {
-            fprintf(stderr, "    EXTRACT FAILED rc=%d\n", ext_rc);
-            continue;
-        }
-
-        /* Pitch-shift with rubberband */
-        /* Calculate pitch ratio: target_freq / source_freq */
-        /* Source is the original sample at its natural pitch.
-         * We need to shift it to the target MIDI note. */
-        float target_freq = 440.0f * powf(2.0f, (ev->midi_note - 69) / 12.0f);
-
-        /* Detect source pitch from the segment */
-        float src_pitch = 200.0f;
-        if (src_len >= 512) {
-            int analysis_len = src_len < 4096 ? src_len : 4096;
-            int crossings = 0;
-            for (int j = src_start + 1; j < src_start + analysis_len && j < n_frames; j++) {
-                if ((audio[j] >= 0) != (audio[j-1] >= 0)) crossings++;
+    
+    if (sampler.n_regions == 0) { fprintf(stderr, "Failed to add any regions\n"); free(audio); return 1; }
+    printf("Added %d sampler regions covering MIDI %d-%d\n", sampler.n_regions, 
+           sampler.regions[0].low_note, sampler.regions[sampler.n_regions-1].high_note);
+    
+    /* Transpose melody to center of instrument range */
+    int center = (min_note + max_note) / 2;
+    int target_center = (sampler.regions[0].low_note + sampler.regions[sampler.n_regions-1].high_note) / 2;
+    transpose = target_center - center;
+    printf("Transpose: %d semitones\n", transpose);
+    
+    /* Render audio */
+    float render_sr = 44100.0f;
+    int render_frames = (int)((seq.total_duration + 1.0f) * render_sr);
+    float *output = (float *)calloc(render_frames * 2, sizeof(float)); /* stereo */
+    
+    printf("Rendering %d frames...\n", render_frames);
+    
+    for (int i = 0; i < seq.n_events; i++) {
+        midi_event_t *e = &seq.events[i];
+        int note = e->note + transpose;
+        
+        /* Clamp to valid MIDI range */
+        if (note < 0) note = 0;
+        if (note > 127) note = 127;
+        
+        /* Calculate output position */
+        int out_offset = (int)(e->start_time * render_sr);
+        int out_len = (int)((e->duration + 0.1f) * render_sr);
+        if (out_len < 100) out_len = 100; /* Minimum 100ms */
+        if (out_offset + out_len > render_frames) out_len = render_frames - out_offset;
+        if (out_offset < 0 || out_len <= 0) continue;
+        
+        /* Render this note */
+        float note_buf[8192 * 2]; /* Max 8192 frames per note */
+        int to_render = out_len;
+        if (to_render > 8192) to_render = 8192;
+        
+        wb_sampler_play_note(&sampler, note, e->velocity / 127.0f, note_buf, to_render, 2, render_sr);
+        
+        /* Mix into output */
+        for (int j = 0; j < to_render; j++) {
+            int idx = (out_offset + j) * 2;
+            if (idx + 1 < render_frames * 2) {
+                output[idx] += note_buf[j * 2];
+                output[idx + 1] += note_buf[j * 2 + 1];
             }
-            src_pitch = (float)crossings * sample_rate / (2.0f * analysis_len);
-            if (src_pitch < 80) src_pitch = 200.0f;
-            if (src_pitch > 800) src_pitch = 300.0f;
         }
-
-        float ratio = target_freq / src_pitch;
-        if (ratio > 3.0f) ratio = 3.0f;
-        if (ratio < 0.33f) ratio = 0.33f;
-
-        snprintf(cmd, sizeof(cmd),
-            "%s -y -v error -i \"%s\" -af \"rubberband=pitch=%.4f:formant=preserve\" \"%s\" 2>/dev/null",
-            ffmpeg_path(), seg_path, ratio, shifted_path);
-        system(cmd);
-
-        /* Check if shifted file exists */
-        FILE *test = fopen(shifted_path, "r");
-        if (!test) continue;
-        fclose(test);
-
-        seg_files[n_segs] = strdup(shifted_path);
-        fprintf(stderr, "  [%3d] t=%.3fs dur=%.3fs note=%d (%.0fHz) ratio=%.3f\n",
-                n_segs, ev->start_time, dur, ev->midi_note, target_freq, ratio);
-        n_segs++;
     }
-
-    if (n_segs == 0) {
-        fprintf(stderr, "No segments produced!\n"); free(audio); return 1;
+    
+    /* Normalize */
+    float max_val = 0.0001f;
+    for (int i = 0; i < render_frames * 2; i++) {
+        if (fabsf(output[i]) > max_val) max_val = fabsf(output[i]);
     }
-
-    /* Mix all segments at their correct time positions using ffmpeg adelay + amix */
-    fprintf(stderr, "Mixing %d segments...\n", n_segs);
-
-    /* Build adelay filter: delay each segment to its start time, then mix */
-    char fc[32768] = {0};
-    int fc_pos = 0;
-
-    for (int i = 0; i < n_segs; i++) {
-        /* Get the start time from the MIDI event */
-        int delay_ms = (int)(midi.events[i % max_notes].start_time * 1000);
-        fc_pos += snprintf(fc + fc_pos, sizeof(fc) - fc_pos,
-            "[%d:a]adelay=%d|%d[d%d]", i, delay_ms, delay_ms, i);
+    float scale = 0.8f / max_val;
+    for (int i = 0; i < render_frames * 2; i++) {
+        output[i] *= scale;
     }
-
-    /* Mix all delayed streams */
-    fc_pos += snprintf(fc + fc_pos, sizeof(fc) - fc_pos, "");
-    for (int i = 0; i < n_segs; i++) {
-        fc_pos += snprintf(fc + fc_pos, sizeof(fc) - fc_pos, "[d%d]", i);
+    
+    /* Write WAV */
+    FILE *f = fopen(output_path, "wb");
+    if (!f) { fprintf(stderr, "Cannot write %s\n", output_path); free(audio); free(output); return 1; }
+    
+    /* WAV header */
+    uint32_t data_size = render_frames * 2 * 2; /* 16-bit stereo */
+    uint32_t file_size = 36 + data_size;
+    uint16_t fmt_params[4] = {1, 2, (uint16_t)render_sr, (uint16_t)(render_sr * 2 * 2)};
+    uint16_t bps = 16;
+    
+    fwrite("RIFF", 1, 4, f);
+    fwrite(&file_size, 4, 1, f);
+    fwrite("WAVE", 1, 4, f);
+    fwrite("fmt ", 1, 4, f);
+    uint32_t fmt_size = 16;
+    fwrite(&fmt_size, 4, 1, f);
+    fwrite(&fmt_params[0], 2, 1, f); /* PCM */
+    fwrite(&fmt_params[1], 2, 1, f); /* stereo */
+    fwrite(&fmt_params[2], 4, 1, f); /* sample rate */
+    fwrite(&fmt_params[3], 4, 1, f); /* byte rate */
+    uint16_t block_align = 4;
+    fwrite(&block_align, 2, 1, f);
+    fwrite(&bps, 2, 1, f);
+    fwrite("data", 1, 4, f);
+    fwrite(&data_size, 4, 1, f);
+    
+    /* Convert float to 16-bit */
+    for (int i = 0; i < render_frames * 2; i++) {
+        int16_t s = (int16_t)(output[i] * 32767.0f);
+        fwrite(&s, 2, 1, f);
     }
-    fc_pos += snprintf(fc + fc_pos, sizeof(fc) - fc_pos,
-        "amix=inputs=%d:duration=first:dropout_transition=0[outa]", n_segs);
-
-    /* Build ffmpeg command */
-    snprintf(cmd, sizeof(cmd), "%s -y -v error", ffmpeg_path());
-    for (int i = 0; i < n_segs; i++) {
-        char buf[512];
-        snprintf(buf, sizeof(buf), " -i \"%s\"", seg_files[i]);
-        size_t len = strlen(cmd);
-        if (len + strlen(buf) < sizeof(cmd) - 1)
-            strcat(cmd, buf);
-    }
-    {
-        char buf[65536];
-        snprintf(buf, sizeof(buf), " -filter_complex \"%s\" -map \"[outa]\" -acodec aac -t %.2f /tmp/ytpmv_mixed.m4a",
-                 fc, total_dur + 1.0f);
-        size_t len = strlen(cmd);
-        if (len + strlen(buf) < sizeof(cmd) - 1)
-            strcat(cmd, buf);
-    }
-
-    fprintf(stderr, "Running mix command...\n");
-    int mix_rc = system(cmd);
-
-    /* Merge with video */
-    if (mix_rc == 0) {
-        snprintf(cmd, sizeof(cmd),
-            "%s -y -v error -i \"%s\" -i /tmp/ytpmv_mixed.m4a -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest \"%s\" 2>/dev/null",
-            ffmpeg_path(), video_path, output_path);
-        fprintf(stderr, "Merging video...\n");
-        system(cmd);
-    }
-
-    /* Cleanup */
-    for (int i = 0; i < n_segs; i++) {
-        char seg[512], shifted[512];
-        snprintf(seg, sizeof(seg), "/tmp/ytpmv_s_%04d.wav", i);
-        snprintf(shifted, sizeof(shifted), "/tmp/ytpmv_x_%04d.wav", i);
-        unlink(seg); unlink(shifted);
-        free(seg_files[i]);
-    }
-    unlink("/tmp/ytpmv_mixed.m4a");
+    fclose(f);
+    
+    printf("Written: %s (%.1fs, %d Hz)\n", output_path, (float)render_frames / render_sr, (int)render_sr);
+    
+    wb_sampler_free(&sampler);
     free(audio);
-    free(midi.events);
-
-    fprintf(stderr, "=== Done: %s ===\n", output_path);
+    free(output);
     return 0;
 }

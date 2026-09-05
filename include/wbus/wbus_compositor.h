@@ -1942,6 +1942,83 @@ int ytpmv_generate_harmony(int root_note, ytpmv_harmony *harmony, int *output_no
 typedef struct { float pitch_accuracy, timing_accuracy, volume_consistency, formant_quality, overall; } ytpmv_quality_score;
 ytpmv_quality_score ytpmv_evaluate(float *pitch_ratios, int n_notes, float *start_times, float *durations, float bpm, float sample_rate);
 
+/* ---- R131b: Lip-Sync / Viseme Engine (Oculus 15-viseme standard) ---- */
+/* Viseme IDs (Oculus standard) */
+#define WB_VISEME_SIL 0   /* silence / closed */
+#define WB_VISEME_PP  1   /* p,b,m */
+#define WB_VISEME_FF  2   /* f,v */
+#define WB_VISEME_TH  3   /* th */
+#define WB_VISEME_DD  4   /* d,t,l */
+#define WB_VISEME_KK  5   /* k,g,h */
+#define WB_VISEME_CH  6   /* ch,sh,j */
+#define WB_VISEME_SS  7   /* s,z */
+#define WB_VISEME_NN  8   /* n */
+#define WB_VISEME_RR  9   /* r */
+#define WB_VISEME_AA  10  /* aa - wide open */
+#define WB_VISEME_EE  11  /* ee - smile */
+#define WB_VISEME_IH  12  /* ih - relaxed */
+#define WB_VISEME_OH  13  /* oh - rounded open */
+#define WB_VISEME_OO  14  /* oo - tightly rounded */
+
+/* Viseme frame in the timeline (public view of internal frame) */
+typedef struct {
+    float start_time, end_time;
+    int   viseme_id;       /* WB_VISEME_* */
+    float blend;           /* transition blend 0..1 */
+} wb_viseme_frame;
+
+/* Opaque lipsync engine state */
+typedef struct wb_lipsync_engine wb_lipsync_engine;
+
+/* Create/destroy a lipsync engine */
+wb_lipsync_engine *wb_lipsync_engine_create(float sample_rate, float fps);
+void wb_lipsync_engine_destroy(wb_lipsync_engine *eng);
+
+/* Load phonemes from a phoneme database */
+int wb_lipsync_load_phonemes(wb_lipsync_engine *eng, const wb_phoneme_db *db);
+/* Add a single phoneme manually */
+int wb_lipsync_add_phoneme(wb_lipsync_engine *eng, wb_phoneme_type type,
+                            float start, float end);
+
+/* Generate viseme timeline from loaded phonemes */
+int wb_lipsync_generate_timeline(wb_lipsync_engine *eng);
+
+/* Query active viseme at a given time */
+int wb_lipsync_viseme_at(const wb_lipsync_engine *eng, float time_sec);
+
+/* Access timeline frames */
+int wb_lipsync_frame_count(const wb_lipsync_engine *eng);
+const wb_viseme_frame *wb_lipsync_get_frame(const wb_lipsync_engine *eng, int idx);
+
+/* Generate ffmpeg filter strings for mouth shape selection */
+const char *wb_lipsync_generate_ffmpeg_filter(wb_lipsync_engine *eng);
+const char *wb_lipsync_generate_mouth_overlay(wb_lipsync_engine *eng,
+                                               const char *mouth_prefix);
+
+/* Configuration */
+void wb_lipsync_set_blend_speed(wb_lipsync_engine *eng, float speed);
+
+/* Utility: viseme name + mouth shape descriptor */
+const char *wb_lipsync_viseme_name(int viseme_id);
+const char *wb_lipsync_mouth_shape(int viseme_id);
+int wb_phoneme_to_viseme(wb_phoneme_type p);
+
+/* Bridge: map Oculus 15-viseme ID to legacy wb_viseme enum */
+wb_viseme wb_lipsync_map_to_legacy_viseme(int oculus_viseme_id);
+
+/* ---- R132: VFX Pipeline Integration ---- */
+typedef enum { VFX_EFFECT_ZOOM_PULSE=0, VFX_EFFECT_SHAKE, VFX_EFFECT_FLASH, VFX_EFFECT_RGB_SHIFT, VFX_EFFECT_COLOR_GRADE, VFX_EFFECT_BLUR, VFX_EFFECT_SPEED_RAMP, VFX_EFFECT_COUNT } vfx_effect_type;
+typedef struct { vfx_effect_type type; float intensity, frequency; int beat_synced; float start_time, duration; } vfx_effect;
+typedef struct { vfx_effect effects[32]; int n_effects; float bpm, total_duration; int epilepsy_safe; } vfx_pipeline;
+typedef struct { float times[1024]; int n_beats; float bpm, beat_interval; } vfx_beat_grid;
+void vfx_pipeline_init(vfx_pipeline *pipe);
+int vfx_pipeline_add_effect(vfx_pipeline *pipe, vfx_effect_type type, float intensity, float freq, int beat_synced);
+int vfx_pipeline_generate(vfx_pipeline *pipe, vfx_beat_grid *grid, char *output, int max_len);
+void vfx_pipeline_preset_ytpmv(vfx_pipeline *pipe, float bpm, float duration, int epilepsy_safe);
+void vfx_pipeline_preset_intense(vfx_pipeline *pipe, float bpm, float duration, int epilepsy_safe);
+void vfx_pipeline_preset_minimal(vfx_pipeline *pipe, float bpm, float duration);
+void vfx_beat_grid_init(vfx_beat_grid *grid, float bpm, float duration);
+
 #ifdef __cplusplus
 }
 #endif
@@ -1977,5 +2054,66 @@ void wb_mapper_init(wb_melody_mapper *mm, float sample_rate);
 void wb_mapper_assign(wb_melody_mapper *mm, const float *start_times, const float *durations, int n_phonemes);
 int wb_mapper_render(wb_melody_mapper *mm, float *output, int out_frames);
 void wb_mapper_free(wb_melody_mapper *mm);
+
+/* ---- YTPMV Compositing Engine (wb_ytpmv_composite.c) ---- */
+
+typedef enum {
+    WB_COMP_BLEND_OVER = 0,
+    WB_COMP_BLEND_ADD,
+    WB_COMP_BLEND_MULTIPLY,
+    WB_COMP_BLEND_SCREEN,
+    WB_COMP_BLEND_OVERLAY,
+    WB_COMP_BLEND_NORMAL = WB_COMP_BLEND_OVER
+} wb_comp_blend_mode;
+
+/* Layer type constants for wb_comp_layer.type */
+#define WB_LAYER_VIDEO 0
+#define WB_LAYER_IMAGE 1
+#define WB_LAYER_COLOR 2
+
+typedef struct {
+    char name[64];
+    char source_path[256];
+    int type;
+    int x, y;
+    int width, height;
+    float opacity;
+    wb_comp_blend_mode blend;
+    int visible;
+    int use_chromakey;
+    float key_r, key_g, key_b;
+    float key_threshold;
+    float key_softness;
+} wb_comp_layer;
+
+#define WB_COMP_MAX_LAYERS 16
+#define WB_COMP_MAX_FILTER_LEN 4096
+
+typedef struct {
+    wb_comp_layer layers[WB_COMP_MAX_LAYERS];
+    int n_layers;
+    int width, height;
+    char filter_str[WB_COMP_MAX_FILTER_LEN];
+    char bg_color[32];
+} wb_composite_ctx;
+
+wb_composite_ctx *wb_composite_create(int w, int h);
+void wb_composite_destroy(wb_composite_ctx *ctx);
+int wb_composite_add_layer(wb_composite_ctx *ctx, const char *name, int type);
+int wb_composite_add_video_layer(wb_composite_ctx *ctx, const char *name, const char *path);
+int wb_composite_add_color_layer(wb_composite_ctx *ctx, const char *name, float r, float g, float b, float a);
+void wb_layer_set_position(wb_composite_ctx *ctx, int idx, int x, int y);
+void wb_layer_set_size(wb_composite_ctx *ctx, int idx, int w, int h);
+void wb_layer_set_opacity(wb_composite_ctx *ctx, int idx, float opacity);
+void wb_layer_set_blend(wb_composite_ctx *ctx, int idx, wb_comp_blend_mode mode);
+void wb_layer_set_visible(wb_composite_ctx *ctx, int idx, int visible);
+void wb_layer_set_chromakey(wb_composite_ctx *ctx, int idx, float r, float g, float b, float threshold, float softness);
+int wb_composite_generate_filter(wb_composite_ctx *ctx);
+int wb_composite_pip(wb_composite_ctx *ctx, int main_idx, int pip_idx, int pip_x, int pip_y, int pip_w, int pip_h);
+int wb_composite_split_screen(wb_composite_ctx *ctx, int left_idx, int right_idx, int vertical);
+const char *wb_composite_get_filter(const wb_composite_ctx *ctx);
+int wb_composite_get_layer_count(const wb_composite_ctx *ctx);
+const wb_comp_layer *wb_composite_get_layer(const wb_composite_ctx *ctx, int idx);
+int wb_composite_generate_cmd(const wb_composite_ctx *ctx, char *buf, int max_len);
 
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

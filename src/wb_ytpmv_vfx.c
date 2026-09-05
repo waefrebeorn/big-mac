@@ -399,15 +399,7 @@ typedef struct {
     char filter_chain[VFX_MAX_KEYFRAMES];
 } vfx_pipeline;
 
-void vfx_pipeline_init(vfx_pipeline *pipe) {
-    if (!pipe) return;
-    memset(pipe, 0, sizeof(*pipe));
-    vfx_beat_track_init(&pipe->beat_track);
-    vfx_zoom_pulse_config_init(&pipe->zoom);
-    vfx_shake_config_init(&pipe->shake);
-    vfx_flash_config_init(&pipe->flash);
-    vfx_rgb_shift_config_init(&pipe->rgb_shift);
-}
+/* vfx_pipeline_init is defined in wb_ytpmv_vfx_pipeline.c (R132). */
 
 /* Build the complete filter chain from all enabled effects */
 int vfx_pipeline_build(vfx_pipeline *pipe) {

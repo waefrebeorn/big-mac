@@ -1873,6 +1873,31 @@ void wb_ytpmv_engine_process(wb_ytpmv_engine *eng);
 float wb_ytpmv_engine_duration(wb_ytpmv_engine *eng);
 void wb_ytpmv_generate_envelope(float *buffer, int n_frames, float sample_rate, float fade_dur);
 
+/* ---- R128: YTPMV VFX Engine ---- */
+#ifdef __cplusplus
+extern "C" {
+#endif
+#define VFX_MAX_BEATS 1024
+#define VFX_MAX_KEYFRAMES 32768
+typedef struct { float times[VFX_MAX_BEATS]; int n_beats; float bpm; float duration; } vfx_beat_track;
+void vfx_beat_track_init(vfx_beat_track *bt);
+void vfx_beat_track_from_bpm(vfx_beat_track *bt, float bpm, float duration);
+int vfx_detect_beats(const float *audio, int n_frames, int n_channels, float sample_rate, vfx_beat_track *bt);
+
+typedef struct { float amount, duration, base_zoom; } vfx_zoom_pulse_config;
+typedef struct { float intensity, frequency, beat_synced; } vfx_shake_config;
+typedef struct { float intensity, duration, r, g, b; } vfx_flash_config;
+typedef struct { float max_offset, beat_synced; } vfx_rgb_shift_config;
+
+int vfx_generate_zoom_pulse(vfx_zoom_pulse_config *cfg, vfx_beat_track *bt, char *output, int max_len);
+int vfx_generate_shake(vfx_shake_config *cfg, vfx_beat_track *bt, char *output, int max_len);
+int vfx_generate_flash(vfx_flash_config *cfg, vfx_beat_track *bt, char *output, int max_len);
+int vfx_generate_rgb_shift(vfx_rgb_shift_config *cfg, vfx_beat_track *bt, char *output, int max_len);
+
+#ifdef __cplusplus
+}
+#endif
+
 /* ---- R109: Beat Grid Quantizer ---- */
 typedef struct { float bpm, sample_rate, duration_seconds, quantize_strength; int quantize_division, n_beats, n_subdivs; int beat_samples[2048]; int subdiv_samples[8192]; } wb_beat_grid;
 void wb_beat_grid_init(wb_beat_grid *bg, float bpm, float sample_rate, float duration);

@@ -56,7 +56,7 @@ def main():
     print(f"  Instrument: {instrument_dir}")
     print(f"  Video: {video_path}")
 
-    events = parse_midi(midi_path)[:20]  # First 20 notes only
+    events = parse_midi(midi_path)[:100]  # First 100 notes
     print(f"Parsed {len(events)} notes")
 
     # Check which notes we have available

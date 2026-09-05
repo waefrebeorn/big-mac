@@ -1852,6 +1852,27 @@ typedef struct { int width, height, n_layers; float camera_x, camera_y, camera_z
 void wb_parallax_init(wb_parallax_3d *p, int w, int h);
 void wb_parallax_apply_layer(const wb_parallax_3d *p, const uint8_t *src, uint8_t *dst, float layer_depth);
 
+/* ---- R124: YTPMV Production Engine ---- */
+typedef struct { char name[64]; float start_time, duration, pitch_hz; int midi_note; float usable_range_semitones; } wb_ytpmv_sample;
+typedef struct { wb_ytpmv_sample samples[16]; int n_samples; float sample_rate; } wb_ytpmv_bank;
+void wb_ytpmv_bank_init(wb_ytpmv_bank *bank);
+int wb_ytpmv_bank_add(wb_ytpmv_bank *bank, const char *name, float start, float dur, float pitch_hz);
+int wb_ytpmv_bank_select(wb_ytpmv_bank *bank, int target_midi, float *out_ratio);
+
+typedef struct { float start_time, duration; int midi_note, velocity, sample_index, video_clip_index; float pitch_ratio, video_speed; } wb_ytpmv_note;
+typedef struct { wb_ytpmv_note notes[256]; int n_notes; float total_duration, bpm; } wb_ytpmv_arrangement;
+void wb_ytpmv_arr_init(wb_ytpmv_arrangement *arr);
+
+typedef struct { float start_time, duration, pitch_hz; int midi_note; float quality; } wb_ytpmv_vowel_segment;
+int wb_ytpmv_find_vowels(const float *audio, int n_frames, int n_channels, float sample_rate, wb_ytpmv_vowel_segment *segments, int max_segments);
+int wb_ytpmv_select_samples(wb_ytpmv_vowel_segment *segments, int n_segments, wb_ytpmv_sample *samples, int n_samples);
+
+typedef struct { float *audio_buffer; int audio_frames, audio_channels; float sample_rate; float video_width, video_height, video_fps; wb_ytpmv_arrangement arrangement; wb_ytpmv_bank sample_bank; float min_clip_duration, fade_duration, max_pitch_shift; } wb_ytpmv_engine;
+void wb_ytpmv_engine_init(wb_ytpmv_engine *eng);
+void wb_ytpmv_engine_process(wb_ytpmv_engine *eng);
+float wb_ytpmv_engine_duration(wb_ytpmv_engine *eng);
+void wb_ytpmv_generate_envelope(float *buffer, int n_frames, float sample_rate, float fade_dur);
+
 /* ---- R109: Beat Grid Quantizer ---- */
 typedef struct { float bpm, sample_rate, duration_seconds, quantize_strength; int quantize_division, n_beats, n_subdivs; int beat_samples[2048]; int subdiv_samples[8192]; } wb_beat_grid;
 void wb_beat_grid_init(wb_beat_grid *bg, float bpm, float sample_rate, float duration);

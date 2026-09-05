@@ -2019,9 +2019,7 @@ void vfx_pipeline_preset_intense(vfx_pipeline *pipe, float bpm, float duration, 
 void vfx_pipeline_preset_minimal(vfx_pipeline *pipe, float bpm, float duration);
 void vfx_beat_grid_init(vfx_beat_grid *grid, float bpm, float duration);
 
-#ifdef __cplusplus
-}
-#endif
+/* ---- R135: YTPMV Source Library ---- */
 
 /* ---- R109: Beat Grid Quantizer ---- */
 typedef struct { float bpm, sample_rate, duration_seconds, quantize_strength; int quantize_division, n_beats, n_subdivs; int beat_samples[2048]; int subdiv_samples[8192]; } wb_beat_grid;
@@ -2115,5 +2113,31 @@ const char *wb_composite_get_filter(const wb_composite_ctx *ctx);
 int wb_composite_get_layer_count(const wb_composite_ctx *ctx);
 const wb_comp_layer *wb_composite_get_layer(const wb_composite_ctx *ctx, int idx);
 int wb_composite_generate_cmd(const wb_composite_ctx *ctx, char *buf, int max_len);
+
+/* ---- R135: YTPMV Source Library ---- */
+typedef enum { LIB_VOWEL_UNKNOWN=-1, LIB_VOWEL_A=0, LIB_VOWEL_E, LIB_VOWEL_I, LIB_VOWEL_O, LIB_VOWEL_U, LIB_VOWEL_COUNT } lib_vowel_class;
+const char *lib_vowel_name(lib_vowel_class v);
+lib_vowel_class lib_classify_vowel(float f1, float f2);
+lib_vowel_class lib_estimate_vowel_from_audio(const float *audio, int n_frames, int n_channels, float sample_rate);
+typedef struct { char name[64]; char audio_path[256]; char video_path[256]; char character[64]; float start_time, duration; float pitch_hz; int midi_note; lib_vowel_class vowel; float quality; int tags[8]; int n_tags; int use_count; float last_used; } lib_source;
+typedef struct { lib_source sources[256]; int n_sources; char characters[32][64]; int char_sample_count[32]; int n_characters; char tag_names[32][32]; int n_tags; } ytpmv_library;
+void ytpmv_library_init(ytpmv_library *lib);
+int ytpmv_library_register_character(ytpmv_library *lib, const char *name);
+int ytpmv_library_add_source(ytpmv_library *lib, const char *name, const char *audio_path, const char *video_path, const char *character, float start, float dur, float pitch_hz);
+void ytpmv_library_remove_source(ytpmv_library *lib, int index);
+int ytpmv_library_find_best(ytpmv_library *lib, int target_midi, const char *character, lib_vowel_class vowel);
+int ytpmv_library_find_by_character(ytpmv_library *lib, const char *character, int *indices, int max_results);
+int ytpmv_library_find_by_pitch_range(ytpmv_library *lib, int min_midi, int max_midi, int *indices, int max_results);
+int ytpmv_library_find_by_vowel(ytpmv_library *lib, lib_vowel_class vowel, int *indices, int max_results);
+int ytpmv_library_register_tag(ytpmv_library *lib, const char *tag_name);
+void ytpmv_library_tag_source(ytpmv_library *lib, int source_idx, const char *tag_name);
+int ytpmv_library_has_tag(ytpmv_library *lib, int source_idx, const char *tag_name);
+typedef struct { int total_sources, total_characters, total_tags; int min_midi, max_midi; float avg_quality; char most_used_char[64]; int most_used_count; } ytpmv_library_stats;
+ytpmv_library_stats ytpmv_library_get_stats(ytpmv_library *lib);
+int ytpmv_library_export(ytpmv_library *lib, const char *path);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* WUBUS_WBUS_COMPOSITOR_H */

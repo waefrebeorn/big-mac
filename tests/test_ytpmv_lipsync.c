@@ -144,7 +144,15 @@ int main(void) {
     int loaded = wb_lipsync_load_phonemes(eng2, db);
     CHECK(loaded == 3, "load_phonemes: loaded 3 phonemes");
 
+    /* Debug: check what phonemes are loaded */
+    printf("  DEBUG: phoneme_to_viseme(O)=%d, phoneme_to_viseme(K)=%d, phoneme_to_viseme(U)=%d\n",
+           wb_phoneme_to_viseme(PHON_VOWEL_O), wb_phoneme_to_viseme(PHON_CONSONANT_K),
+           wb_phoneme_to_viseme(PHON_VOWEL_U));
+    printf("  DEBUG: db->count=%d, db->phonemes[0].type=%d, db->phonemes[1].type=%d, db->phonemes[2].type=%d\n",
+           db->count, db->phonemes[0].type, db->phonemes[1].type, db->phonemes[2].type);
+
     int n_db = wb_lipsync_generate_timeline(eng2);
+    printf("  DEBUG: n_db=%d, frame_count=%d\n", n_db, wb_lipsync_frame_count(eng2));
     CHECK(n_db >= 3, "timeline from DB: at least 3 frames");
     CHECK(wb_lipsync_viseme_at(eng2, 0.15f) == WB_VISEME_OH, "DB timeline: OH at 0.15s");
     CHECK(wb_lipsync_viseme_at(eng2, 0.4f) == WB_VISEME_KK, "DB timeline: KK at 0.4s");

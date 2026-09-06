@@ -280,6 +280,20 @@ build/wb_mk_ytpmv_sampler: build/tools/mk_ytpmv_sampler.o $(CORE_OBJS)
 mk_ytpmv_sampler: build/wb_mk_ytpmv_sampler
 	./build/wb_mk_ytpmv_sampler
 
+# ---- R137 YTPMV Big Mac tool ----
+build/wb_mk_ytpmv_bigmac: build/tools/mk_ytpmv_bigmac.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+mk_ytpmv_bigmac: build/wb_mk_ytpmv_bigmac
+	./build/wb_mk_ytpmv_bigmac
+
+# ---- R137b YTPMV Big Mac v2 tool ----
+build/wb_mk_ytpmv_bigmac2: build/tools/mk_ytpmv_bigmac2.o $(CORE_OBJS)
+	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
+
+mk_ytpmv_bigmac2: build/wb_mk_ytpmv_bigmac2
+	./build/wb_mk_ytpmv_bigmac2
+
 build/wb_mk_ytpmv_ffmpeg: build/tools/mk_ytpmv_ffmpeg.o $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(INC) -o $@ $^ -lm $(LIBS)
 

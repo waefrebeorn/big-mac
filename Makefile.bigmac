@@ -1,0 +1,40 @@
+# Standalone build for the host audio output backend.
+# The DAW's own Makefile is the primary build; this one exists so the
+# backend can be built and gated on its own, and embedded elsewhere
+# (WuBuOS links bigmac_out.c directly).
+#
+#   make -f Makefile.bigmac          # library
+#   make -f Makefile.bigmac test     # behavior gate
+#   make -f Makefile.bigmac static   # static archive
+
+CC      ?= cc
+CFLAGS  ?= -O2 -std=c11 -Wall -Wextra
+LDLIBS  ?= -lpulse-simple -lpulse -lasound -lm
+
+LIB     = libbigmac_out.a
+STATIC  = libbigmac_out_static.a
+TEST    = bigmac_out_test
+
+all: $(LIB)
+
+$(LIB): bigmac_out.o
+	$(AR) rcs $@ $<
+
+bigmac_out.o: bigmac_out.c bigmac_out.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+static: $(STATIC)
+
+$(STATIC): bigmac_out.o
+	$(AR) rcs $@ $<
+
+$(TEST): bigmac_out.o bigmac_out_test.c
+	$(CC) $(CFLAGS) bigmac_out.o bigmac_out_test.c -o $@ $(LDLIBS)
+
+test: $(TEST)
+	./$(TEST)
+
+clean:
+	rm -f *.o *.a $(TEST)
+
+.PHONY: all static test clean

@@ -51,6 +51,10 @@ long bigmac_out_write(const float *frames, int nframes);
 /* Frames the backend has accepted but not yet played (buffer depth). */
 int  bigmac_out_latency_frames(void);
 
+/* Flush buffered output to the file (the wav backend buffers; a gate or a
+ * reader needs the data on disk before close). No-op for device backends. */
+void bigmac_out_flush(void);
+
 /* What actually opened. */
 BigmacBackend bigmac_out_backend(void);
 const char   *bigmac_out_backend_name(void);

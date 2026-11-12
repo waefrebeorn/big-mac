@@ -214,6 +214,12 @@ int bigmac_out_latency_frames(void)
 
 BigmacBackend bigmac_out_backend(void) { return g_backend; }
 
+void bigmac_out_flush(void)
+{
+    if (g_backend == BIGMAC_BACKEND_WAV && g_wav)
+        fflush(g_wav);
+}
+
 const char *bigmac_out_backend_name(void)
 {
     switch (g_backend) {

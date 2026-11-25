@@ -53,3 +53,15 @@ was then repurposed for the output backend that the engine was missing.
 ## License
 
 WaefreBeorn Umbrella License v3.0
+
+## Standard
+
+- **Layer:** audio synthesis (Big Mac)
+- **Build:** `make`
+- **Verify:** `make test`
+- **Docs:** no `docs/` yet -- the parent's `docs/compendium/04-roadmap/submodule-standard.md` is the front door
+- **Provenance:** own C11; no vendored third-party source without a note
+
+Part of the ~WuBu~ tree: this repository is held to the same conventions as the
+parent. See the parent's `docs/compendium/04-roadmap/submodule-standard.md` for the
+checklist and why each item exists.

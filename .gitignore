@@ -1,0 +1,6 @@
+# build output
+*.d
+*.o
+*.a
+build/
+*.bin

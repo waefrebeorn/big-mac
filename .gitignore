@@ -49,3 +49,6 @@ Makefile.fb*
 
 # macOS
 .DS_Store
+# build output
+*.d
+*.bin

@@ -63,3 +63,15 @@ Build the backend alone with `make -f Makefile.bigmac`.
 ## License
 
 WaefreBeorn Umbrella License v3.0
+
+## Standard
+
+- **Layer:** audio synthesis / output backend (Big Mac)
+- **Build:** `make`
+- **Verify:** `make test`
+- **Docs:** `docs/` in this repo
+- **Provenance:** own C11; no vendored third-party source without a note
+
+Part of the ~WuBu~ tree: this repository is held to the same conventions as the
+parent. See the parent's `docs/compendium/04-roadmap/submodule-standard.md` for the
+checklist and why each item exists.
